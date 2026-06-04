@@ -1,0 +1,15 @@
+# Compiled Binaries
+hydra
+hydra-cli
+dist/
+
+# Download Artifacts / Test images
+*.img
+*.bin
+*.tmp
+part_*.tmp
+
+# IDE / System files
+.idea/
+.vscode/
+.DS_Store
