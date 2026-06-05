@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/Raunak0000/Hydra/pkg/downloader"
 )
@@ -25,8 +26,24 @@ func main() {
 	fmt.Printf("[⚙] Calculating boundary allocation for %d threads...\n", numThreads)
 	chunks := downloader.CalculateChunks(metadata.Size, numThreads)
 
-	// Print out the structural boundaries calculated for the workers
+	// Step 3: Concurrency Engine (The Workers)
+	fmt.Println("[🚀] Launching parallel worker goroutines...")
+
+	// Initialize our synchronization gate counter
+	var wg sync.WaitGroup
+
 	for _, chunk := range chunks {
-		fmt.Printf("   -> Thread %d target region: Bytes %d to %d\n", chunk.Index, chunk.Start, chunk.End)
+		// Tell the gate counter: "We are spinning up 1 more worker thread"
+		wg.Add(1)
+
+		// The 'go' keyword turns the loop execution concurrent!
+		// Instead of waiting for Thread 0 to finish, Go fires it off into the background
+		// and instantly loops to fire Thread 1, 2, and 3 simultaneously.
+		go downloader.DownloadChunk(testURL, chunk, &wg)
 	}
+
+	// Stop execution right here and wait for the WaitGroup counter to hit 0
+	wg.Wait()
+
+	fmt.Println("=== Success! All chunks downloaded to your SSD. ===")
 }
