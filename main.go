@@ -11,6 +11,7 @@ func main() {
 
 	testURL := "https://storage.googleapis.com/android-ndk-releases/android-ndk-r26b-linux.zip"
 	numThreads := 4
+	finalOutputFile := "downloaded_result.html" // Target file mapping the redirect payload we capture
 
 	fmt.Println("=== Hydra Core Engine Validation ===")
 
@@ -42,8 +43,16 @@ func main() {
 		go downloader.DownloadChunk(testURL, chunk, &wg)
 	}
 
-	// Stop execution right here and wait for the WaitGroup counter to hit 0
+	// Wait for background workers to execute completely
 	wg.Wait()
+	fmt.Println("[✓] All parallel segments successfully downloaded.")
 
-	fmt.Println("=== Success! All chunks downloaded to your SSD. ===")
+	// Step 4: Stitcher Assembly Execution
+	err = downloader.StitchChunks(chunks, finalOutputFile)
+	if err != nil {
+		fmt.Println("[X] Critical file processing error during assembly:", err)
+		return
+	}
+
+	fmt.Println("\n=== SUCCESS: HYDRA PHASE 1 ENGINE COMPLETED COHESIVELY ===")
 }
