@@ -8,26 +8,23 @@ import (
 	"sync"
 )
 
-// DownloadChunk handles a single segment network stream
-func DownloadChunk(url string, chunk Chunk, wg *sync.WaitGroup) {
-	// Crucial: Decrement the WaitGroup counter by 1 when this worker function exits
+// DownloadChunkParallel writes directly into a specific offset of a single shared file
+func DownloadChunkParallel(url string, chunk Chunk, finalFile *os.File, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	fmt.Printf("[+] Thread %d started: Requesting bytes %d to %d...\n", chunk.Index, chunk.Start, chunk.End)
 
-	// 1. Create an isolated HTTP request client
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		fmt.Printf("[X] Thread %d failed to create request: %v\n", chunk.Index, err)
+		fmt.Printf("[X] Thread %d failed request initialization: %v\n", chunk.Index, err)
 		return
 	}
 
-	// 2. HTTP Magic: Inject the Range Header to pull ONLY this chunk's byte window
+	// Inject Range header for segment capture
 	rangeHeader := fmt.Sprintf("bytes=%d-%d", chunk.Start, chunk.End)
 	req.Header.Set("Range", rangeHeader)
 
-	// 3. Execute the network connection stream
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("[X] Thread %d network error: %v\n", chunk.Index, err)
@@ -35,21 +32,32 @@ func DownloadChunk(url string, chunk Chunk, wg *sync.WaitGroup) {
 	}
 	defer resp.Body.Close()
 
-	// 4. Create a temporary file on your SSD to hold this chunk's incoming data bytes
-	partFileName := fmt.Sprintf("part_%d.tmp", chunk.Index)
-	file, err := os.Create(partFileName)
-	if err != nil {
-		fmt.Printf("[X] Thread %d disk write error: %v\n", chunk.Index, err)
-		return
-	}
-	defer file.Close()
+	// Buffer to stream network chunks sequentially before writing to disk
+	buffer := make([]byte, 32*1024) // 32KB processing window
+	writeOffset := chunk.Start
 
-	// 5. Stream the incoming network data packets straight into your SSD part file
-	_, err = io.Copy(file, resp.Body)
-	if err != nil {
-		fmt.Printf("[X] Thread %d streaming failed: %v\n", chunk.Index, err)
-		return
+	for {
+		bytesRead, readErr := resp.Body.Read(buffer)
+		if bytesRead > 0 {
+			// WriteAt invokes the low-level Linux 'pwrite' system call.
+			// It safely writes data at the exact 'writeOffset' without shifting the file pointer.
+			_, writeErr := finalFile.WriteAt(buffer[:bytesRead], writeOffset)
+			if writeErr != nil {
+				fmt.Printf("[X] Thread %d parallel write crash: %v\n", chunk.Index, writeErr)
+				return
+			}
+			// Shift our local tracking offset forward by the number of bytes written
+			writeOffset += int64(bytesRead)
+		}
+
+		if readErr == io.EOF {
+			break // Streaming successfully concluded
+		}
+		if readErr != nil {
+			fmt.Printf("[X] Thread %d network streaming dropped: %v\n", chunk.Index, readErr)
+			return
+		}
 	}
 
-	fmt.Printf("[✓] Thread %d finished downloading segment!\n", chunk.Index)
+	fmt.Printf("[✓] Thread %d completed parallel write layout!\n", chunk.Index)
 }
