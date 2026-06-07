@@ -9,6 +9,13 @@ import (
 )
 
 func main() {
+
+	// NEW: Initialize Daemon Mode
+	// This immediately clones the application, severs the TTY,
+	// and kills the interactive console process.
+	// =========================================================
+	storage.InitializeDaemon()
+
 	testURL := "https://www.fastly.com/static/test_file_10MB.bin"
 	numThreads := 4
 	finalOutputFile := "hydra_optimized_test.bin"
