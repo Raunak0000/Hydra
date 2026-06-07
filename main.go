@@ -13,7 +13,7 @@ func main() {
 	numThreads := 4
 	finalOutputFile := "hydra_optimized_test.bin"
 
-	fmt.Println("=== Hydra Phase 2: Native Linux Optimization Engine ===")
+	fmt.Println("=== Hydra Phase 3: Daemon Signal Engine Validation ===")
 
 	// Step 1: Handshake
 	metadata, err := downloader.GetMetadata(testURL)
@@ -38,23 +38,38 @@ func main() {
 	// Step 4: Initialize the Atomic Progress Engine
 	tracker := downloader.NewProgressTracker(metadata.Size)
 	stopProgress := make(chan bool)
-
-	// Launch the progress bar loop inside its own dedicated background goroutine
 	go tracker.Watch(stopProgress)
 
-	// Step 5: Spawn download routines
+	// ==========================================
+	// NEW: Step 5: Activate OS Signal Interceptor Trap
+	// ==========================================
+	cancelChan := downloader.SetupSignalHandling(stopProgress)
+
+	// Step 6: Spawn download routines
 	var wg sync.WaitGroup
-	for _, chunk := range chunks {
-		wg.Add(1)
-		// Pass tracker pointer down into the concurrent worker pipelines
-		go downloader.DownloadChunkParallel(testURL, chunk, sharedFile, tracker, &wg)
+
+	// We create an internal completion gate to monitor downloads independently of signals
+	downloadDone := make(chan bool, 1)
+
+	go func() {
+		for _, chunk := range chunks {
+			wg.Add(1)
+			go downloader.DownloadChunkParallel(testURL, chunk, sharedFile, tracker, &wg)
+		}
+		wg.Wait()
+		downloadDone <- true
+	}()
+
+	// Step 7: Multi-channel Multiplexing (Wait for completion OR a kernel kill signature)
+	select {
+	case <-downloadDone:
+		// Download wrapped up perfectly without any OS hardware interruptions
+		stopProgress <- true
+		fmt.Println("\n=== SUCCESS: HYDRA DOWNLOAD ENGINE CONCLUDED ===")
+
+	case <-cancelChan:
+		// The user hit Ctrl+C or system manager fired a termination call mid-stream
+		fmt.Println("[🛑] Hydra safely intercepted termination. Disposing descriptors and shutting down.")
+		return
 	}
-
-	// Block here until all downloads wrap up cleanly
-	wg.Wait()
-
-	// Shut down the monitoring ticker loop safely
-	stopProgress <- true
-
-	fmt.Println("\n=== SUCCESS: HYDRA HIGH-PERFORMANCE NATIVE LINUX ENGINE CONCLUDED ===")
 }
