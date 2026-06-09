@@ -9,74 +9,66 @@ import (
 )
 
 func main() {
-
-	// NEW: Initialize Daemon Mode
-	// This immediately clones the application, severs the TTY,
-	// and kills the interactive console process.
-	// =========================================================
+	// Initialize Daemon Mode to detach process and route logs into hydra.log
 	storage.InitializeDaemon()
 
-	testURL := "https://www.fastly.com/static/test_file_10MB.bin"
-	numThreads := 4
-	finalOutputFile := "hydra_optimized_test.bin"
+	// Define our download manager engine logic inside a callback function wrapper
+	executeDownloadJob := func(url string) {
+		finalOutputFile := "hydra_cli_output.bin"
 
-	fmt.Println("=== Hydra Phase 3: Daemon Signal Engine Validation ===")
-
-	// Step 1: Handshake
-	metadata, err := downloader.GetMetadata(testURL)
-	if err != nil {
-		fmt.Println("Handshake system error:", err)
-		return
-	}
-	fmt.Printf("[✓] Remote File Size Detected: %d bytes\n", metadata.Size)
-
-	// Step 2: Linux Allocation optimization
-	fmt.Println("[⚙] Communicating with Linux kernel for space pre-allocation...")
-	sharedFile, err := storage.PreallocateSpace(finalOutputFile, metadata.Size)
-	if err != nil {
-		fmt.Println("[X] Kernel pre-allocation failed:", err)
-		return
-	}
-	defer sharedFile.Close()
-
-	// Step 3: Slice boundary calculations
-	chunks := downloader.CalculateChunks(metadata.Size, numThreads)
-
-	// Step 4: Initialize the Atomic Progress Engine
-	tracker := downloader.NewProgressTracker(metadata.Size)
-	stopProgress := make(chan bool)
-	go tracker.Watch(stopProgress)
-
-	// ==========================================
-	// NEW: Step 5: Activate OS Signal Interceptor Trap
-	// ==========================================
-	cancelChan := downloader.SetupSignalHandling(stopProgress)
-
-	// Step 6: Spawn download routines
-	var wg sync.WaitGroup
-
-	// We create an internal completion gate to monitor downloads independently of signals
-	downloadDone := make(chan bool, 1)
-
-	go func() {
-		for _, chunk := range chunks {
-			wg.Add(1)
-			go downloader.DownloadChunkParallel(testURL, chunk, sharedFile, tracker, &wg)
+		// Step 1: Handshake
+		metadata, err := downloader.GetMetadata(url)
+		if err != nil {
+			fmt.Println("Handshake system error:", err)
+			return
 		}
-		wg.Wait()
-		downloadDone <- true
-	}()
+		fmt.Printf("[✓] Target download size: %d bytes\n", metadata.Size)
 
-	// Step 7: Multi-channel Multiplexing (Wait for completion OR a kernel kill signature)
-	select {
-	case <-downloadDone:
-		// Download wrapped up perfectly without any OS hardware interruptions
-		stopProgress <- true
-		fmt.Println("\n=== SUCCESS: HYDRA DOWNLOAD ENGINE CONCLUDED ===")
+		// Step 2: Linux pre-allocation
+		sharedFile, err := storage.PreallocateSpace(finalOutputFile, metadata.Size)
+		if err != nil {
+			fmt.Println("[X] Pre-allocation failed:", err)
+			return
+		}
+		defer sharedFile.Close()
 
-	case <-cancelChan:
-		// The user hit Ctrl+C or system manager fired a termination call mid-stream
-		fmt.Println("[🛑] Hydra safely intercepted termination. Disposing descriptors and shutting down.")
-		return
+		// Step 3: Boundary slicing
+		numThreads := 4
+		chunks := downloader.CalculateChunks(metadata.Size, numThreads)
+
+		// Step 4: Progress metrics engine
+		tracker := downloader.NewProgressTracker(metadata.Size)
+		stopProgress := make(chan bool)
+		go tracker.Watch(stopProgress)
+
+		// Step 5: Activate signal checker
+		cancelChan := downloader.SetupSignalHandling(stopProgress)
+
+		// Step 6: Concurrent parallel download workers
+		var wg sync.WaitGroup
+		downloadDone := make(chan bool, 1)
+
+		go func() {
+			for _, chunk := range chunks {
+				wg.Add(1)
+				go downloader.DownloadChunkParallel(url, chunk, sharedFile, tracker, &wg)
+			}
+			wg.Wait()
+			downloadDone <- true
+		}()
+
+		// Step 7: Multi-channel monitoring block
+		select {
+		case <-downloadDone:
+			stopProgress <- true
+			fmt.Println("=== SUCCESS: JOB CONCLUDED EXTENSIVELY ===")
+		case <-cancelChan:
+			fmt.Println("[🛑] Job execution stopped by kernel signature.")
+			return
+		}
 	}
+
+	// Start the IPC local network socket listening interface loop inside your daemon.
+	// Whenever hydra-cli sends a URL link, this server runs our callback downloader engine.
+	storage.StartIPCServer(executeDownloadJob)
 }
