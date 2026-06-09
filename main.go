@@ -9,12 +9,10 @@ import (
 )
 
 func main() {
-	// Initialize Daemon Mode to detach process and route logs into hydra.log
 	storage.InitializeDaemon()
 
-	// Define our download manager engine logic inside a callback function wrapper
-	executeDownloadJob := func(url string) {
-		finalOutputFile := "hydra_cli_output.bin"
+	// Update the wrapper signature to accept both input streams dynamically
+	executeDownloadJob := func(url string, savePath string) {
 
 		// Step 1: Handshake
 		metadata, err := downloader.GetMetadata(url)
@@ -24,8 +22,9 @@ func main() {
 		}
 		fmt.Printf("[✓] Target download size: %d bytes\n", metadata.Size)
 
-		// Step 2: Linux pre-allocation
-		sharedFile, err := storage.PreallocateSpace(finalOutputFile, metadata.Size)
+		// Step 2: Linux pre-allocation targeting your custom dynamic location!
+		fmt.Printf("[⚙] Pre-allocating storage footprint at: %s\n", savePath)
+		sharedFile, err := storage.PreallocateSpace(savePath, metadata.Size)
 		if err != nil {
 			fmt.Println("[X] Pre-allocation failed:", err)
 			return
@@ -61,14 +60,12 @@ func main() {
 		select {
 		case <-downloadDone:
 			stopProgress <- true
-			fmt.Println("=== SUCCESS: JOB CONCLUDED EXTENSIVELY ===")
+			fmt.Printf("=== SUCCESS: FILE SAVED SAFELY TO %s ===\n", savePath)
 		case <-cancelChan:
 			fmt.Println("[🛑] Job execution stopped by kernel signature.")
 			return
 		}
 	}
 
-	// Start the IPC local network socket listening interface loop inside your daemon.
-	// Whenever hydra-cli sends a URL link, this server runs our callback downloader engine.
 	storage.StartIPCServer(executeDownloadJob)
 }
