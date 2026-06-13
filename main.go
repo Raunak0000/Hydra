@@ -9,12 +9,10 @@ import (
 )
 
 func main() {
-	storage.InitializeDaemon()
+	// 1. COMMENT THIS OUT SO IT RUNS IN THE FOREGROUND LIVE:
+	// storage.InitializeDaemon()
 
-	// Update the wrapper signature to accept both input streams dynamically
 	executeDownloadJob := func(url string, savePath string) {
-
-		// Step 1: Handshake
 		metadata, err := downloader.GetMetadata(url)
 		if err != nil {
 			fmt.Println("Handshake system error:", err)
@@ -22,7 +20,6 @@ func main() {
 		}
 		fmt.Printf("[✓] Target download size: %d bytes\n", metadata.Size)
 
-		// Step 2: Linux pre-allocation targeting your custom dynamic location!
 		fmt.Printf("[⚙] Pre-allocating storage footprint at: %s\n", savePath)
 		sharedFile, err := storage.PreallocateSpace(savePath, metadata.Size)
 		if err != nil {
@@ -31,19 +28,15 @@ func main() {
 		}
 		defer sharedFile.Close()
 
-		// Step 3: Boundary slicing
 		numThreads := 4
 		chunks := downloader.CalculateChunks(metadata.Size, numThreads)
 
-		// Step 4: Progress metrics engine
 		tracker := downloader.NewProgressTracker(metadata.Size)
 		stopProgress := make(chan bool)
 		go tracker.Watch(stopProgress)
 
-		// Step 5: Activate signal checker
 		cancelChan := downloader.SetupSignalHandling(stopProgress)
 
-		// Step 6: Concurrent parallel download workers
 		var wg sync.WaitGroup
 		downloadDone := make(chan bool, 1)
 
@@ -56,7 +49,6 @@ func main() {
 			downloadDone <- true
 		}()
 
-		// Step 7: Multi-channel monitoring block
 		select {
 		case <-downloadDone:
 			stopProgress <- true
@@ -67,5 +59,6 @@ func main() {
 		}
 	}
 
-	storage.StartIPCServer(executeDownloadJob)
+	// 2. SWAP OUT IPC SOCKETS FOR THE HTTP GATEWAY HERE:
+	storage.StartHTTPServer(executeDownloadJob)
 }
