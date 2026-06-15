@@ -1,0 +1,77 @@
+package views
+
+import (
+	"fmt"
+	"github.com/Raunak0000/Hydra/pkg/models" // Points to our separate models package
+)
+
+templ Dashboard(jobs []models.UIJob) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="UTF-8" />
+			<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+			<title>Hydra Download Core</title>
+			<script src="https://cdn.tailwindcss.com"></script>
+			<script src="https://unpkg.com/htmx.org@1.9.10"></script>
+		</head>
+		<body class="bg-slate-900 text-slate-100 font-sans antialiased">
+			<div class="max-w-5xl mx-auto p-8">
+				<header class="flex justify-between items-center border-b border-slate-800 pb-6 mb-8">
+					<div>
+						<h1 class="text-3xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">
+							Hydra Core Dashboard
+						</h1>
+						<p class="text-sm text-slate-400 mt-1">Native Linux Multi-Threaded Engine</p>
+					</div>
+					<div class="flex items-center gap-2 bg-slate-800 px-4 py-2 rounded-lg border border-slate-700">
+						<span class="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+						<span class="text-xs font-semibold text-slate-300 uppercase tracking-wider">Engine Operational</span>
+					</div>
+				</header>
+
+				<main>
+					<h2 class="text-xl font-bold mb-4 text-slate-300">Active Queue Pipeline</h2>
+					
+					<div id="download-queue" hx-get="/api/queue" hx-trigger="every 1s" hx-swap="innerHTML" class="grid gap-4">
+						@QueueRows(jobs)
+					</div>
+				</main>
+			</div>
+		</body>
+	</html>
+}
+
+templ QueueRows(jobs []models.UIJob) {
+	if len(jobs) == 0 {
+		<div class="bg-slate-800/40 border-2 border-dashed border-slate-800 rounded-xl p-12 text-center">
+			<p class="text-slate-400 font-medium">No download jobs currently running in the active pipeline.</p>
+			<p class="text-xs text-slate-500 mt-1">Use your Send to Hydra bookmarklet to catch links.</p>
+		</div>
+	} else {
+		for _, job := range jobs {
+			<div class="bg-slate-800 border border-slate-700/60 rounded-xl p-5 shadow-lg transition duration-200 hover:border-slate-600">
+				<div class="flex justify-between items-start gap-4 mb-3">
+					<div class="min-w-0 flex-1">
+						<h3 class="font-semibold text-slate-200 truncate" title={ job.FileName }>{ job.FileName }</h3>
+						<p class="text-xs text-slate-400 truncate mt-0.5" title={ job.URL }>{ job.URL }</p>
+					</div>
+					<span class="bg-cyan-500/10 text-cyan-400 text-xs font-medium px-2.5 py-1 rounded-md border border-cyan-500/20 whitespace-nowrap">
+						{ job.Status }
+					</span>
+				</div>
+				
+				<div class="w-full bg-slate-700 rounded-full h-2 mb-2 overflow-hidden">
+					<div class="bg-gradient-to-r from-cyan-500 to-blue-500 h-2 rounded-full transition-all duration-300" style={ fmt.Sprintf("width: %.1f%%", job.Progress) }></div>
+				</div>
+				
+				<div class="flex justify-between items-center text-xs text-slate-400 font-medium">
+					<div>
+						<span>{ job.Downloaded }</span> / <span class="text-slate-500">{ job.TotalSize }</span>
+					</div>
+					<span class="text-cyan-400 font-bold">{ fmt.Sprintf("%.1f%%", job.Progress) }</span>
+				</div>
+			</div>
+		}
+	}
+}
