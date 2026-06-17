@@ -1,0 +1,3 @@
+go 1.25.0 // Use whatever version is written inside your go.mod file
+
+use .

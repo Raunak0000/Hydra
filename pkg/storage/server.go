@@ -5,17 +5,16 @@ import (
 	"fmt"
 	"net/http"
 
-	// Make sure to import your generated views package component namespace here:
 	"github.com/Raunak0000/Hydra/pkg/models"
 	"github.com/Raunak0000/Hydra/pkg/views"
 )
 
 type Server struct {
 	Router             *http.ServeMux
-	ExecuteDownloadJob func(url string, savePath string)
+	ExecuteDownloadJob func(url string, savePath string, jobID string)
 }
 
-func NewServer(executeJobFunc func(url string, savePath string)) *Server {
+func NewServer(executeJobFunc func(url string, savePath string, jobID string)) *Server {
 	s := &Server{
 		Router:             http.NewServeMux(),
 		ExecuteDownloadJob: executeJobFunc,
@@ -58,10 +57,10 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Save the flat value direct into the cache structure map safely
-	store.Jobs[jobID] = &newJob
+	store.SetJob(jobID, &newJob)
 
 	// 3. Fire off the core multi-threaded execution handler routine background goroutine
-	go s.ExecuteDownloadJob(payload.URL, payload.SavePath)
+	go s.ExecuteDownloadJob(payload.URL, payload.SavePath, jobID)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)

@@ -36,6 +36,11 @@ func (s *MemoryStore) UpdateProgress(jobID string, progress float64, downloaded 
 	defer s.mu.Unlock()
 
 	if job, exists := s.Jobs[jobID]; exists {
+		// Prevent overwriting final status with "DOWNLOADING"
+		if (job.Status == "COMPLETED" || job.Status == "FAILED") && status == "DOWNLOADING" {
+			return
+		}
+
 		// Mutate local frame copies
 		job.Progress = progress
 		job.Downloaded = downloaded
@@ -56,6 +61,15 @@ func (s *MemoryStore) UpdateTotalSize(id string, totalSize string) {
 		job.TotalSize = totalSize
 	}
 }
+
+func (s *MemoryStore) UpdateStatus(id string, status string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if job, exists := s.Jobs[id]; exists {
+		job.Status = status
+	}
+}
+
 
 func (s *MemoryStore) GetAllJobs() []models.UIJob {
 	s.mu.RLock()
