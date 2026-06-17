@@ -36,17 +36,19 @@ func (s *MemoryStore) UpdateProgress(jobID string, progress float64, downloaded 
 	defer s.mu.Unlock()
 
 	if job, exists := s.Jobs[jobID]; exists {
+		// Mutate local frame copies
 		job.Progress = progress
 		job.Downloaded = downloaded
 		job.Status = status
 
-		// Map the title cleanly from "Calculating..." to the true filename string
 		if filename != "" && filename != "Calculating..." {
 			job.FileName = filename
 		}
+
+		// Write the updated flat layout back down into the thread-safe map index registry
+		s.Jobs[jobID] = job
 	}
 }
-
 func (s *MemoryStore) UpdateTotalSize(id string, totalSize string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -35,20 +35,20 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Malformed JSON payload", http.StatusBadRequest)
+		http.Error(w, "Malformed JSON payload body context", http.StatusBadRequest)
 		return
 	}
 
 	if payload.URL == "" || payload.SavePath == "" {
-		http.Error(w, "Missing url or save_path", http.StatusUnprocessableEntity)
+		http.Error(w, "Missing url or save_path targeting strings", http.StatusUnprocessableEntity)
 		return
 	}
 
 	store := GetStore()
 	jobID := fmt.Sprintf("job_%d", len(store.GetAllJobs()))
 
-	// Use an ampersand (&) to initialize newJob directly as a pointer (*models.UIJob)
-	newJob := &models.UIJob{
+	// 1. Initialize a clean direct struct instance (NO ampersand & pointer)
+	newJob := models.UIJob{
 		ID:         jobID,
 		FileName:   "Calculating...",
 		URL:        payload.URL,
@@ -57,20 +57,18 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		Status:     "DOWNLOADING",
 	}
 
-	// Save the memory pointer address directly into the Jobs map safely
-	store.Jobs[jobID] = newJob
+	// 2. Save the flat value direct into the cache structure map safely
+	store.Jobs[jobID] = &newJob
 
-	// Fire the core multi-threaded downloader routine
+	// 3. Fire off the core multi-threaded execution handler routine background goroutine
 	go s.ExecuteDownloadJob(payload.URL, payload.SavePath)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-
-	responsePayload := map[string]string{
+	json.NewEncoder(w).Encode(map[string]string{
 		"status": "queued",
 		"job_id": jobID,
-	}
-	json.NewEncoder(w).Encode(responsePayload)
+	})
 }
 
 // ── FIXED VIEW RENDERING LOOP ──
