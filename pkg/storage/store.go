@@ -31,13 +31,19 @@ func (s *MemoryStore) SetJob(id string, job *models.UIJob) {
 	s.Jobs[id] = job
 }
 
-func (s *MemoryStore) UpdateProgress(jobID string, progress float64, downloaded string) {
+func (s *MemoryStore) UpdateProgress(jobID string, progress float64, downloaded string, filename string, status string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if job, exists := s.Jobs[jobID]; exists {
 		job.Progress = progress
 		job.Downloaded = downloaded
+		job.Status = status
+
+		// Map the title cleanly from "Calculating..." to the true filename string
+		if filename != "" && filename != "Calculating..." {
+			job.FileName = filename
+		}
 	}
 }
 

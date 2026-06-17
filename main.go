@@ -108,20 +108,16 @@ func main() {
 				return
 			}
 
-			// Lock down clean completion states across memory caches
+			// Look around line 75 in main.go and update this call:
 			finalSizeStr := fmt.Sprintf("%.2f MB", float64(metadata.Size)/(1024*1024))
 
-			// 1. Fetch the direct storage instance reference pointer
-			globalStore := storage.GetStore()
-
-			// 2. Directly update progress, size strings, and completion status flags
-			if job, exists := globalStore.Jobs[jobID]; exists {
-				job.Progress = 100.0
-				job.Downloaded = finalSizeStr
-				job.Status = "COMPLETED"
+			var cleanName string
+			if parts := strings.Split(savePath, "/"); len(parts) > 0 {
+				cleanName = parts[len(parts)-1]
 			}
 
-			fmt.Printf("\n=== SUCCESS: FILE SAVED SAFELY TO %s ===\n", savePath)
+			// Pass all 5 parameters here as well to finalize completion
+			storage.GetStore().UpdateProgress(jobID, 100.0, finalSizeStr, cleanName, "COMPLETED")
 
 		case workerErr := <-workerErrors:
 			close(stopMonitoring)
