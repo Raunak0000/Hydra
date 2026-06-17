@@ -1,6 +1,9 @@
 package storage
 
 import (
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/Raunak0000/Hydra/pkg/models"
@@ -79,5 +82,14 @@ func (s *MemoryStore) GetAllJobs() []models.UIJob {
 	for _, job := range s.Jobs {
 		list = append(list, *job)
 	}
+
+	sort.Slice(list, func(i, j int) bool {
+		valI := strings.TrimPrefix(list[i].ID, "job_")
+		valJ := strings.TrimPrefix(list[j].ID, "job_")
+		numI, _ := strconv.Atoi(valI)
+		numJ, _ := strconv.Atoi(valJ)
+		return numI < numJ
+	})
+
 	return list
 }

@@ -29,6 +29,7 @@ func GetMetadata(url string) (HandshakeResult, error) {
 
 	// Request just the first byte so we don't accidentally download the whole file during the handshake
 	req.Header.Set("Range", "bytes=0-0")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
 	response, err := client.Do(req)
 	if err != nil {

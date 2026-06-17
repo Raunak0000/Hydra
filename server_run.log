@@ -1,0 +1,6 @@
+[⚙] Hydra UI Dashboard Server running on http://localhost:9000
+[⚙] Pre-allocating continuous physical space footprint at: /home/raunak/Downloads/ovh_100Mb_test_1.dat
+[✓] Linux Kernel successfully pre-allocated 104857600 bytes on SSD.
+[⚙] Pre-allocating continuous physical space footprint at: /home/raunak/Downloads/ovh_100Mb_test_0.dat
+[✓] Linux Kernel successfully pre-allocated 104857600 bytes on SSD.
+signal: killed
