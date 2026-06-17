@@ -1,94 +1,115 @@
 package storage
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 
+	// Make sure to import your generated views package component namespace here:
 	"github.com/Raunak0000/Hydra/pkg/models"
 	"github.com/Raunak0000/Hydra/pkg/views"
 )
 
-type DownloadRequest struct {
-	URL      string `json:"url"`
-	SavePath string `json:"save_path"`
+type Server struct {
+	Router             *http.ServeMux
+	ExecuteDownloadJob func(url string, savePath string)
 }
 
-func StartHTTPServer(downloadTrigger func(string, string, string)) {
+func NewServer(executeJobFunc func(url string, savePath string)) *Server {
+	s := &Server{
+		Router:             http.NewServeMux(),
+		ExecuteDownloadJob: executeJobFunc,
+	}
+
+	s.Router.HandleFunc("POST /download", s.handleDownloadTrigger)
+	s.Router.HandleFunc("GET /", s.handleRenderDashboard)
+	s.Router.HandleFunc("GET /api/queue", s.handleGetQueueSnippet)
+
+	return s
+}
+
+func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		URL      string `json:"url"`
+		SavePath string `json:"save_path"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Malformed JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	if payload.URL == "" || payload.SavePath == "" {
+		http.Error(w, "Missing url or save_path", http.StatusUnprocessableEntity)
+		return
+	}
+
 	store := GetStore()
+	jobID := fmt.Sprintf("job_%d", len(store.GetAllJobs()))
 
-	http.HandleFunc("/download", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	// Use an ampersand (&) to initialize newJob directly as a pointer (*models.UIJob)
+	newJob := &models.UIJob{
+		ID:         jobID,
+		FileName:   "Calculating...",
+		URL:        payload.URL,
+		Progress:   0.0,
+		Downloaded: "0.00 MB",
+		Status:     "DOWNLOADING",
+	}
 
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
+	// Save the memory pointer address directly into the Jobs map safely
+	store.Jobs[jobID] = newJob
 
-		if r.Method != "POST" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
+	// Fire the core multi-threaded downloader routine
+	go s.ExecuteDownloadJob(payload.URL, payload.SavePath)
 
-		var req DownloadRequest
-		err := json.NewDecoder(r.Body).Decode(&req)
-		if err != nil {
-			http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
-			return
-		}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
 
-		jobID := fmt.Sprintf("job_%d", len(store.GetAllJobs())+1)
-		fileName := req.SavePath
-		if lastIdx := len(req.SavePath) - 1; lastIdx >= 0 {
-			for i := lastIdx; i >= 0; i-- {
-				if req.SavePath[i] == '/' {
-					fileName = req.SavePath[i+1:]
-					break
-				}
-			}
-		}
+	responsePayload := map[string]string{
+		"status": "queued",
+		"job_id": jobID,
+	}
+	json.NewEncoder(w).Encode(responsePayload)
+}
 
-		store.SetJob(jobID, &models.UIJob{
-			ID:         jobID,
-			FileName:   fileName,
-			URL:        req.URL,
-			Progress:   0.0,
-			TotalSize:  "Calculating...",
-			Downloaded: "0 B",
-			Status:     "DOWNLOADING",
-		})
+// ── FIXED VIEW RENDERING LOOP ──
+func (s *Server) handleRenderDashboard(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
 
-		go downloadTrigger(req.URL, req.SavePath, jobID)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{
-			"status":  "SUCCESS",
-			"message": "Job handed off to multi-threaded pipeline.",
-		})
-	})
+	// Fetch all tracked active download components from memory cache store
+	jobs := GetStore().GetAllJobs()
 
-	http.HandleFunc("/api/queue", func(w http.ResponseWriter, r *http.Request) {
-		jobs := store.GetAllJobs()
-		w.Header().Set("Content-Type", "text/html")
-		views.QueueRows(jobs).Render(context.Background(), w)
-	})
+	// Render your main view template wrapper frame component straight to the connection writer stream
+	err := views.Dashboard(jobs).Render(r.Context(), w)
+	if err != nil {
+		http.Error(w, "Failed to compile template UI elements: "+err.Error(), http.StatusInternalServerError)
+	}
+}
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
-		jobs := store.GetAllJobs()
-		w.Header().Set("Content-Type", "text/html")
-		views.Dashboard(jobs).Render(context.Background(), w)
-	})
+// ── FIXED HTMX QUEUE SNIPPET POLLING ENDPOINT ──
+func (s *Server) handleGetQueueSnippet(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	fmt.Println("[⚙] Hydra UI Dashboard Server running on http://localhost:9000")
-	if err := http.ListenAndServe(":9000", nil); err != nil {
-		fmt.Printf("[X] Server failed to start: %v\n", err)
+	// 1. Fetch your thread-safe map store
+	jobMap := GetStore().GetAllJobs()
+
+	// 2. Convert map[string]models.UIJob directly into a flat slice of []models.UIJob
+	var jobSlice []models.UIJob
+	for _, job := range jobMap {
+		// Since 'job' is already a flat models.UIJob value, we append it directly
+		// with no nil checks or dereference pointers needed!
+		jobSlice = append(jobSlice, job)
+	}
+
+	// 3. Call your QueueRows template function
+	err := views.QueueRows(jobSlice).Render(r.Context(), w)
+	if err != nil {
+		http.Error(w, "Failed to render queue rows component frames: "+err.Error(), http.StatusInternalServerError)
 	}
 }

@@ -19,7 +19,6 @@ var (
 func GetStore() *MemoryStore {
 	once.Do(func() {
 		GlobalStore = &MemoryStore{
-			// FIX THIS LINE (ensure there's only one 'make'):
 			Jobs: make(map[string]*models.UIJob),
 		}
 	})
@@ -32,15 +31,13 @@ func (s *MemoryStore) SetJob(id string, job *models.UIJob) {
 	s.Jobs[id] = job
 }
 
-func (s *MemoryStore) UpdateProgress(id string, progress float64, downloaded string) {
+func (s *MemoryStore) UpdateProgress(jobID string, progress float64, downloaded string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if job, exists := s.Jobs[id]; exists {
+
+	if job, exists := s.Jobs[jobID]; exists {
 		job.Progress = progress
 		job.Downloaded = downloaded
-		if progress >= 100.0 {
-			job.Status = "COMPLETED"
-		}
 	}
 }
 

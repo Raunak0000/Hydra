@@ -8,14 +8,14 @@ import (
 	"sync"
 )
 
-// DownloadChunkParallel connects network sockets and tracks streams atomically
-func DownloadChunkParallel(url string, chunk Chunk, finalFile *os.File, tracker *ProgressTracker, wg *sync.WaitGroup) {
+// We completely removed *ProgressTracker and added progressChan chan int64
+func DownloadChunkParallel(url string, chunk Chunk, finalFile *os.File, wg *sync.WaitGroup, errChan chan error, progressChan chan int64) {
 	defer wg.Done()
 
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		fmt.Printf("\n[X] Thread %d init failed: %v\n", chunk.Index, err)
+		errChan <- fmt.Errorf("Thread %d init failed: %v", chunk.Index, err)
 		return
 	}
 
@@ -24,12 +24,17 @@ func DownloadChunkParallel(url string, chunk Chunk, finalFile *os.File, tracker 
 
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("\n[X] Thread %d network link dropped: %v\n", chunk.Index, err)
+		errChan <- fmt.Errorf("Thread %d network link dropped: %v", chunk.Index, err)
 		return
 	}
 	defer resp.Body.Close()
 
-	buffer := make([]byte, 32*1024) // 32KB streaming chunks
+	if resp.StatusCode != http.StatusPartialContent && resp.StatusCode != http.StatusOK {
+		errChan <- fmt.Errorf("Thread %d server exception status: %d", chunk.Index, resp.StatusCode)
+		return
+	}
+
+	buffer := make([]byte, 32*1024) // 32KB processing buffer blocks
 	writeOffset := chunk.Start
 
 	for {
@@ -37,20 +42,20 @@ func DownloadChunkParallel(url string, chunk Chunk, finalFile *os.File, tracker 
 		if bytesRead > 0 {
 			_, writeErr := finalFile.WriteAt(buffer[:bytesRead], writeOffset)
 			if writeErr != nil {
-				fmt.Printf("\n[X] Thread %d disk write exception: %v\n", chunk.Index, writeErr)
+				errChan <- fmt.Errorf("Thread %d disk write exception: %v", chunk.Index, writeErr)
 				return
 			}
 			writeOffset += int64(bytesRead)
 
-			// REPORT metrics to the atomic counter instantly
-			tracker.Increment(bytesRead)
+			// Send the raw number of bytes read straight into the progress channel!
+			progressChan <- int64(bytesRead)
 		}
 
 		if readErr == io.EOF {
 			break
 		}
 		if readErr != nil {
-			fmt.Printf("\n[X] Thread %d connection terminated: %v\n", chunk.Index, readErr)
+			errChan <- fmt.Errorf("Thread %d stream terminated: %v", chunk.Index, readErr)
 			return
 		}
 	}
