@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"fmt"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -73,7 +75,6 @@ func (s *MemoryStore) UpdateStatus(id string, status string) {
 	}
 }
 
-
 func (s *MemoryStore) GetAllJobs() []models.UIJob {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -92,4 +93,19 @@ func (s *MemoryStore) GetAllJobs() []models.UIJob {
 	})
 
 	return list
+}
+
+func SanitizeDownloadPath(unsafePath string) (string, error) {
+	// 1. Resolve relative shortcuts lexically (e.g., handling ".." tokens)
+	cleaned := filepath.Clean(unsafePath)
+
+	// 2. Define the absolute secure jail root anchor
+	secureRoot := "/home/raunak/Downloads/"
+
+	// 3. Enforce prefix checking to prevent escaping the target jail folder
+	if !strings.HasPrefix(cleaned, secureRoot) {
+		return "", fmt.Errorf("security violation: directory traversal attempt blocked")
+	}
+
+	return cleaned, nil
 }
