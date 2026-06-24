@@ -75,24 +75,39 @@ func (s *MemoryStore) UpdateStatus(id string, status string) {
 	}
 }
 
+// pkg/storage/store.go
+
 func (s *MemoryStore) GetAllJobs() []models.UIJob {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	defer s.mu.RUnlock() // Clean execution unlock wrapper fallback context
 
 	var list []models.UIJob
-	for _, job := range s.Jobs {
-		list = append(list, *job)
+	for _, job := range s.Jobs { // cite: 218
+		if job == nil {
+			continue
+		}
+
+		// ── DEEP STRUCT FIELD CLONING INSIDE READ MUTEX SCOPE ──
+		list = append(list, models.UIJob{
+			ID:         job.ID,
+			FileName:   job.FileName,
+			URL:        job.URL,
+			Progress:   job.Progress,
+			TotalSize:  job.TotalSize,
+			Downloaded: job.Downloaded,
+			Status:     job.Status,
+		})
 	}
 
-	sort.Slice(list, func(i, j int) bool {
-		valI := strings.TrimPrefix(list[i].ID, "job_")
-		valJ := strings.TrimPrefix(list[j].ID, "job_")
-		numI, _ := strconv.Atoi(valI)
-		numJ, _ := strconv.Atoi(valJ)
-		return numI < numJ
-	})
+	sort.Slice(list, func(i, j int) bool { // cite: 218
+		valI := strings.TrimPrefix(list[i].ID, "job_") // cite: 218
+		valJ := strings.TrimPrefix(list[j].ID, "job_") // cite: 218
+		numI, _ := strconv.Atoi(valI)                  // cite: 218
+		numJ, _ := strconv.Atoi(valJ)                  // cite: 218
+		return numI < numJ                             // cite: 218
+	}) // cite: 218
 
-	return list
+	return list // cite: 218
 }
 
 func SanitizeDownloadPath(unsafePath string) (string, error) {

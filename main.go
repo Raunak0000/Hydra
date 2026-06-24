@@ -1,3 +1,5 @@
+// main.go
+
 package main
 
 import (
@@ -14,141 +16,125 @@ import (
 func main() {
 	// 1. DEFINE THE CORE MULTI-THREADED PIPELINE ENGINE
 	executeDownloadJob := func(url string, savePath string, jobID string) {
-		store := storage.GetStore()
+		store := storage.GetStore() // cite: 184
 
 		// Phase A: Handshake & Multi-stage redirect verification
-		metadata, err := downloader.GetMetadata(url)
-		if err != nil {
-			fmt.Printf("[X] Handshake system error for %s: %v\n", url, err)
-			store.UpdateStatus(jobID, "FAILED")
-			return
-		}
+		metadata, err := downloader.GetMetadata(url) // cite: 184
+		if err != nil {                              // cite: 184
+			fmt.Printf("[X] Handshake system error for %s: %v\n", url, err) // cite: 184
+			store.UpdateStatus(jobID, "FAILED")                             // cite: 184
+			return                                                          // cite: 184
+		} // cite: 184
 
-		// Update file size and name in memory store so they display in the dashboard
-		totalSizeStr := fmt.Sprintf("%.2f MB", float64(metadata.Size)/(1024*1024))
-		store.UpdateTotalSize(jobID, totalSizeStr)
+		totalSizeStr := fmt.Sprintf("%.2f MB", float64(metadata.Size)/(1024*1024)) // cite: 184
+		store.UpdateTotalSize(jobID, totalSizeStr)                                 // cite: 184
 
-		var cleanName string
-		if parts := strings.Split(savePath, "/"); len(parts) > 0 {
-			cleanName = parts[len(parts)-1]
-		}
-		if cleanName != "" {
-			store.UpdateProgress(jobID, 0.0, "0.00 MB", cleanName, "DOWNLOADING")
-		}
+		var cleanName string                                       // cite: 184
+		if parts := strings.Split(savePath, "/"); len(parts) > 0 { // cite: 184
+			cleanName = parts[len(parts)-1] // cite: 184
+		} // cite: 184
+		if cleanName != "" { // cite: 184
+			store.UpdateProgress(jobID, 0.0, "0.00 MB", cleanName, "DOWNLOADING") // cite: 184
+		} // cite: 184
 
 		// Phase B: Low-Level continuous Linux kernel storage pre-allocation
-		fmt.Printf("[⚙] Pre-allocating continuous physical space footprint at: %s\n", savePath)
-		sharedFile, err := storage.PreallocateSpace(savePath, metadata.Size)
-		if err != nil {
-			fmt.Println("[X] Pre-allocation allocation failed:", err)
-			store.UpdateStatus(jobID, "FAILED")
-			return
-		}
-		defer sharedFile.Close()
+		fmt.Printf("[⚙] Pre-allocating continuous physical space footprint at: %s\n", savePath) // cite: 185
+		sharedFile, err := storage.PreallocateSpace(savePath, metadata.Size)                    // cite: 185
+		if err != nil {                                                                         // cite: 185
+			fmt.Println("[X] Pre-allocation allocation failed:", err) // cite: 185
+			store.UpdateStatus(jobID, "FAILED")                       // cite: 185
+			return                                                    // cite: 185
+		} // cite: 185
+		defer sharedFile.Close() // cite: 185
 
-		numThreads := 4
-		if !metadata.AcceptRanges {
-			numThreads = 1
-		}
-		chunks := downloader.CalculateChunks(metadata.Size, numThreads)
+		numThreads := 4             // cite: 185
+		if !metadata.AcceptRanges { // cite: 185
+			numThreads = 1 // cite: 185
+		} // cite: 185
+		chunks := downloader.CalculateChunks(metadata.Size, numThreads) // cite: 185
 
 		// Create native communication primitives for safe data routing
-		downloadDone := make(chan bool, 1)
-		workerErrors := make(chan error, numThreads)
-		progressChan := make(chan int64, 100)
+		downloadDone := make(chan bool, 1)           // cite: 185
+		workerErrors := make(chan error, numThreads) // cite: 185
 
-		var wg sync.WaitGroup
+		// Expanded buffer capacity depth to cushion backpressure spikes on gigabit pipelines
+		progressChan := make(chan int64, 2000)
 
-		// Phase C: Launch Parallel Thread Worker Pools
+		var wg sync.WaitGroup // cite: 185
+
+		// ── UNIFORM AND SECURE METRIC TRACKING PIPELINE LOOP ──
+		var totalDownloaded int64 = 0
+
 		go func() {
-			for _, chunk := range chunks {
-				wg.Add(1)
-				// MATCH THE ORDER EXACTLY: workerErrors (chan error) first, then progressChan (chan int64)
-				go downloader.DownloadChunkParallel(metadata.FinalURL, chunk, sharedFile, &wg, workerErrors, progressChan)
+			// Safely read values continuously until progressChan is cleanly closed by the waiter thread
+			for bytes := range progressChan {
+				totalDownloaded += bytes
+				if metadata.Size > 0 {
+					percentage := (float64(totalDownloaded) / float64(metadata.Size)) * 100
+					downloadedStr := fmt.Sprintf("%.2f MB", float64(totalDownloaded)/(1024*1024))
+
+					globalStore := storage.GetStore()
+					var cleanFilename string
+					if parts := strings.Split(savePath, "/"); len(parts) > 0 {
+						cleanFilename = parts[len(parts)-1]
+					}
+					globalStore.UpdateProgress(jobID, percentage, downloadedStr, cleanFilename, "DOWNLOADING")
+				}
 			}
-			wg.Wait()
+			// Let the primary coordinator select state know every single update byte has been flushed out
 			downloadDone <- true
 		}()
 
-		// ── UPDATED TRACKING LOOP IN MAIN.GO ──
-		// ── DIRECT MEMORY POINTER TRACKING LOOP ──
-		var totalDownloaded int64 = 0
-		stopMonitoring := make(chan bool)
-
+		// Phase C: Launch Parallel Thread Worker Pools
 		go func() {
-			for {
-				select {
-				case bytes := <-progressChan:
-					totalDownloaded += bytes
-					if metadata.Size > 0 {
-						percentage := (float64(totalDownloaded) / float64(metadata.Size)) * 100
-						downloadedStr := fmt.Sprintf("%.2f MB", float64(totalDownloaded)/(1024*1024))
-
-						// 1. Fetch the storage cache instance directly
-						globalStore := storage.GetStore()
-
-						// Extract clean filename from path string
-						var cleanName string
-						if parts := strings.Split(savePath, "/"); len(parts) > 0 {
-							cleanName = parts[len(parts)-1]
-						}
-
-						// 2. Safely update the struct fields in a thread-safe manner
-						globalStore.UpdateProgress(jobID, percentage, downloadedStr, cleanName, "DOWNLOADING")
-					}
-				case <-stopMonitoring:
-					return
-				}
-			}
+			for _, chunk := range chunks { // cite: 185
+				wg.Add(1)                                                                                                  // cite: 186
+				go downloader.DownloadChunkParallel(metadata.FinalURL, chunk, sharedFile, &wg, workerErrors, progressChan) // cite: 186
+			} // cite: 186
+			wg.Wait()           // cite: 186
+			close(progressChan) // This line breaks the tracking range loop above safely once threads exit!
 		}()
 
-		cancelChan := downloader.SetupSignalHandling(make(chan bool))
+		cancelChan := downloader.SetupSignalHandling(make(chan bool)) // cite: 187
 
 		// Phase E: Coordinate the Finish Line Status States
 		select {
 		case <-downloadDone:
-			close(stopMonitoring)
-			close(workerErrors)
+			close(workerErrors) // cite: 187
 
-			// Inspect the thread error pipeline channel queue
-			if len(workerErrors) > 0 {
-				firstErr := <-workerErrors
-				fmt.Printf("\n[X] CRITICAL ABORT: Thread failure detected: %v\n", firstErr)
-				store.UpdateStatus(jobID, "FAILED")
-				os.Remove(savePath) // Wipe partial file artifacts
-				return
+			if len(workerErrors) > 0 { // cite: 187
+				firstErr := <-workerErrors                                                  // cite: 187
+				fmt.Printf("\n[X] CRITICAL ABORT: Thread failure detected: %v\n", firstErr) // cite: 187
+				store.UpdateStatus(jobID, "FAILED")                                         // cite: 187
+				os.Remove(savePath)                                                         // cite: 187
+				return                                                                      // cite: 187
 			}
 
-			// ── DIRECT FINALIZE (NO STITCHER CALL) ──
-			finalSizeStr := fmt.Sprintf("%.2f MB", float64(metadata.Size)/(1024*1024))
+			finalSizeStr := fmt.Sprintf("%.2f MB", float64(metadata.Size)/(1024*1024)) // cite: 187
+			var cleanFilename string
+			if parts := strings.Split(savePath, "/"); len(parts) > 0 { // cite: 187
+				cleanFilename = parts[len(parts)-1] // cite: 187
+			} // cite: 187
 
-			var cleanName string
-			if parts := strings.Split(savePath, "/"); len(parts) > 0 {
-				cleanName = parts[len(parts)-1]
-			}
+			storage.GetStore().UpdateProgress(jobID, 100.0, finalSizeStr, cleanFilename, "COMPLETED") // cite: 188
+			fmt.Printf("\n=== SUCCESS: FILE SAVED SAFELY TO %s ===\n", savePath)                      // cite: 188
 
-			// Smoothly transition status straight to COMPLETED inside our memory cache vault
-			storage.GetStore().UpdateProgress(jobID, 100.0, finalSizeStr, cleanName, "COMPLETED")
-			fmt.Printf("\n=== SUCCESS: FILE SAVED SAFELY TO %s ===\n", savePath)
+		case workerErr := <-workerErrors: // cite: 188
+			fmt.Printf("\n[X] PIPELINE CRASHED: Intercepted thread panic: %v\n", workerErr) // cite: 188
+			store.UpdateStatus(jobID, "FAILED")                                             // cite: 188
+			os.Remove(savePath)                                                             // cite: 188
+			return                                                                          // cite: 188
 
-		case workerErr := <-workerErrors:
-			close(stopMonitoring)
-			fmt.Printf("\n[X] PIPELINE CRASHED: Intercepted thread panic: %v\n", workerErr)
-			store.UpdateStatus(jobID, "FAILED")
-			os.Remove(savePath)
-			return
-
-		case <-cancelChan:
-			close(stopMonitoring)
-			fmt.Println("[🛑] Job signature canceled by hardware kernel interrupt.")
-			return
+		case <-cancelChan: // cite: 188
+			fmt.Println("[🛑] Job signature canceled by hardware kernel interrupt.") // cite: 188
+			return                                                                  // cite: 188
 		}
 	}
 
 	// 2. BOOT THE EMBEDDED NATIVE GOTTH WEB MANAGEMENT GATEWAY
-	fmt.Println("[⚙] Hydra UI Dashboard Server running on http://localhost:9000")
-	server := storage.NewServer(executeDownloadJob)
-	if err := http.ListenAndServe(":9000", server.Router); err != nil {
-		fmt.Printf("Server runtime exception error: %v\n", err)
+	fmt.Println("[⚙] Hydra UI Dashboard Server running on http://localhost:9000") // cite: 188
+	server := storage.NewServer(executeDownloadJob)                               // cite: 188
+	if err := http.ListenAndServe(":9000", server.Router); err != nil {           // cite: 188
+		fmt.Printf("Server runtime exception error: %v\n", err) // cite: 189
 	}
 }
