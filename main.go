@@ -119,7 +119,7 @@ func main() {
 				return
 			}
 
-			// Look around line 75 in main.go and update this call:
+			// ── DIRECT FINALIZE (NO STITCHER CALL) ──
 			finalSizeStr := fmt.Sprintf("%.2f MB", float64(metadata.Size)/(1024*1024))
 
 			var cleanName string
@@ -127,8 +127,9 @@ func main() {
 				cleanName = parts[len(parts)-1]
 			}
 
-			// Pass all 5 parameters here as well to finalize completion
+			// Smoothly transition status straight to COMPLETED inside our memory cache vault
 			storage.GetStore().UpdateProgress(jobID, 100.0, finalSizeStr, cleanName, "COMPLETED")
+			fmt.Printf("\n=== SUCCESS: FILE SAVED SAFELY TO %s ===\n", savePath)
 
 		case workerErr := <-workerErrors:
 			close(stopMonitoring)
