@@ -26,7 +26,12 @@ func main() {
 			return                                                          // cite: 184
 		} // cite: 184
 
-		totalSizeStr := fmt.Sprintf("%.2f MB", float64(metadata.Size)/(1024*1024)) // cite: 184
+		var totalSizeStr string
+		if metadata.Size > 0 {
+			totalSizeStr = fmt.Sprintf("%.2f MB", float64(metadata.Size)/(1024*1024)) // cite: 184
+		} else {
+			totalSizeStr = "Unknown"
+		}
 		store.UpdateTotalSize(jobID, totalSizeStr)                                 // cite: 184
 
 		var cleanName string                                       // cite: 184
@@ -48,7 +53,7 @@ func main() {
 		defer sharedFile.Close() // cite: 185
 
 		numThreads := 4             // cite: 185
-		if !metadata.AcceptRanges { // cite: 185
+		if !metadata.AcceptRanges || metadata.Size <= 0 { // cite: 185
 			numThreads = 1 // cite: 185
 		} // cite: 185
 		chunks := downloader.CalculateChunks(metadata.Size, numThreads) // cite: 185
@@ -69,16 +74,18 @@ func main() {
 			// Safely read values continuously until progressChan is cleanly closed by the waiter thread
 			for bytes := range progressChan {
 				totalDownloaded += bytes
+				downloadedStr := fmt.Sprintf("%.2f MB", float64(totalDownloaded)/(1024*1024))
+				globalStore := storage.GetStore()
+				var cleanFilename string
+				if parts := strings.Split(savePath, "/"); len(parts) > 0 {
+					cleanFilename = parts[len(parts)-1]
+				}
+
 				if metadata.Size > 0 {
 					percentage := (float64(totalDownloaded) / float64(metadata.Size)) * 100
-					downloadedStr := fmt.Sprintf("%.2f MB", float64(totalDownloaded)/(1024*1024))
-
-					globalStore := storage.GetStore()
-					var cleanFilename string
-					if parts := strings.Split(savePath, "/"); len(parts) > 0 {
-						cleanFilename = parts[len(parts)-1]
-					}
 					globalStore.UpdateProgress(jobID, percentage, downloadedStr, cleanFilename, "DOWNLOADING")
+				} else {
+					globalStore.UpdateProgress(jobID, 0.0, downloadedStr, cleanFilename, "DOWNLOADING")
 				}
 			}
 			// Let the primary coordinator select state know every single update byte has been flushed out
@@ -110,7 +117,12 @@ func main() {
 				return                                                                      // cite: 187
 			}
 
-			finalSizeStr := fmt.Sprintf("%.2f MB", float64(metadata.Size)/(1024*1024)) // cite: 187
+			var finalSizeStr string
+			if metadata.Size > 0 {
+				finalSizeStr = fmt.Sprintf("%.2f MB", float64(metadata.Size)/(1024*1024)) // cite: 187
+			} else {
+				finalSizeStr = fmt.Sprintf("%.2f MB", float64(totalDownloaded)/(1024*1024))
+			}
 			var cleanFilename string
 			if parts := strings.Split(savePath, "/"); len(parts) > 0 { // cite: 187
 				cleanFilename = parts[len(parts)-1] // cite: 187

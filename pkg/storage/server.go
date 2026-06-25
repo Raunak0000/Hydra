@@ -21,6 +21,7 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string)) *
 	}
 
 	s.Router.HandleFunc("POST /download", s.handleDownloadTrigger)
+	s.Router.HandleFunc("OPTIONS /download", s.handleDownloadTrigger)
 	s.Router.HandleFunc("GET /", s.handleRenderDashboard)
 	s.Router.HandleFunc("GET /api/queue", s.handleGetQueueSnippet)
 
@@ -30,6 +31,22 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string)) *
 // pkg/storage/server.go
 
 func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
+	// Enable CORS for cross-origin requests (e.g. from bookmarklets or browser pages)
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	// Handle preflight requests
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	var payload struct {
 		URL      string `json:"url"`
 		SavePath string `json:"save_path"`

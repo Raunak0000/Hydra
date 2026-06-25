@@ -17,7 +17,11 @@ func PreallocateSpace(filePath string, size int64) (*os.File, error) {
 	// 2. Grab the low-level Linux File Descriptor (int) from the Go file pointer
 	fd := int(file.Fd())
 
-	// 3. Invoke native Linux fallocate system call
+	// 3. Invoke native Linux fallocate system call if size is known and positive
+	if size <= 0 {
+		return file, nil
+	}
+
 	// Mode 0: Default behavior (allocates and fills space with zero-bytes)
 	// Offset 0: Start allocating right from the beginning of the file layout
 	err = syscall.Fallocate(fd, 0, 0, size)

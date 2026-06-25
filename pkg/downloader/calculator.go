@@ -15,7 +15,7 @@ func CalculateChunks(fileSize int64, numThreads int) []Chunk {
 		var endByte int64
 
 		if i == numThreads-1 {
-			endByte = fileSize
+			endByte = fileSize - 1
 		} else {
 			endByte = startByte + chunkSize - 1
 		}
