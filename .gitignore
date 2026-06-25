@@ -13,3 +13,14 @@ part_*.tmp
 .idea/
 .vscode/
 .DS_Store
+
+# Log Files
+*.log
+
+# Workspace Files
+go.work
+go.work.sum
+
+# Temporary Results
+downloaded_result.html
+hydra_optimized_output.zip
