@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -32,7 +33,7 @@ func main() {
 		} else {
 			totalSizeStr = "Unknown"
 		}
-		store.UpdateTotalSize(jobID, totalSizeStr)                                 // cite: 184
+		store.UpdateTotalSize(jobID, totalSizeStr) // cite: 184
 
 		var cleanName string                                       // cite: 184
 		if parts := strings.Split(savePath, "/"); len(parts) > 0 { // cite: 184
@@ -52,7 +53,7 @@ func main() {
 		} // cite: 185
 		defer sharedFile.Close() // cite: 185
 
-		numThreads := 4             // cite: 185
+		numThreads := 4                                   // cite: 185
 		if !metadata.AcceptRanges || metadata.Size <= 0 { // cite: 185
 			numThreads = 1 // cite: 185
 		} // cite: 185
@@ -93,13 +94,27 @@ func main() {
 		}()
 
 		// Phase C: Launch Parallel Thread Worker Pools
+		// Create a temporary placeholder channel to satisfy the signature requirement
+		tempStateChan := make(chan downloader.Chunk, numThreads*2)
+
 		go func() {
 			for _, chunk := range chunks { // cite: 185
-				wg.Add(1)                                                                                                  // cite: 186
-				go downloader.DownloadChunkParallel(metadata.FinalURL, chunk, sharedFile, &wg, workerErrors, progressChan) // cite: 186
+				wg.Add(1) // cite: 186
+
+				// Pass context.Background() and tempStateChan to match worker.go exactly
+				go downloader.DownloadChunkParallel(
+					context.Background(),
+					metadata.FinalURL,
+					chunk,
+					sharedFile,
+					&wg,
+					workerErrors,
+					progressChan,
+					tempStateChan,
+				)
 			} // cite: 186
 			wg.Wait()           // cite: 186
-			close(progressChan) // This line breaks the tracking range loop above safely once threads exit!
+			close(progressChan) // This line breaks the tracking range loop safely once threads exit!
 		}()
 
 		cancelChan := downloader.SetupSignalHandling(make(chan bool)) // cite: 187

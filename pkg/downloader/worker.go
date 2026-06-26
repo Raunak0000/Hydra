@@ -106,7 +106,13 @@ func DownloadChunkParallel(ctx context.Context, url string, chunk Chunk, finalFi
 
 			// Update the chunk's active position state
 			chunk.Start = writeOffset
-			stateUpdateChan <- chunk
+
+			// Safely push to channel without blocking by using a non-blocking select
+			select {
+			case stateUpdateChan <- chunk:
+			default:
+				// If channel buffer capacity hits its ceiling, drop update to keep network flowing
+			}
 
 			progressChan <- int64(bytesRead)
 		}

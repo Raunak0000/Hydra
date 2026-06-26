@@ -14,6 +14,7 @@ type UIJob struct {
 	ID         string       `json:"id"`
 	FileName   string       `json:"file_name"`
 	URL        string       `json:"url"`
+	SavePath   string       `json:"save_path"`
 	Progress   float64      `json:"progress"`
 	TotalSize  string       `json:"total_size"`
 	Downloaded string       `json:"downloaded"`
