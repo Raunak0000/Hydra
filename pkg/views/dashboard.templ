@@ -1,8 +1,9 @@
 package views
 
 import (
+	"encoding/json"
 	"fmt"
-	"github.com/Raunak0000/Hydra/pkg/models" // Points to our separate models package
+	"github.com/Raunak0000/Hydra/pkg/models"
 )
 
 templ Dashboard(jobs []models.UIJob) {
@@ -11,79 +12,463 @@ templ Dashboard(jobs []models.UIJob) {
 		<head>
 			<meta charset="UTF-8" />
 			<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-			<title>Hydra Download Core</title>
+			<title>Hydra Download Manager</title>
 			<script src="https://unpkg.com/htmx.org@1.9.10"></script>
 			<script src="https://unpkg.com/htmx.org/dist/ext/json-enc.js"></script>
 			<script src="https://cdn.tailwindcss.com"></script>
+			<style>
+				body {
+					font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+					background-color: #0b0c10;
+				}
+				/* Custom scrollbars for a clean developer interface */
+				::-webkit-scrollbar {
+					width: 6px;
+					height: 6px;
+				}
+				::-webkit-scrollbar-track {
+					background: #0f111a;
+				}
+				::-webkit-scrollbar-thumb {
+					background: #272a3d;
+					border-radius: 3px;
+				}
+				::-webkit-scrollbar-thumb:hover {
+					background: #3f4463;
+				}
+				.selected-row {
+					background-color: rgba(37, 99, 235, 0.15) !important;
+					border-left: 3px solid #2563eb;
+				}
+			</style>
 		</head>
-		<body class="bg-slate-900 text-slate-100 font-sans antialiased">
-			<div class="max-w-5xl mx-auto p-8">
-				<header class="flex justify-between items-center border-b border-slate-800 pb-6 mb-8">
+		<body class="text-slate-200 min-h-screen flex flex-col antialiased selection:bg-blue-600 selection:text-white">
+			
+			<!-- TOP MENU / NAVIGATION TOOLBAR -->
+			<header class="bg-[#121420] border-b border-slate-800/80 px-4 py-2.5 flex items-center justify-between shrink-0">
+				<div class="flex items-center gap-3">
+					<div class="h-7 w-7 rounded bg-blue-600 flex items-center justify-center text-white font-black text-sm tracking-tighter">
+						H
+					</div>
 					<div>
-						<h1 class="text-3xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">
-							Hydra Core Dashboard
-						</h1>
-						<p class="text-sm text-slate-400 mt-1">Native Linux Multi-Threaded Engine</p>
+						<h1 class="text-sm font-bold tracking-wide text-slate-100">HYDRA DOWNLOADER</h1>
+						<p class="text-[9px] text-slate-500 font-semibold tracking-wider uppercase -mt-0.5">Linux Core Daemon</p>
 					</div>
-					<div class="flex items-center gap-2 bg-slate-800 px-4 py-2 rounded-lg border border-slate-700">
-						<span class="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-						<span class="text-xs font-semibold text-slate-300 uppercase tracking-wider">Engine Operational</span>
+				</div>
+				
+				<!-- Global Action Toolbar -->
+				<div class="flex items-center gap-2">
+					<button onclick="openModal()" class="bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs px-3 py-1.5 rounded flex items-center gap-1.5 transition duration-150">
+						<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+						</svg>
+						New Task
+					</button>
+					<div class="h-4 w-[1px] bg-slate-800 mx-1"></div>
+					<div class="flex items-center gap-1.5 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded">
+						<span class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+						<span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Connected</span>
 					</div>
-				</header>
+				</div>
+			</header>
 
-				<main>
-					<h2 class="text-xl font-bold mb-4 text-slate-300">Active Queue Pipeline</h2>
+			<!-- MAIN PANELS WRAPPER -->
+			<div class="flex flex-1 min-h-0 overflow-hidden">
+				
+				<!-- LEFT SIDEBAR FILTER LIST -->
+				<aside class="w-52 bg-[#0f111a] border-r border-slate-800/60 p-3 flex flex-col gap-1 shrink-0 select-none">
+					<span class="text-[9px] font-bold text-slate-500 uppercase tracking-widest px-2 mb-2">Category Filters</span>
+					<button onclick="filterQueue('ALL')" id="filter-all" class="w-full text-left text-xs font-semibold px-3 py-2 rounded bg-slate-800/60 text-slate-200 flex items-center justify-between group transition">
+						<span class="flex items-center gap-2">
+							📁 All Tasks
+						</span>
+						<span class="text-[10px] text-slate-500 group-hover:text-slate-400" id="count-all">0</span>
+					</button>
+					<button onclick="filterQueue('DOWNLOADING')" id="filter-downloading" class="w-full text-left text-xs font-semibold px-3 py-2 rounded text-slate-400 hover:bg-slate-850 hover:text-slate-200 flex items-center justify-between group transition">
+						<span class="flex items-center gap-2 text-blue-400">
+							⚡ Active
+						</span>
+						<span class="text-[10px] text-slate-500" id="count-downloading">0</span>
+					</button>
+					<button onclick="filterQueue('PAUSED')" id="filter-paused" class="w-full text-left text-xs font-semibold px-3 py-2 rounded text-slate-400 hover:bg-slate-850 hover:text-slate-200 flex items-center justify-between group transition">
+						<span class="flex items-center gap-2 text-amber-500">
+							⏸ Paused
+						</span>
+						<span class="text-[10px] text-slate-500" id="count-paused">0</span>
+					</button>
+					<button onclick="filterQueue('COMPLETED')" id="filter-completed" class="w-full text-left text-xs font-semibold px-3 py-2 rounded text-slate-400 hover:bg-slate-850 hover:text-slate-200 flex items-center justify-between group transition">
+						<span class="flex items-center gap-2 text-emerald-500">
+							✅ Completed
+						</span>
+						<span class="text-[10px] text-slate-500" id="count-completed">0</span>
+					</button>
+				</aside>
+
+				<!-- RIGHT MAIN CONTENT WORKSPACE -->
+				<div class="flex-1 flex flex-col min-w-0 overflow-hidden">
 					
-					<div id="download-queue" hx-get="/api/queue" hx-trigger="every 1s" hx-swap="innerHTML" class="grid gap-4">
-						@QueueRows(jobs)
+					<!-- TASK LIST SCROLLABLE VIEW -->
+					<div class="flex-1 overflow-auto bg-[#0c0d12]">
+						<table class="w-full border-collapse text-left text-xs">
+							<thead>
+								<tr class="bg-[#121420]/80 border-b border-slate-800/80 sticky top-0 text-slate-400 font-bold select-none z-10">
+									<th class="px-4 py-2.5 font-bold w-1/3">File Name</th>
+									<th class="px-4 py-2.5 font-bold w-1/6">Size / Downloaded</th>
+									<th class="px-4 py-2.5 font-bold w-1/4">Progress</th>
+									<th class="px-4 py-2.5 font-bold w-1/12">Status</th>
+									<th class="px-4 py-2.5 font-bold w-1/12 text-right">Actions</th>
+								</tr>
+							</thead>
+							<tbody id="download-queue" hx-get="/api/queue" hx-trigger="every 1s" hx-swap="innerHTML" hx-on::after-settle="updateUIState()" class="divide-y divide-slate-800/40">
+								@QueueRows(jobs)
+							</tbody>
+						</table>
 					</div>
-				</main>
+
+					<!-- DETAILED INFORMATION BOTTOM TAB PANEL -->
+					<div class="h-64 bg-[#0f111a] border-t border-slate-800/80 flex flex-col shrink-0">
+						<div class="bg-[#121420] border-b border-slate-800/60 px-4 py-1.5 flex items-center gap-4 shrink-0 select-none">
+							<span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Task Inspector</span>
+							<div class="h-4 w-[1px] bg-slate-800"></div>
+							<button onclick="switchTab('general')" id="tab-btn-general" class="text-xs font-bold text-blue-500 border-b-2 border-blue-500 px-1 py-1">General</button>
+							<button onclick="switchTab('workers')" id="tab-btn-workers" class="text-xs font-semibold text-slate-500 hover:text-slate-350 px-1 py-1">Worker Threads</button>
+						</div>
+						
+						<!-- Tab Contents -->
+						<div class="flex-1 p-4 overflow-auto text-xs">
+							<!-- Selected state -->
+							<div id="inspector-idle" class="h-full flex items-center justify-center text-slate-500 font-medium">
+								Select a task from the list above to view details
+							</div>
+							
+							<div id="inspector-active" class="hidden h-full flex flex-col gap-3">
+								<!-- General Tab Content -->
+								<div id="tab-content-general" class="grid grid-cols-2 gap-x-8 gap-y-2.5">
+									<div>
+										<span class="text-slate-500 block font-semibold text-[10px] uppercase">File Name</span>
+										<span id="inspect-filename" class="text-slate-200 font-bold">N/A</span>
+									</div>
+									<div>
+										<span class="text-slate-500 block font-semibold text-[10px] uppercase">Storage Destination</span>
+										<span id="inspect-savepath" class="text-slate-300 font-mono">N/A</span>
+									</div>
+									<div class="col-span-2">
+										<span class="text-slate-500 block font-semibold text-[10px] uppercase">Source URL</span>
+										<a id="inspect-url" href="#" target="_blank" class="text-blue-400 font-mono truncate block hover:underline">N/A</a>
+									</div>
+								</div>
+								
+								<!-- Workers Tab Content -->
+								<div id="tab-content-workers" class="hidden">
+									<div class="flex justify-between items-center mb-2">
+										<span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Parallel Chunk Offsets</span>
+									</div>
+									<div id="inspect-workers-grid" class="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+										<!-- Will be dynamically populated by JS -->
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+
+				</div>
 			</div>
+
+			<!-- ADD TASK MODAL OVERLAY -->
+			<div id="new-task-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm select-none">
+				<div class="w-[500px] bg-[#121420] border border-slate-800 rounded-xl p-5 shadow-2xl">
+					<div class="flex justify-between items-center pb-3 border-b border-slate-800 mb-4">
+						<h3 class="text-sm font-bold text-slate-100 uppercase tracking-wider">Create New Download Task</h3>
+						<button onclick="closeModal()" class="text-slate-400 hover:text-slate-200">
+							<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+							</svg>
+						</button>
+					</div>
+					<form hx-post="/download" hx-ext="json-enc" hx-swap="none" hx-on::after-request="closeModal()" class="space-y-4">
+						<div>
+							<label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Source URL</label>
+							<input type="url" name="url" placeholder="https://..." required class="w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono" />
+						</div>
+						<div>
+							<label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Save Path</label>
+							<input type="text" name="save_path" value="/home/raunak/Downloads/" required class="w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono" />
+						</div>
+						<div class="flex justify-end gap-2 pt-2 border-t border-slate-800">
+							<button type="button" onclick="closeModal()" class="px-4 py-2 bg-slate-900 border border-slate-800 hover:bg-slate-850 text-slate-300 rounded text-xs font-bold transition">Cancel</button>
+							<button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold transition">Download</button>
+						</div>
+					</form>
+				</div>
+			</div>
+
+			<!-- CLIENT SIDE JAVASCRIPT STATE CONTROL -->
+			<script>
+				let selectedJobId = null;
+				let activeFilter = 'ALL';
+				let currentTab = 'general';
+
+				function openModal() {
+					document.getElementById('new-task-modal').classList.remove('hidden');
+				}
+				function closeModal() {
+					document.getElementById('new-task-modal').classList.add('hidden');
+				}
+
+				function switchTab(tab) {
+					currentTab = tab;
+					const gBtn = document.getElementById('tab-btn-general');
+					const wBtn = document.getElementById('tab-btn-workers');
+					const gContent = document.getElementById('tab-content-general');
+					const wContent = document.getElementById('tab-content-workers');
+
+					if (tab === 'general') {
+						gBtn.className = "text-xs font-bold text-blue-500 border-b-2 border-blue-500 px-1 py-1";
+						wBtn.className = "text-xs font-semibold text-slate-500 hover:text-slate-350 px-1 py-1";
+						gContent.classList.remove('hidden');
+						wContent.classList.add('hidden');
+					} else {
+						wBtn.className = "text-xs font-bold text-blue-500 border-b-2 border-blue-500 px-1 py-1";
+						gBtn.className = "text-xs font-semibold text-slate-500 hover:text-slate-350 px-1 py-1";
+						wContent.classList.remove('hidden');
+						gContent.classList.add('hidden');
+					}
+				}
+
+				function filterQueue(filter) {
+					activeFilter = filter;
+					
+					// Update sidebar styles
+					['all', 'downloading', 'paused', 'completed'].forEach(f => {
+						const el = document.getElementById(`filter-${f}`);
+						if (f === filter.toLowerCase()) {
+							el.classList.add('bg-slate-850', 'text-slate-200');
+							el.classList.remove('text-slate-400');
+						} else {
+							el.classList.remove('bg-slate-850', 'text-slate-200');
+							el.classList.add('text-slate-400');
+						}
+					});
+
+					applyFilteringToRows();
+				}
+
+				function applyFilteringToRows() {
+					const rows = document.querySelectorAll('.download-row');
+					rows.forEach(row => {
+						const status = row.getAttribute('data-status');
+						if (activeFilter === 'ALL' || status === activeFilter) {
+							row.classList.remove('hidden');
+						} else {
+							row.classList.add('hidden');
+						}
+					});
+				}
+
+				function selectJob(row) {
+					document.querySelectorAll('.download-row').forEach(r => r.classList.remove('selected-row'));
+					
+					const id = row.getAttribute('data-id');
+					selectedJobId = id;
+					row.classList.add('selected-row');
+
+					document.getElementById('inspector-idle').classList.add('hidden');
+					document.getElementById('inspector-active').classList.remove('hidden');
+
+					updateInspectorValues(row);
+				}
+
+				function updateInspectorValues(row) {
+					// Copy data elements from row variables
+					document.getElementById('inspect-filename').innerText = row.getAttribute('data-filename');
+					document.getElementById('inspect-savepath').innerText = row.getAttribute('data-savepath');
+					
+					const url = row.getAttribute('data-url');
+					const urlLink = document.getElementById('inspect-url');
+					urlLink.innerText = url;
+					urlLink.href = url;
+
+					// Chunks parsing
+					const chunksJson = row.getAttribute('data-chunks');
+					const grid = document.getElementById('inspect-workers-grid');
+					grid.innerHTML = '';
+
+					if (chunksJson) {
+						try {
+							const chunks = JSON.parse(chunksJson);
+							if (chunks && chunks.length > 0) {
+								chunks.forEach(ch => {
+									let percent = 0;
+									if (ch.completed) {
+										percent = 100;
+									} else if (ch.end > ch.start) {
+										percent = Math.floor((ch.current_offset - ch.start) / (ch.end - ch.start) * 100);
+										if (percent < 0) percent = 0;
+										if (percent > 100) percent = 100;
+									}
+
+									const card = document.createElement('div');
+									card.className = "bg-[#0b0c10] border border-slate-800 rounded p-2.5";
+									card.innerHTML = `
+										<div class="flex justify-between items-center text-[9px] mb-1 font-bold">
+											<span class="text-slate-500">CHANNEL #${ch.index + 1}</span>
+											<span class="${ch.completed ? 'text-emerald-400' : 'text-blue-400'}">${percent}%</span>
+										</div>
+										<div class="w-full bg-slate-900 h-1 rounded overflow-hidden">
+											<div class="h-full ${ch.completed ? 'bg-emerald-500' : 'bg-blue-600'} transition-all duration-300" style="width: ${percent}%"></div>
+										</div>
+									`;
+									grid.appendChild(card);
+								});
+							} else {
+								grid.innerHTML = '<span class="text-slate-500 italic text-[11px]">No active download thread segments allocated.</span>';
+							}
+						} catch (e) {
+							console.error("Failed to parse chunks JSON", e);
+						}
+					} else {
+						grid.innerHTML = '<span class="text-slate-500 italic text-[11px]">No thread information stored.</span>';
+					}
+				}
+
+				// Updates UI classes, filters, highlights, and counts after HTMX refresh
+				function updateUIState() {
+					applyFilteringToRows();
+
+					// Keep row highlighted if it was selected
+					if (selectedJobId) {
+						const selectedRow = document.querySelector(`.download-row[data-id="${selectedJobId}"]`);
+						if (selectedRow) {
+							selectedRow.classList.add('selected-row');
+							updateInspectorValues(selectedRow); // Live update of inspectors values (progress, chunks)
+						} else {
+							// If selected task was deleted/purged
+							selectedJobId = null;
+							document.getElementById('inspector-idle').classList.remove('hidden');
+							document.getElementById('inspector-active').classList.add('hidden');
+						}
+					}
+
+					// Update Category Counters
+					let total = 0, active = 0, paused = 0, completed = 0;
+					document.querySelectorAll('.download-row').forEach(row => {
+						total++;
+						const status = row.getAttribute('data-status');
+						if (status === 'DOWNLOADING') active++;
+						else if (status === 'PAUSED') paused++;
+						else if (status === 'COMPLETED') completed++;
+					});
+
+					document.getElementById('count-all').innerText = total;
+					document.getElementById('count-downloading').innerText = active;
+					document.getElementById('count-paused').innerText = paused;
+					document.getElementById('count-completed').innerText = completed;
+				}
+
+				// Run count setup on initial page load
+				window.addEventListener('DOMContentLoaded', () => {
+					updateUIState();
+				});
+			</script>
 		</body>
 	</html>
 }
 
 templ QueueRows(jobs []models.UIJob) {
 	if len(jobs) == 0 {
-		<div class="bg-slate-800/40 border-2 border-dashed border-slate-800 rounded-xl p-12 text-center">
-			<p class="text-slate-400 font-medium">No download jobs currently running in the active pipeline.</p>
-			<p class="text-xs text-slate-500 mt-1">Use your Send to Hydra bookmarklet to catch links.</p>
-		</div>
+		<tr>
+			<td colspan="5" class="px-4 py-16 text-center text-slate-500 italic">
+				No tasks present in the pipeline. Click "New Task" or use the browser extension.
+			</td>
+		</tr>
 	} else {
 		for _, job := range jobs {
-			<div class="bg-slate-800 border border-slate-700/60 rounded-xl p-5 shadow-lg transition duration-200 hover:border-slate-600">
-				<div class="flex justify-between items-start gap-4 mb-3">
-					<div class="min-w-0 flex-1">
-						<h3 class="font-semibold text-slate-200 truncate" title={ job.FileName }>{ job.FileName }</h3>
-						<p class="text-xs text-slate-400 truncate mt-0.5" title={ job.URL }>{ job.URL }</p>
+			{{
+				// Pre-convert chunks to JSON string for easier JS extraction in detail views
+				chunksJSON := "[]"
+				if len(job.Chunks) > 0 {
+					if bytes, err := json.Marshal(job.Chunks); err == nil {
+						chunksJSON = string(bytes)
+					}
+				}
+			}}
+			<tr 
+				class="download-row hover:bg-slate-800/35 transition cursor-pointer" 
+				data-id={ job.ID } 
+				data-filename={ job.FileName } 
+				data-savepath={ job.SavePath } 
+				data-url={ job.URL } 
+				data-status={ job.Status }
+				data-chunks={ chunksJSON }
+				onclick="selectJob(this)"
+			>
+				<!-- Filename & URL Column -->
+				<td class="px-4 py-2.5 max-w-[320px]">
+					<div class="font-semibold text-slate-200 truncate" title={ job.FileName }>{ job.FileName }</div>
+					<div class="text-[10px] text-slate-500 truncate font-mono mt-0.5" title={ job.URL }>{ job.URL }</div>
+				</td>
+				
+				<!-- Size Metrics Column -->
+				<td class="px-4 py-2.5 font-mono text-slate-400 select-none">
+					<span>{ job.Downloaded }</span> / <span class="text-slate-600">{ job.TotalSize }</span>
+				</td>
+				
+				<!-- Compact Progress Bar Column -->
+				<td class="px-4 py-2.5 select-none">
+					<div class="flex items-center gap-3">
+						<div class="flex-1 bg-slate-900 border border-slate-800/80 h-2.5 rounded overflow-hidden">
+							if job.Status == "DOWNLOADING" {
+								<div class="h-full bg-blue-600 rounded transition-all duration-300" style={ fmt.Sprintf("width: %.1f%%", job.Progress) }></div>
+							} else if job.Status == "PAUSED" {
+								<div class="h-full bg-amber-500 rounded transition-all duration-300" style={ fmt.Sprintf("width: %.1f%%", job.Progress) }></div>
+							} else {
+								<div class="h-full bg-emerald-500 rounded transition-all duration-300" style={ fmt.Sprintf("width: %.1f%%", job.Progress) }></div>
+							}
+						</div>
+						<span class="w-10 text-right font-bold font-mono text-slate-300">{ fmt.Sprintf("%.1f%%", job.Progress) }</span>
 					</div>
-					<div class="flex items-center gap-2">
+				</td>
+				
+				<!-- Compact Status Badge Column -->
+				<td class="px-4 py-2.5 select-none">
+					if job.Status == "DOWNLOADING" {
+						<span class="text-blue-400 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5">
+							<span class="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse"></span>
+							Active
+						</span>
+					} else if job.Status == "PAUSED" {
+						<span class="text-amber-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5">
+							<span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+							Paused
+						</span>
+					} else if job.Status == "COMPLETED" {
+						<span class="text-emerald-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5">
+							<span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+							Finished
+						</span>
+					} else {
+						<span class="text-rose-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5">
+							<span class="h-1.5 w-1.5 rounded-full bg-rose-500"></span>
+							Error
+						</span>
+					}
+				</td>
+				
+				<!-- Action Buttons Column -->
+				<td class="px-4 py-2.5 text-right select-none">
+					<div class="inline-flex gap-1.5">
 						if job.Status == "DOWNLOADING" {
-							<button hx-post={ fmt.Sprintf("/api/download/pause?id=%s", job.ID) } hx-swap="none" class="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold px-3 py-1 rounded text-xs transition duration-200">
-								Pause
+							<button hx-post={ fmt.Sprintf("/api/download/pause?id=%s", job.ID) } hx-swap="none" class="bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:border-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1">
+								⏸ Pause
 							</button>
 						} else if job.Status == "PAUSED" {
-							<button hx-post={ fmt.Sprintf("/api/download/resume?id=%s", job.ID) } hx-swap="none" class="bg-emerald-500 hover:bg-emerald-600 text-slate-900 font-bold px-3 py-1 rounded text-xs transition duration-200">
-								Resume
+							<button hx-post={ fmt.Sprintf("/api/download/resume?id=%s", job.ID) } hx-swap="none" class="bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:border-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1">
+								▶ Resume
 							</button>
 						}
-						<span class="bg-cyan-500/10 text-cyan-400 text-xs font-medium px-2.5 py-1 rounded-md border border-cyan-500/20 whitespace-nowrap">
-							{ job.Status }
-						</span>
 					</div>
-				</div>
-				
-				<div class="w-full bg-slate-700 rounded-full h-2 mb-2 overflow-hidden">
-					<div class="bg-gradient-to-r from-cyan-500 to-blue-500 h-2 rounded-full transition-all duration-300" style={ fmt.Sprintf("width: %.1f%%", job.Progress) }></div>
-				</div>
-				
-				<div class="flex justify-between items-center text-xs text-slate-400 font-medium">
-					<div>
-						<span>{ job.Downloaded }</span> / <span class="text-slate-500">{ job.TotalSize }</span>
-					</div>
-					<span class="text-cyan-400 font-bold">{ fmt.Sprintf("%.1f%%", job.Progress) }</span>
-				</div>
-			</div>
+				</td>
+			</tr>
 		}
 	}
 }
