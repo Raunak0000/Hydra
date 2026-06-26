@@ -75,6 +75,24 @@ func (s *MemoryStore) UpdateStatus(id string, status string) {
 	}
 }
 
+func (s *MemoryStore) GetJob(id string) (models.UIJob, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if job, exists := s.Jobs[id]; exists && job != nil {
+		return models.UIJob{
+			ID:         job.ID,
+			FileName:   job.FileName,
+			URL:        job.URL,
+			SavePath:   job.SavePath,
+			Progress:   job.Progress,
+			TotalSize:  job.TotalSize,
+			Downloaded: job.Downloaded,
+			Status:     job.Status,
+		}, true
+	}
+	return models.UIJob{}, false
+}
+
 // pkg/storage/store.go
 
 func (s *MemoryStore) GetAllJobs() []models.UIJob {

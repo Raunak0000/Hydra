@@ -1,12 +1,20 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/Raunak0000/Hydra/pkg/models"
 	"github.com/Raunak0000/Hydra/pkg/views"
+)
+
+// Shared synchronization references injected from main.go
+var (
+	GlobalCancelMap   map[string]context.CancelFunc
+	GlobalCancelMutex *sync.Mutex
 )
 
 type Server struct {
@@ -24,6 +32,8 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string)) *
 	s.Router.HandleFunc("OPTIONS /download", s.handleDownloadTrigger)
 	s.Router.HandleFunc("GET /", s.handleRenderDashboard)
 	s.Router.HandleFunc("GET /api/queue", s.handleGetQueueSnippet)
+	s.Router.HandleFunc("POST /api/download/pause", s.handlePauseJob)
+	s.Router.HandleFunc("POST /api/download/resume", s.handleResumeJob)
 
 	return s
 }
@@ -76,6 +86,7 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		ID:         jobID,            // cite: 213
 		FileName:   "Calculating...", // cite: 213
 		URL:        payload.URL,      // cite: 213
+		SavePath:   securedPath,      // Persist the final absolute path
 		Progress:   0.0,              // cite: 213
 		Downloaded: "0.00 MB",        // cite: 213
 		Status:     "DOWNLOADING",    // cite: 213
@@ -127,4 +138,39 @@ func (s *Server) handleGetQueueSnippet(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "Failed to render queue rows component frames: "+err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func (s *Server) handlePauseJob(w http.ResponseWriter, r *http.Request) {
+	jobID := r.URL.Query().Get("id")
+	if jobID == "" {
+		http.Error(w, "Missing job id parameter", http.StatusBadRequest)
+		return
+	}
+
+	if GlobalCancelMutex != nil && GlobalCancelMap != nil {
+		GlobalCancelMutex.Lock()
+		if cancel, exists := GlobalCancelMap[jobID]; exists {
+			cancel() // TRIGGER THE GENTLE CONTEXT CANCEL THREAD INTERRUPT
+		}
+		GlobalCancelMutex.Unlock()
+	}
+
+	store := GetStore()
+	store.UpdateStatus(jobID, "PAUSED")
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleResumeJob(w http.ResponseWriter, r *http.Request) {
+	jobID := r.URL.Query().Get("id")
+	if jobID == "" {
+		http.Error(w, "Missing job id parameter", http.StatusBadRequest)
+		return
+	}
+
+	store := GetStore()
+	store.UpdateStatus(jobID, "DOWNLOADING")
+	if job, exists := store.GetJob(jobID); exists {
+		go s.ExecuteDownloadJob(job.URL, job.SavePath, job.ID)
+	}
+	w.WriteHeader(http.StatusOK)
 }

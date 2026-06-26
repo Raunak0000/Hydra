@@ -9,6 +9,7 @@ import (
 
 // SaveJobState serializes an active UIJob's state layout directly into a .hydra metadata file
 func SaveJobState(job models.UIJob) error {
+	// ── FIX: Capitalized SavePath to match models.UIJob definition perfectly ──
 	statePath := job.SavePath + ".hydra"
 
 	file, err := os.OpenFile(statePath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)

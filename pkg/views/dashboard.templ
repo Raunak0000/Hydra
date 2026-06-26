@@ -57,9 +57,20 @@ templ QueueRows(jobs []models.UIJob) {
 						<h3 class="font-semibold text-slate-200 truncate" title={ job.FileName }>{ job.FileName }</h3>
 						<p class="text-xs text-slate-400 truncate mt-0.5" title={ job.URL }>{ job.URL }</p>
 					</div>
-					<span class="bg-cyan-500/10 text-cyan-400 text-xs font-medium px-2.5 py-1 rounded-md border border-cyan-500/20 whitespace-nowrap">
-						{ job.Status }
-					</span>
+					<div class="flex items-center gap-2">
+						if job.Status == "DOWNLOADING" {
+							<button hx-post={ fmt.Sprintf("/api/download/pause?id=%s", job.ID) } hx-swap="none" class="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold px-3 py-1 rounded text-xs transition duration-200">
+								Pause
+							</button>
+						} else if job.Status == "PAUSED" {
+							<button hx-post={ fmt.Sprintf("/api/download/resume?id=%s", job.ID) } hx-swap="none" class="bg-emerald-500 hover:bg-emerald-600 text-slate-900 font-bold px-3 py-1 rounded text-xs transition duration-200">
+								Resume
+							</button>
+						}
+						<span class="bg-cyan-500/10 text-cyan-400 text-xs font-medium px-2.5 py-1 rounded-md border border-cyan-500/20 whitespace-nowrap">
+							{ job.Status }
+						</span>
+					</div>
 				</div>
 				
 				<div class="w-full bg-slate-700 rounded-full h-2 mb-2 overflow-hidden">
