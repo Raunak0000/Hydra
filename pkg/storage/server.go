@@ -22,18 +22,37 @@ type Server struct {
 	ExecuteDownloadJob func(url string, savePath string, jobID string)
 }
 
+// pkg/storage/server.go -> Update your NewServer mapping block
+
 func NewServer(executeJobFunc func(url string, savePath string, jobID string)) *Server {
 	s := &Server{
 		Router:             http.NewServeMux(),
 		ExecuteDownloadJob: executeJobFunc,
 	}
 
-	s.Router.HandleFunc("POST /download", s.handleDownloadTrigger)
-	s.Router.HandleFunc("OPTIONS /download", s.handleDownloadTrigger)
-	s.Router.HandleFunc("GET /", s.handleRenderDashboard)
-	s.Router.HandleFunc("GET /api/queue", s.handleGetQueueSnippet)
-	s.Router.HandleFunc("POST /api/download/pause", s.handlePauseJob)
-	s.Router.HandleFunc("POST /api/download/resume", s.handleResumeJob)
+	// ── BULLETPROOF CORS MIDDLEWARE INTERCEPTOR ──
+	withCORS := func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			// Clear access barriers completely for extension runtime scopes
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+			// If browser is just probing for cross-origin permissions, intercept and approve instantly!
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			next(w, r)
+		}
+	}
+
+	// Bind your routes safely without rigid method prefix constraints
+	s.Router.HandleFunc("/download", withCORS(s.handleDownloadTrigger))
+	s.Router.HandleFunc("/", s.handleRenderDashboard)
+	s.Router.HandleFunc("/api/queue", s.handleGetQueueSnippet)
+	s.Router.HandleFunc("/api/download/pause", s.handlePauseJob)
+	s.Router.HandleFunc("/api/download/resume", s.handleResumeJob)
 
 	return s
 }

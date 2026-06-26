@@ -1,0 +1,30 @@
+{
+    "manifest_version": 3,
+    "name": "Hydra Download Catcher",
+    "version": "1.0.0",
+    "description": "Automatically intercepts browser downloads and routes them straight to Hydra Core Engine.",
+    "permissions": [
+        "downloads",
+        "cookies",
+        "webRequest",
+        "activeTab"
+    ],
+    "host_permissions": [
+        "<all_urls>",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+    ],
+    "background": {
+        "scripts": [
+            "background.js"
+        ]
+    },
+    "action": {
+        "default_title": "Hydra Catcher Active"
+    },
+    "browser_specific_settings": {
+        "gecko": {
+            "id": "hydra-download-catcher@raunak.local"
+        }
+    }
+}
