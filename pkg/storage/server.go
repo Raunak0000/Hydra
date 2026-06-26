@@ -160,6 +160,8 @@ func (s *Server) handlePauseJob(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// pkg/storage/server.go -> Update your resume handler at the bottom
+
 func (s *Server) handleResumeJob(w http.ResponseWriter, r *http.Request) {
 	jobID := r.URL.Query().Get("id")
 	if jobID == "" {
@@ -168,9 +170,27 @@ func (s *Server) handleResumeJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	store := GetStore()
-	store.UpdateStatus(jobID, "DOWNLOADING")
-	if job, exists := store.GetJob(jobID); exists {
-		go s.ExecuteDownloadJob(job.URL, job.SavePath, job.ID)
+
+	// 1. Thread-safely extract the existing job details from memory cache
+	store.mu.RLock()
+	job, exists := store.Jobs[jobID]
+	var targetURL, targetSavePath string
+	if exists && job != nil {
+		targetURL = job.URL
+		targetSavePath = job.SavePath
 	}
+	store.mu.RUnlock()
+
+	if !exists || job == nil {
+		http.Error(w, "Job profile not found in active cache store", http.StatusNotFound)
+		return
+	}
+
+	// 2. Mark its state back to DOWNLOADING so the UI updates
+	store.UpdateStatus(jobID, "DOWNLOADING")
+
+	// 3. 🚀 RE-LAUNCH THE DOWNLOAD CONCURRENCY WORKERS BACK INTO THE CORE PIPELINE!
+	go s.ExecuteDownloadJob(targetURL, targetSavePath, jobID)
+
 	w.WriteHeader(http.StatusOK)
 }
