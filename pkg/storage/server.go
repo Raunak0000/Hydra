@@ -108,6 +108,7 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		SavePath:   securedPath,      // Persist the final absolute path
 		Progress:   0.0,              // cite: 213
 		Downloaded: "0.00 MB",        // cite: 213
+		Speed:      "0.00 KB/s",
 		Status:     "DOWNLOADING",    // cite: 213
 	} // cite: 213
 

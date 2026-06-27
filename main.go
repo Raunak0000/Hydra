@@ -58,7 +58,7 @@ func main() {
 			cleanName = parts[len(parts)-1]
 		}
 		if cleanName != "" {
-			store.UpdateProgress(jobID, 0.0, "0.00 MB", cleanName, "DOWNLOADING")
+			store.UpdateProgress(jobID, 0.0, "0.00 MB", "0.00 KB/s", cleanName, "DOWNLOADING")
 		}
 
 		// Load state if exists
@@ -198,25 +198,53 @@ func main() {
 
 		// ── UNIFORM AND SECURE METRIC TRACKING PIPELINE LOOP ──
 		go func() {
-			for bytes := range progressChan {
-				totalDownloaded += bytes
-				downloadedStr := fmt.Sprintf("%.2f MB", float64(totalDownloaded)/(1024*1024))
-				globalStore := storage.GetStore()
-				var cleanFilename string
-				if parts := strings.Split(savePath, "/"); len(parts) > 0 {
-					cleanFilename = parts[len(parts)-1]
-				}
+			var totalDownloaded int64 = 0
+			var lastDownloaded int64 = 0
 
-				if metadata.Size > 0 {
-					percentage := (float64(totalDownloaded) / float64(metadata.Size)) * 100
-					globalStore.UpdateProgress(jobID, percentage, downloadedStr, cleanFilename, "DOWNLOADING")
-				} else {
-					globalStore.UpdateProgress(jobID, 0.0, downloadedStr, cleanFilename, "DOWNLOADING")
+			// Compute a 1-second interval delta window tick
+			ticker := time.NewTicker(1 * time.Second)
+			defer ticker.Stop()
+
+			var speedStr string = "0.00 KB/s"
+
+			for {
+				select {
+				case bytes, ok := <-progressChan:
+					if !ok {
+						close(tempStateChan) // cite: 297
+						stateWg.Wait()       // cite: 297
+						downloadDone <- true // cite: 297
+						return
+					}
+					totalDownloaded += bytes
+
+					// Format ongoing values instantly
+					downloadedStr := fmt.Sprintf("%.2f MB", float64(totalDownloaded)/(1024*1024))
+					var cleanFilename string
+					if parts := strings.Split(savePath, "/"); len(parts) > 0 {
+						cleanFilename = parts[len(parts)-1]
+					}
+
+					if metadata.Size > 0 {
+						percentage := (float64(totalDownloaded) / float64(metadata.Size)) * 100
+						store.UpdateProgress(jobID, percentage, downloadedStr, speedStr, cleanFilename, "DOWNLOADING")
+					} else {
+						store.UpdateProgress(jobID, 0.0, downloadedStr, speedStr, cleanFilename, "DOWNLOADING")
+					}
+
+				case <-ticker.C:
+					// Calculate differential bytes processed over the past 1 second window
+					deltaBytes := totalDownloaded - lastDownloaded
+					lastDownloaded = totalDownloaded
+
+					// Generate human readable speed metrics
+					if deltaBytes > 1024*1024 {
+						speedStr = fmt.Sprintf("%.2f MB/s", float64(deltaBytes)/(1024*1024))
+					} else {
+						speedStr = fmt.Sprintf("%.2f KB/s", float64(deltaBytes)/1024)
+					}
 				}
 			}
-			close(tempStateChan)
-			stateWg.Wait()
-			downloadDone <- true
 		}()
 
 		// Phase C: Launch Parallel Thread Worker Pools
@@ -266,7 +294,7 @@ func main() {
 				cleanFilename = parts[len(parts)-1]
 			}
 
-			storage.GetStore().UpdateProgress(jobID, 100.0, finalSizeStr, cleanFilename, "COMPLETED")
+			storage.GetStore().UpdateProgress(jobID, 100.0, finalSizeStr, "0.00 KB/s", cleanFilename, "COMPLETED")
 			storage.ClearJobState(savePath)
 			fmt.Printf("\n=== SUCCESS: FILE SAVED SAFELY TO %s ===\n", savePath)
 

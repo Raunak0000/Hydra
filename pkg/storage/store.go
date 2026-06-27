@@ -36,7 +36,7 @@ func (s *MemoryStore) SetJob(id string, job *models.UIJob) {
 	s.Jobs[id] = job
 }
 
-func (s *MemoryStore) UpdateProgress(jobID string, progress float64, downloaded string, filename string, status string) {
+func (s *MemoryStore) UpdateProgress(jobID string, progress float64, downloaded string, speed string, filename string, status string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -49,6 +49,7 @@ func (s *MemoryStore) UpdateProgress(jobID string, progress float64, downloaded 
 		// Mutate local frame copies
 		job.Progress = progress
 		job.Downloaded = downloaded
+		job.Speed = speed
 		job.Status = status
 
 		if filename != "" && filename != "Calculating..." {
@@ -87,7 +88,9 @@ func (s *MemoryStore) GetJob(id string) (models.UIJob, bool) {
 			Progress:   job.Progress,
 			TotalSize:  job.TotalSize,
 			Downloaded: job.Downloaded,
+			Speed:      job.Speed,
 			Status:     job.Status,
+			Chunks:     job.Chunks,
 		}, true
 	}
 	return models.UIJob{}, false
@@ -110,10 +113,13 @@ func (s *MemoryStore) GetAllJobs() []models.UIJob {
 			ID:         job.ID,
 			FileName:   job.FileName,
 			URL:        job.URL,
+			SavePath:   job.SavePath,
 			Progress:   job.Progress,
 			TotalSize:  job.TotalSize,
 			Downloaded: job.Downloaded,
+			Speed:      job.Speed,
 			Status:     job.Status,
+			Chunks:     job.Chunks,
 		})
 	}
 

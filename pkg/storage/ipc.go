@@ -85,6 +85,7 @@ func StartIPCServer(downloadTrigger func(string, string, string)) {
 					Progress:   0.0,              // cite: 208
 					TotalSize:  "Calculating...", // cite: 208
 					Downloaded: "0 B",            // cite: 208
+					Speed:      "0.00 KB/s",
 					Status:     "DOWNLOADING",    // cite: 208
 				}) // cite: 208
 
