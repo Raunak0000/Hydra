@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
@@ -20,9 +21,23 @@ var (
 	cancelMutex         sync.Mutex
 )
 
+// main.go -> Update the top of main() to parse daemon flags
+
 func main() {
-	// 1. DEFINE THE CORE MULTI-THREADED PIPELINE ENGINE
+	// 1. CHOOSE BACKGROUND EXECUTION FLAGS
+	daemonMode := flag.Bool("daemon", false, "Run Hydra core server as a detached background Linux daemon process")
+	shortDaemonMode := flag.Bool("d", false, "Run Hydra core server as a detached background Linux daemon process (shortcut)")
+	flag.Parse()
+
+	// 2. CHECK IF DETACHMENT IS REQUESTED
+	if *daemonMode || *shortDaemonMode {
+		fmt.Println("[⚙] Detaching process from terminal session context...")
+		storage.InitializeDaemon() // 🚀 Sever the TTY bond and fork grandchild log streams!
+	}
+
+	// 3. DEFINE THE CORE MULTI-THREADED PIPELINE ENGINE
 	executeDownloadJob := func(url string, savePath string, jobID string) {
+		// ... rest of your executeDownloadJob code matches file.txt completely ...
 		store := storage.GetStore()
 
 		// Set up context cancellation tracking for this active execution job run

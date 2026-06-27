@@ -8,55 +8,50 @@ import (
 )
 
 // InitializeDaemon detaches the calling process from the terminal interface and reroutes output streams
+// pkg/storage/daemon.go
+
 func InitializeDaemon() {
-	// 1. Look for our custom internal environment flag
 	if os.Getenv("HYDRA_DAEMON_CHILD") == "1" {
-		// =========================================================
-		// GRANDCHILD DESCRIPTOR REDIRECTION
-		// We are inside the background daemon instance. Reroute streams now!
-		// =========================================================
-		logFile, err := os.OpenFile("hydra.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-		if err != nil {
-			os.Exit(1) // Exit if we cannot open or initialize the log tracker
+		logFile, err := os.OpenFile("hydra.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666) // cite: file.txt
+		if err != nil {                                                                     // cite: file.txt
+			os.Exit(1) // cite: file.txt
 		}
 
-		// Grab the raw underlying OS file descriptor integer for our log file
-		logFd := int(logFile.Fd())
-
-		// syscall.Dup2 duplicates file descriptors.
-		// We override standard Output (1) and standard Error (2) handles to point directly to the log file.
-		syscall.Dup2(logFd, int(syscall.Stdout))
-		syscall.Dup2(logFd, int(syscall.Stderr))
-		return
+		logFd := int(logFile.Fd())               // cite: file.txt
+		syscall.Dup2(logFd, int(syscall.Stdout)) // cite: file.txt
+		syscall.Dup2(logFd, int(syscall.Stderr)) // cite: file.txt
+		return                                   // cite: file.txt
 	}
 
-	// 2. Locate the active executable binary
-	filePath, err := os.Executable()
-	if err != nil {
-		fmt.Printf("[X] Failed to locate system executable binary: %v\n", err)
-		os.Exit(1)
+	filePath, err := os.Executable() // cite: file.txt
+	if err != nil {                  // cite: file.txt
+		fmt.Printf("[X] Failed to locate system executable binary: %v\n", err) // cite: file.txt
+		os.Exit(1)                                                             // cite: file.txt
 	}
 
-	// 3. Configure the clone command using original arguments
-	cmd := exec.Command(filePath, os.Args[1:]...)
-
-	// 4. Set custom Linux operating system execution attributes to sever TTY bond
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setsid: true,
+	// 🚨 FIX: Filter out daemon flags to break the infinite fork cycle
+	var childArgs []string
+	for _, arg := range os.Args[1:] {
+		if arg != "--daemon" && arg != "-d" {
+			childArgs = append(childArgs, arg)
+		}
 	}
 
-	// 5. Inject our custom tracking flag into the environment profile
-	cmd.Env = append(os.Environ(), "HYDRA_DAEMON_CHILD=1")
+	// Configure the clone command using clean args
+	cmd := exec.Command(filePath, childArgs...)
 
-	// 6. Start the process asynchronously in the background
-	err = cmd.Start()
-	if err != nil {
-		fmt.Printf("[X] Failed to fork background daemon instance: %v\n", err)
-		os.Exit(1)
-	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{ // cite: file.txt
+		Setsid: true, // cite: file.txt
+	} // cite: file.txt
 
-	fmt.Printf("[🚀] Hydra core successfully detached! Daemon PID: %d. Exiting terminal handle.\n", cmd.Process.Pid)
+	cmd.Env = append(os.Environ(), "HYDRA_DAEMON_CHILD=1") // cite: file.txt
 
-	// 7. Terminate the original interactive terminal process instantly
-	os.Exit(0)
+	err = cmd.Start() // cite: file.txt
+	if err != nil {   // cite: file.txt
+		fmt.Printf("[X] Failed to fork background daemon instance: %v\n", err) // cite: file.txt
+		os.Exit(1)                                                             // cite: file.txt
+	} // cite: file.txt
+
+	fmt.Printf("[🚀] Hydra core successfully detached! Daemon PID: %d. Exiting terminal handle.\n", cmd.Process.Pid) // cite: file.txt
+	os.Exit(0)                                                                                                      // cite: file.txt
 }
