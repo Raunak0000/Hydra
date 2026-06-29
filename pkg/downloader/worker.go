@@ -4,136 +4,120 @@ import (
 	"context" // Added for loop cancellation monitoring
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"os"
-	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
-// DownloadChunkParallel accepts a context parameter to watch for pause interruptions safely
-func DownloadChunkParallel(ctx context.Context, url string, chunk Chunk, finalFile *os.File, wg *sync.WaitGroup, errChan chan error, progressChan chan int64, stateUpdateChan chan<- Chunk, headers map[string]string) { // 👈 ADD HEADERS PARAMETER
-	defer wg.Done() // cite: file(2).txt
+func DownloadChunkParallel(ctx context.Context, url string, myIndex int, trackers []*AdaptiveTracker, finalFile *os.File, wg *sync.WaitGroup, errChan chan error, progressChan chan int64, stateUpdateChan chan<- Chunk, headers map[string]string) {
+	defer wg.Done()
 
 	client := &http.Client{}
-	var resp *http.Response
-	maxAttempts := 15
-	var attemptErr error
+	me := trackers[myIndex]
 
-	// We compute starting offset dynamically based on past progress if resuming
-	writeOffset := chunk.Start
+	// Minimum threshold slice size to make stealing worth the round-trip latency overhead (e.g. 2MB)
+	const dynamicMinChunk int64 = 2 * 1024 * 1024
 
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		// Check context before making an outbound network request
-		if err := ctx.Err(); err != nil {
+	for {
+		// 1. Read current dynamic workload targets
+		writeOffset := atomic.LoadInt64(&me.CurrentPtr)
+		endBoundary := atomic.LoadInt64(&me.EndBoundary)
+
+		// If our target boundary has collapsed or completed, attempt to steal work from a slow sibling!
+		if writeOffset >= endBoundary {
+			newStart, newEnd, stolenFrom := StealWork(trackers, dynamicMinChunk)
+			if stolenFrom == nil {
+				// No viable work left to steal across any channels. Exit gracefully.
+				return
+			}
+
+			fmt.Printf("[⚡] Thread #%d dynamically STOLE %d MB from Channel #%d!\n",
+				myIndex+1, (newEnd-newStart)/(1024*1024), stolenFrom.Index+1)
+
+			// Initialize our local tracker pointers to manage the stolen byte array range
+			atomic.StoreInt64(&me.CurrentPtr, newStart)
+			atomic.StoreInt64(&me.EndBoundary, newEnd)
+			writeOffset = newStart
+			endBoundary = newEnd
+		}
+
+		// 2. Perform standard segment slice streaming download
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil) // cite: file(1).txt
+		if err != nil {
+			errChan <- fmt.Errorf("Thread %d init failed: %v", myIndex, err) // cite: file(1).txt
 			return
 		}
 
-		req, err := http.NewRequestWithContext(ctx, "GET", url, nil) // cite: file(2).txt
-		if err != nil { // cite: file(2).txt
-			errChan <- fmt.Errorf("Thread %d init failed: %v", chunk.Index, err) // cite: file(2).txt
-			return // cite: file(2).txt
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", writeOffset, endBoundary))
+		for key, value := range headers { // cite: file(1).txt
+			req.Header.Set(key, value) // cite: file(1).txt
+		}
+		if req.Header.Get("User-Agent") == "" { // cite: file(1).txt
+			req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36") // cite: file(1).txt
 		}
 
-		if chunk.End >= writeOffset { // cite: file(2).txt
-			rangeHeader := fmt.Sprintf("bytes=%d-%d", writeOffset, chunk.End) // cite: file(2).txt
-			req.Header.Set("Range", rangeHeader) // cite: file(2).txt
-		} else if writeOffset > 0 { // cite: file(2).txt
-			rangeHeader := fmt.Sprintf("bytes=%d-", writeOffset) // cite: file(2).txt
-			req.Header.Set("Range", rangeHeader) // cite: file(2).txt
-		}
-		
-		// 🚨 NEW: Inject browser headers dynamically into every chunk slice thread request
-		for key, value := range headers {
-			req.Header.Set(key, value)
-		}
-        if req.Header.Get("User-Agent") == "" {
-		    req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36") // cite: file(2).txt
-        }
-
-		resp, err = client.Do(req)
+		resp, err := client.Do(req) // cite: file(1).txt
 		if err != nil {
-			attemptErr = fmt.Errorf("Thread %d network link dropped: %v", chunk.Index, err)
-			jitter := time.Duration(rand.Intn(500)) * time.Millisecond
-			sleepDuration := time.Duration(1<<attempt)*100*time.Millisecond + jitter
-			if sleepDuration > 5*time.Second {
-				sleepDuration = 5*time.Second + jitter
-			}
-			time.Sleep(sleepDuration)
-			continue
-		}
-
-		if resp.StatusCode == http.StatusTooManyRequests {
-			retryAfter := resp.Header.Get("Retry-After")
-			jitter := time.Duration(rand.Intn(500)) * time.Millisecond
-			sleepDuration := time.Duration(1<<attempt)*100*time.Millisecond + jitter
-			if seconds, parseErr := strconv.Atoi(retryAfter); parseErr == nil && seconds > 0 {
-				sleepDuration = time.Duration(seconds)*time.Second + jitter
-			}
-			resp.Body.Close()
-			time.Sleep(sleepDuration)
+			time.Sleep(1 * time.Second) // Basic retry throttling interval backoff
 			continue
 		}
 
 		if resp.StatusCode != http.StatusPartialContent && resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
-			errChan <- fmt.Errorf("Thread %d server exception status: %d", chunk.Index, resp.StatusCode)
+			resp.Body.Close() // cite: file(1).txt
+			errChan <- fmt.Errorf("Thread %d exception: status %d", myIndex, resp.StatusCode)
 			return
 		}
 
-		attemptErr = nil
-		break
-	}
+		buffer := make([]byte, 32*1024) // cite: file(1).txt
+		streamFailed := false
 
-	if attemptErr != nil {
-		errChan <- fmt.Errorf("Thread %d failed after %d attempts: %v", chunk.Index, maxAttempts, attemptErr)
-		return
-	}
-	defer resp.Body.Close()
-
-	buffer := make([]byte, 32*1024)
-
-	for {
-		// Intercept context pause signals cleanly right before evaluating buffer reads
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		bytesRead, readErr := resp.Body.Read(buffer)
-		if bytesRead > 0 {
-			_, writeErr := finalFile.WriteAt(buffer[:bytesRead], writeOffset)
-			if writeErr != nil {
-				errChan <- fmt.Errorf("Thread %d disk write exception: %v", chunk.Index, writeErr)
-				return
-			}
-			writeOffset += int64(bytesRead)
-
-			// Update the chunk's active position state
-			chunk.Start = writeOffset
-
-			// Safely push to channel without blocking by using a non-blocking select
-			select {
-			case stateUpdateChan <- chunk:
-			default:
-				// If channel buffer capacity hits its ceiling, drop update to keep network flowing
-			}
-
-			progressChan <- int64(bytesRead)
-		}
-
-		if readErr == io.EOF {
-			break
-		}
-		if readErr != nil {
-			// Ignore read cancellations caused explicitly by forcing a pause network drop
+		for {
 			if ctx.Err() != nil {
+				resp.Body.Close() // cite: file(1).txt
 				return
 			}
-			errChan <- fmt.Errorf("Thread %d stream terminated: %v", chunk.Index, readErr)
-			return
+
+			bytesRead, readErr := resp.Body.Read(buffer) // cite: file(1).txt
+			if bytesRead > 0 {
+				// Defensive verification step: Make sure we don't bleed past our dynamic boundary cap
+				currentEnd := atomic.LoadInt64(&me.EndBoundary)
+				if writeOffset >= currentEnd {
+					break // Our boundary shifted inward due to theft or realignment. Break out to re-evaluate loops.
+				}
+
+				_, writeErr := finalFile.WriteAt(buffer[:bytesRead], writeOffset) // cite: file(1).txt
+				if writeErr != nil {
+					resp.Body.Close() // cite: file(1).txt
+					errChan <- fmt.Errorf("Thread %d write failed: %v", myIndex, writeErr)
+					return
+				}
+				writeOffset += int64(bytesRead) // cite: file(1).txt
+				atomic.StoreInt64(&me.CurrentPtr, writeOffset)
+
+				// Push updates up to UI serialization states safely
+				select {
+				case stateUpdateChan <- Chunk{Index: myIndex, Start: writeOffset, End: currentEnd}:
+				default:
+				}
+
+				progressChan <- int64(bytesRead) // cite: file(1).txt
+			}
+
+			if readErr == io.EOF { // cite: file(1).txt
+				break
+			}
+			if readErr != nil { // cite: file(1).txt
+				streamFailed = true
+				break
+			}
+		}
+		resp.Body.Close() // cite: file(1).txt
+
+		if !streamFailed && writeOffset >= atomic.LoadInt64(&me.EndBoundary) {
+			// We successfully finished our current sub-slice! Loop back up to check for more work to steal.
+			continue
 		}
 	}
 }
