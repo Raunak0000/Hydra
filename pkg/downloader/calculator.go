@@ -49,7 +49,7 @@ func CalculateChunks(fileSize int64, numThreads int) []Chunk {
 // StealWork searches active trackers to find the heaviest remaining load and splits it
 func StealWork(trackers []*AdaptiveTracker, dynamicMinChunk int64) (int64, int64, *AdaptiveTracker) {
 	var targetTracker *AdaptiveTracker
-	var maxRemaining bytes int64 = 0
+	var maxRemaining int64 = 0
 
 	// 1. Scan all active trackers to find the worker with the most work left
 	for _, tr := range trackers {

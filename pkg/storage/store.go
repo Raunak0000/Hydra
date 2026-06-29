@@ -76,6 +76,14 @@ func (s *MemoryStore) UpdateStatus(id string, status string) {
 	}
 }
 
+func (s *MemoryStore) UpdateJobChunks(id string, chunks []models.ChunkState) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if job, exists := s.Jobs[id]; exists {
+		job.Chunks = chunks
+	}
+}
+
 func (s *MemoryStore) GetJob(id string) (models.UIJob, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -43,30 +44,69 @@ func DownloadChunkParallel(ctx context.Context, url string, myIndex int, tracker
 			endBoundary = newEnd
 		}
 
-		// 2. Perform standard segment slice streaming download
-		req, err := http.NewRequestWithContext(ctx, "GET", url, nil) // cite: file(1).txt
-		if err != nil {
-			errChan <- fmt.Errorf("Thread %d init failed: %v", myIndex, err) // cite: file(1).txt
-			return
+		// 2. Perform standard segment slice streaming download with retry handling
+		var resp *http.Response
+		var makeReqErr error
+		maxAttempts := 15
+
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			if ctx.Err() != nil {
+				return
+			}
+
+			req, err := http.NewRequestWithContext(ctx, "GET", url, nil) // cite: file(1).txt
+			if err != nil {
+				errChan <- fmt.Errorf("Thread %d init failed: %v", myIndex, err) // cite: file(1).txt
+				return
+			}
+
+			req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", writeOffset, endBoundary))
+			for key, value := range headers { // cite: file(1).txt
+				req.Header.Set(key, value) // cite: file(1).txt
+			}
+			if req.Header.Get("User-Agent") == "" { // cite: file(1).txt
+				req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36") // cite: file(1).txt
+			}
+
+			resp, makeReqErr = client.Do(req) // cite: file(1).txt
+			if makeReqErr != nil {
+				// Retry with exponential backoff + jitter
+				sleepDuration := time.Duration(1<<attempt)*100*time.Millisecond + time.Duration(myIndex*50)*time.Millisecond
+				if sleepDuration > 5*time.Second {
+					sleepDuration = 5*time.Second
+				}
+				time.Sleep(sleepDuration)
+				continue
+			}
+
+			if resp.StatusCode == http.StatusTooManyRequests {
+				retryAfter := resp.Header.Get("Retry-After")
+				sleepDuration := time.Duration(1<<attempt)*200*time.Millisecond + time.Duration(myIndex*100)*time.Millisecond
+				if seconds, parseErr := strconv.Atoi(retryAfter); parseErr == nil && seconds > 0 {
+					sleepDuration = time.Duration(seconds)*time.Second
+				}
+				resp.Body.Close()
+				time.Sleep(sleepDuration)
+				continue
+			}
+
+			if resp.StatusCode != http.StatusPartialContent && resp.StatusCode != http.StatusOK {
+				resp.Body.Close() // cite: file(1).txt
+				makeReqErr = fmt.Errorf("status code %d", resp.StatusCode)
+				sleepDuration := time.Duration(1<<attempt)*100*time.Millisecond
+				if sleepDuration > 5*time.Second {
+					sleepDuration = 5*time.Second
+				}
+				time.Sleep(sleepDuration)
+				continue
+			}
+
+			makeReqErr = nil
+			break
 		}
 
-		req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", writeOffset, endBoundary))
-		for key, value := range headers { // cite: file(1).txt
-			req.Header.Set(key, value) // cite: file(1).txt
-		}
-		if req.Header.Get("User-Agent") == "" { // cite: file(1).txt
-			req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36") // cite: file(1).txt
-		}
-
-		resp, err := client.Do(req) // cite: file(1).txt
-		if err != nil {
-			time.Sleep(1 * time.Second) // Basic retry throttling interval backoff
-			continue
-		}
-
-		if resp.StatusCode != http.StatusPartialContent && resp.StatusCode != http.StatusOK {
-			resp.Body.Close() // cite: file(1).txt
-			errChan <- fmt.Errorf("Thread %d exception: status %d", myIndex, resp.StatusCode)
+		if makeReqErr != nil {
+			errChan <- fmt.Errorf("Thread %d request failed after %d attempts: %v", myIndex, maxAttempts, makeReqErr)
 			return
 		}
 
