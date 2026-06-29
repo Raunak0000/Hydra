@@ -36,7 +36,7 @@ func main() {
 	}
 
 	// 3. DEFINE THE CORE MULTI-THREADED PIPELINE ENGINE
-	executeDownloadJob := func(url string, savePath string, jobID string) {
+	executeDownloadJob := func(url string, savePath string, jobID string, headers map[string]string) {
 		// ... rest of your executeDownloadJob code matches file.txt completely ...
 		store := storage.GetStore()
 
@@ -53,7 +53,7 @@ func main() {
 		}()
 
 		// Phase A: Handshake & Multi-stage redirect verification
-		metadata, err := downloader.GetMetadata(url)
+		metadata, err := downloader.GetMetadata(url, headers)
 		if err != nil {
 			fmt.Printf("[X] Handshake system error for %s: %v\n", url, err)
 			store.UpdateStatus(jobID, "FAILED")
@@ -85,6 +85,9 @@ func main() {
 		if loadErr == nil && len(jobState.Chunks) > 0 {
 			stateLoaded = true
 			fmt.Printf("[⚙] Resuming download for job %s from saved state...\n", jobID)
+			if len(headers) == 0 && len(jobState.Headers) > 0 {
+				headers = jobState.Headers
+			}
 			for _, cs := range jobState.Chunks {
 				chunks = append(chunks, downloader.Chunk{
 					Index: cs.Index,
@@ -173,6 +176,7 @@ func main() {
 								Downloaded: fmt.Sprintf("%.2f MB", float64(totalDownloaded)/(1024*1024)),
 								Status:     "DOWNLOADING",
 								Chunks:     chunkStates,
+								Headers:    headers,
 							}
 							if metadata.Size <= 0 {
 								jobState.Progress = 0.0
@@ -200,6 +204,7 @@ func main() {
 							Downloaded: fmt.Sprintf("%.2f MB", float64(totalDownloaded)/(1024*1024)),
 							Status:     "DOWNLOADING",
 							Chunks:     chunkStates,
+							Headers:    headers,
 						}
 						if metadata.Size <= 0 {
 							jobState.Progress = 0.0
@@ -270,7 +275,7 @@ func main() {
 					continue
 				}
 				wg.Add(1)
-				go downloader.DownloadChunkParallel(jobCtx, metadata.FinalURL, chunk, sharedFile, &wg, workerErrors, progressChan, tempStateChan)
+				go downloader.DownloadChunkParallel(jobCtx, metadata.FinalURL, chunk, sharedFile, &wg, workerErrors, progressChan, tempStateChan, headers)
 			}
 			wg.Wait()
 			close(progressChan)

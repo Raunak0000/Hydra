@@ -19,12 +19,12 @@ var (
 
 type Server struct {
 	Router             *http.ServeMux
-	ExecuteDownloadJob func(url string, savePath string, jobID string)
+	ExecuteDownloadJob func(url string, savePath string, jobID string, headers map[string]string)
 }
 
 // pkg/storage/server.go -> Update your NewServer mapping block
 
-func NewServer(executeJobFunc func(url string, savePath string, jobID string)) *Server {
+func NewServer(executeJobFunc func(url string, savePath string, jobID string, headers map[string]string)) *Server {
 	s := &Server{
 		Router:             http.NewServeMux(),
 		ExecuteDownloadJob: executeJobFunc,
@@ -77,12 +77,13 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var payload struct {
-		URL      string `json:"url"`
-		SavePath string `json:"save_path"`
+		URL      string            `json:"url"`
+		SavePath string            `json:"save_path"`
+		Headers  map[string]string `json:"headers"` // 👈 ADD THIS FIELD HERE
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil { // cite: 212
-		http.Error(w, "Malformed JSON payload body context", http.StatusBadRequest) // cite: 212
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil { // cite: file(2).txt
+		http.Error(w, "Malformed JSON payload body context", http.StatusBadRequest) // cite: file(2).txt
 		return
 	}
 
@@ -109,13 +110,14 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		Progress:   0.0,              // cite: 213
 		Downloaded: "0.00 MB",        // cite: 213
 		Speed:      "0.00 KB/s",
-		Status:     "DOWNLOADING",    // cite: 213
+		Status:     "DOWNLOADING", // cite: 213
+		Headers:    payload.Headers,
 	} // cite: 213
 
 	store.SetJob(jobID, &newJob) // cite: 213
 
 	// Pass the verified secure path down to the engine runner
-	go s.ExecuteDownloadJob(payload.URL, securedPath, jobID)
+	go s.ExecuteDownloadJob(payload.URL, securedPath, jobID, payload.Headers)
 
 	w.Header().Set("Content-Type", "application/json") // cite: 213
 	w.WriteHeader(http.StatusAccepted)                 // cite: 213
@@ -195,9 +197,11 @@ func (s *Server) handleResumeJob(w http.ResponseWriter, r *http.Request) {
 	store.mu.RLock()
 	job, exists := store.Jobs[jobID]
 	var targetURL, targetSavePath string
+	var targetHeaders map[string]string
 	if exists && job != nil {
 		targetURL = job.URL
 		targetSavePath = job.SavePath
+		targetHeaders = job.Headers
 	}
 	store.mu.RUnlock()
 
@@ -210,7 +214,7 @@ func (s *Server) handleResumeJob(w http.ResponseWriter, r *http.Request) {
 	store.UpdateStatus(jobID, "DOWNLOADING")
 
 	// 3. 🚀 RE-LAUNCH THE DOWNLOAD CONCURRENCY WORKERS BACK INTO THE CORE PIPELINE!
-	go s.ExecuteDownloadJob(targetURL, targetSavePath, jobID)
+	go s.ExecuteDownloadJob(targetURL, targetSavePath, jobID, targetHeaders)
 
 	w.WriteHeader(http.StatusOK)
 }

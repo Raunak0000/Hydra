@@ -13,8 +13,8 @@ import (
 )
 
 // DownloadChunkParallel accepts a context parameter to watch for pause interruptions safely
-func DownloadChunkParallel(ctx context.Context, url string, chunk Chunk, finalFile *os.File, wg *sync.WaitGroup, errChan chan error, progressChan chan int64, stateUpdateChan chan<- Chunk) {
-	defer wg.Done()
+func DownloadChunkParallel(ctx context.Context, url string, chunk Chunk, finalFile *os.File, wg *sync.WaitGroup, errChan chan error, progressChan chan int64, stateUpdateChan chan<- Chunk, headers map[string]string) { // 👈 ADD HEADERS PARAMETER
+	defer wg.Done() // cite: file(2).txt
 
 	client := &http.Client{}
 	var resp *http.Response
@@ -30,20 +30,27 @@ func DownloadChunkParallel(ctx context.Context, url string, chunk Chunk, finalFi
 			return
 		}
 
-		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-		if err != nil {
-			errChan <- fmt.Errorf("Thread %d init failed: %v", chunk.Index, err)
-			return
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil) // cite: file(2).txt
+		if err != nil { // cite: file(2).txt
+			errChan <- fmt.Errorf("Thread %d init failed: %v", chunk.Index, err) // cite: file(2).txt
+			return // cite: file(2).txt
 		}
 
-		if chunk.End >= writeOffset {
-			rangeHeader := fmt.Sprintf("bytes=%d-%d", writeOffset, chunk.End)
-			req.Header.Set("Range", rangeHeader)
-		} else if writeOffset > 0 {
-			rangeHeader := fmt.Sprintf("bytes=%d-", writeOffset)
-			req.Header.Set("Range", rangeHeader)
+		if chunk.End >= writeOffset { // cite: file(2).txt
+			rangeHeader := fmt.Sprintf("bytes=%d-%d", writeOffset, chunk.End) // cite: file(2).txt
+			req.Header.Set("Range", rangeHeader) // cite: file(2).txt
+		} else if writeOffset > 0 { // cite: file(2).txt
+			rangeHeader := fmt.Sprintf("bytes=%d-", writeOffset) // cite: file(2).txt
+			req.Header.Set("Range", rangeHeader) // cite: file(2).txt
 		}
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+		
+		// 🚨 NEW: Inject browser headers dynamically into every chunk slice thread request
+		for key, value := range headers {
+			req.Header.Set(key, value)
+		}
+        if req.Header.Get("User-Agent") == "" {
+		    req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36") // cite: file(2).txt
+        }
 
 		resp, err = client.Do(req)
 		if err != nil {

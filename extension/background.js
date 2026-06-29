@@ -50,55 +50,59 @@ chrome.downloads.onCreated.addListener(async (downloadItem) => {
         filename += ".bin";
     }
 
-    // Helper to send request to Hydra backend
+    // Helper to send request to Hydra backend with authentication vectors
     const routeToHydra = async () => {
-        const payload = {
-            url: downloadItem.url,
-            save_path: "/home/raunak/Downloads/" + filename
-        };
+        // Fetch all cookies associated with this exact download domain asset
+        chrome.cookies.getAll({ url: downloadItem.url }, async (cookies) => {
+            const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
-        console.log(`[Hydra Extension] Routing ${filename} to Hydra Core...`);
+            const payload = {
+                url: downloadItem.url,
+                save_path: "/home/raunak/Downloads/" + filename,
+                // 🚨 NEW: Inject authorization headers package directly into the payload structural frame
+                headers: {
+                    "Cookie": cookieString,
+                    "User-Agent": navigator.userAgent,
+                    "Referer": downloadItem.referrer || ""
+                }
+            };
 
-        try {
-            // Try primary endpoint (localhost)
-            let res;
+            console.log(`[Hydra Extension] Routing ${filename} with session credentials to Hydra Core...`);
+
             try {
-                res = await fetch(HYDRA_API_URL, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
-                });
-            } catch (fetchErr) {
-                console.warn("[Hydra Extension] Primary connection failed, attempting loopback fallback...", fetchErr.message);
-                // Fallback endpoint (127.0.0.1)
-                res = await fetch(HYDRA_API_FALLBACK, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
-                });
-            }
+                let res;
+                try {
+                    res = await fetch(HYDRA_API_URL, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload)
+                    });
+                } catch (fetchErr) {
+                    console.warn("[Hydra Extension] Primary endpoint dropped, forcing loopback fallback...", fetchErr.message);
+                    res = await fetch(HYDRA_API_FALLBACK, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload)
+                    });
+                }
 
-            if (res.ok) {
-                console.log("[Hydra Extension] Successfully routed payload to Hydra Core.");
-            } else {
-                throw new Error(`Hydra backend returned status: ${res.status}`);
+                if (res.ok) {
+                    console.log("[Hydra Extension] Successfully routed authenticated payload to Hydra Core.");
+                } else {
+                    throw new Error(`Hydra backend returned status: ${res.status}`);
+                }
+            } catch (err) {
+                console.error(`[Hydra Extension] Routing failed: ${err.message}. Re-initiating native browser download.`);
+                try {
+                    ignoredUrls.add(downloadItem.url);
+                    await chrome.downloads.download({ url: downloadItem.url });
+                    setTimeout(() => ignoredUrls.delete(downloadItem.url), 5000);
+                } catch (downloadErr) {
+                    console.error("[Hydra Extension] Browser fallback download failed to start:", downloadErr.message);
+                }
             }
-        } catch (err) {
-            console.error(`[Hydra Extension] Routing failed: ${err.message}. Re-initiating native browser download.`);
-            
-            // Fallback: Re-initiate download in browser natively
-            try {
-                ignoredUrls.add(downloadItem.url);
-                await chrome.downloads.download({ url: downloadItem.url });
-                console.log(`[Hydra Extension] Safely re-initiated browser download for: ${downloadItem.url}`);
-                
-                // Clear the URL from ignored list after 5 seconds to allow future normal downloads
-                setTimeout(() => ignoredUrls.delete(downloadItem.url), 5000);
-            } catch (downloadErr) {
-                console.error("[Hydra Extension] Browser fallback download failed to start:", downloadErr.message);
-            }
-        }
+        });
     };
 
-    routeToHydra();
+    await routeToHydra();
 });

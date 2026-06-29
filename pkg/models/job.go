@@ -19,6 +19,7 @@ type UIJob struct {
 	TotalSize  string       `json:"total_size"`
 	Downloaded string       `json:"downloaded"`
 	Speed      string       `json:"speed"`
-	Status     string       `json:"status"`
-	Chunks     []ChunkState `json:"chunks,omitempty"` // Captured for state persistence
+	Status     string            `json:"status"`
+	Chunks     []ChunkState      `json:"chunks,omitempty"` // Captured for state persistence
+	Headers    map[string]string `json:"headers,omitempty"`
 }

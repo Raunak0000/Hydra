@@ -11,27 +11,31 @@ type HandshakeResult struct {
 	FinalURL     string // Add this so we can pass the real, resolved URL to the workers
 }
 
-func GetMetadata(url string) (HandshakeResult, error) {
-	// Create a custom client that handles redirects properly
+func GetMetadata(url string, headers map[string]string) (HandshakeResult, error) { // 👈 UPDATE SIGNATURE
 	client := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			// Returning nil tells the Go client to follow the redirect automatically
-			return nil
+		CheckRedirect: func(req *http.Request, via []*http.Request) error { // cite: file(2).txt
+			return nil // cite: file(2).txt
 		},
 	}
 
-	// Use GET instead of HEAD because some CDN servers (like Discord/Cloudflare)
-	// strip content-length headers or drop requests if they see a HEAD method.
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return HandshakeResult{}, err
+	req, err := http.NewRequest("GET", url, nil) // cite: file(2).txt
+	if err != nil {                              // cite: file(2).txt
+		return HandshakeResult{}, err // cite: file(2).txt
 	}
 
-	// Request just the first byte so we don't accidentally download the whole file during the handshake
-	req.Header.Set("Range", "bytes=0-0")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Range", "bytes=0-0") // cite: file(2).txt
 
-	response, err := client.Do(req)
+	// 🚨 NEW: Inject browser authentication headers dynamically into the handshake frame
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+	// If user-agent wasn't explicitly captured by extension, apply default fallback safeguard
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36") // cite: file(2).txt
+	}
+
+	response, err := client.Do(req) // cite: file(2).txt
+	// ... remainder stays identical to file(2).txt completely ...
 	if err != nil {
 		return HandshakeResult{}, err
 	}
