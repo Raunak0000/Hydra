@@ -120,7 +120,7 @@ templ Dashboard(jobs []models.UIJob) {
 									<th class="px-4 py-2.5 font-bold w-1/12 text-right">Actions</th>
 								</tr>
 							</thead>
-							<tbody id="download-queue" hx-get="/api/queue" hx-trigger="every 1s" hx-swap="innerHTML" hx-on::after-settle="updateUIState()" class="divide-y divide-slate-800/40">
+							<tbody id="download-queue" class="divide-y divide-slate-800/40">
 								@QueueRows(jobs)
 							</tbody>
 						</table>
@@ -366,9 +366,106 @@ templ Dashboard(jobs []models.UIJob) {
 					document.getElementById('count-completed').innerText = completed;
 				}
 
-				// Run count setup on initial page load
+				// Surgical realtime updates via JSON endpoint
+				async function pollQueue() {
+					try {
+						const res = await fetch('/api/queue/json');
+						const jobs = await res.json();
+						
+						// Check if structure changed (new task added, or task deleted)
+						const existingRows = document.querySelectorAll('.download-row');
+						const existingIds = Array.from(existingRows).map(r => r.getAttribute('data-id')).sort();
+						const fetchedIds = jobs.map(j => j.id).sort();
+						
+						if (JSON.stringify(existingIds) !== JSON.stringify(fetchedIds)) {
+							// Fetch updated HTML snippet and swap
+							const htmlRes = await fetch('/api/queue');
+							const html = await htmlRes.text();
+							document.getElementById('download-queue').innerHTML = html;
+							htmx.process(document.getElementById('download-queue'));
+							updateUIState();
+							return;
+						}
+						
+						// Surgically update existing DOM nodes
+						jobs.forEach(job => {
+							const row = document.querySelector(`.download-row[data-id="${job.id}"]`);
+							if (!row) return;
+							
+							row.setAttribute('data-status', job.status);
+							row.setAttribute('data-chunks', JSON.stringify(job.chunks || []));
+							
+							// Update size metrics cell
+							const sizeCell = row.querySelector('.size-metrics');
+							if (sizeCell) {
+								sizeCell.innerHTML = `<span>${job.downloaded}</span> / <span class="text-slate-600">${job.total_size}</span>`;
+							}
+							
+							// Update progress bar & progress text
+							const bar = row.querySelector('.progress-bar');
+							if (bar) {
+								bar.style.width = job.progress.toFixed(1) + '%';
+								bar.classList.remove('bg-blue-600', 'bg-amber-500', 'bg-emerald-500', 'bg-rose-500');
+								if (job.status === 'DOWNLOADING') {
+									bar.classList.add('bg-blue-600');
+								} else if (job.status === 'PAUSED') {
+									bar.classList.add('bg-amber-500');
+								} else if (job.status === 'COMPLETED') {
+									bar.classList.add('bg-emerald-500');
+								} else {
+									bar.classList.add('bg-rose-500');
+								}
+							}
+							const txt = row.querySelector('.progress-text');
+							if (txt) {
+								txt.innerText = job.progress.toFixed(1) + '%';
+							}
+							
+							// Update speed cell
+							const speedCell = row.querySelector('.speed-cell');
+							if (speedCell) {
+								if (job.status === 'DOWNLOADING') {
+									speedCell.innerText = job.speed;
+									speedCell.classList.remove('text-slate-600');
+								} else {
+									speedCell.innerText = '-';
+									speedCell.classList.add('text-slate-600');
+								}
+							}
+							
+							// Update status badges
+							const badges = row.querySelectorAll('.status-badge');
+							badges.forEach(b => {
+								if (b.getAttribute('data-badge-status') === job.status) {
+									b.classList.remove('hidden');
+								} else {
+									b.classList.add('hidden');
+								}
+							});
+							
+							// Update action buttons visibility
+							const pauseBtn = row.querySelector('.pause-btn');
+							if (pauseBtn) {
+								if (job.status === 'DOWNLOADING') pauseBtn.classList.remove('hidden');
+								else pauseBtn.classList.add('hidden');
+							}
+							const resumeBtn = row.querySelector('.resume-btn');
+							if (resumeBtn) {
+								if (job.status === 'PAUSED') resumeBtn.classList.remove('hidden');
+								else resumeBtn.classList.add('hidden');
+							}
+						});
+						
+						updateUIState();
+					} catch (e) {
+						console.error("Queue poll issue", e);
+					}
+				}
+
+				// Run count setup on initial page load & begin polling
 				window.addEventListener('DOMContentLoaded', () => {
 					updateUIState();
+					setInterval(pollQueue, 250);
 				});
 			</script>
 		</body>
@@ -410,7 +507,7 @@ templ QueueRows(jobs []models.UIJob) {
 				</td>
 				
 				<!-- Size Metrics Column -->
-				<td class="px-4 py-2.5 font-mono text-slate-400 select-none">
+				<td class="px-4 py-2.5 font-mono text-slate-400 select-none size-metrics">
 					<span>{ job.Downloaded }</span> / <span class="text-slate-600">{ job.TotalSize }</span>
 				</td>
 				
@@ -418,64 +515,57 @@ templ QueueRows(jobs []models.UIJob) {
 				<td class="px-4 py-2.5 select-none">
 					<div class="flex items-center gap-3">
 						<div class="flex-1 bg-slate-900 border border-slate-800/80 h-2.5 rounded overflow-hidden">
-							if job.Status == "DOWNLOADING" {
-								<div class="h-full bg-blue-600 rounded transition-all duration-300" style={ fmt.Sprintf("width: %.1f%%", job.Progress) }></div>
-							} else if job.Status == "PAUSED" {
-								<div class="h-full bg-amber-500 rounded transition-all duration-300" style={ fmt.Sprintf("width: %.1f%%", job.Progress) }></div>
-							} else {
-								<div class="h-full bg-emerald-500 rounded transition-all duration-300" style={ fmt.Sprintf("width: %.1f%%", job.Progress) }></div>
-							}
+							<div 
+								class={ "h-full rounded transition-all duration-350 progress-bar",
+									templ.KV("bg-blue-600", job.Status == "DOWNLOADING"),
+									templ.KV("bg-amber-500", job.Status == "PAUSED"),
+									templ.KV("bg-emerald-500", job.Status == "COMPLETED"),
+									templ.KV("bg-rose-500", job.Status != "DOWNLOADING" && job.Status != "PAUSED" && job.Status != "COMPLETED") }
+								style={ fmt.Sprintf("width: %.1f%%", job.Progress) }
+							></div>
 						</div>
-						<span class="w-10 text-right font-bold font-mono text-slate-300">{ fmt.Sprintf("%.1f%%", job.Progress) }</span>
+						<span class="w-10 text-right font-bold font-mono text-slate-300 progress-text">{ fmt.Sprintf("%.1f%%", job.Progress) }</span>
 					</div>
 				</td>
 				
 				<!-- Speed Column -->
-				<td class="px-4 py-2.5 font-mono text-slate-400 select-none">
+				<td class={ "px-4 py-2.5 font-mono text-slate-400 select-none speed-cell", templ.KV("text-slate-600", job.Status != "DOWNLOADING") }>
 					if job.Status == "DOWNLOADING" {
 						{ job.Speed }
 					} else {
-						<span class="text-slate-600">-</span>
+						-
 					}
 				</td>
 				
 				<!-- Compact Status Badge Column -->
-				<td class="px-4 py-2.5 select-none">
-					if job.Status == "DOWNLOADING" {
-						<span class="text-blue-400 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5">
-							<span class="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse"></span>
-							Active
-						</span>
-					} else if job.Status == "PAUSED" {
-						<span class="text-amber-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5">
-							<span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
-							Paused
-						</span>
-					} else if job.Status == "COMPLETED" {
-						<span class="text-emerald-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5">
-							<span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-							Finished
-						</span>
-					} else {
-						<span class="text-rose-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5">
-							<span class="h-1.5 w-1.5 rounded-full bg-rose-500"></span>
-							Error
-						</span>
-					}
+				<td class="px-4 py-2.5 select-none status-cell">
+					<span data-badge-status="DOWNLOADING" class={ "text-blue-400 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status != "DOWNLOADING") }>
+						<span class="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse"></span>
+						Active
+					</span>
+					<span data-badge-status="PAUSED" class={ "text-amber-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status != "PAUSED") }>
+						<span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+						Paused
+					</span>
+					<span data-badge-status="COMPLETED" class={ "text-emerald-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status != "COMPLETED") }>
+						<span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+						Finished
+					</span>
+					<span data-badge-status="ERROR" class={ "text-rose-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status == "DOWNLOADING" || job.Status == "PAUSED" || job.Status == "COMPLETED") }>
+						<span class="h-1.5 w-1.5 rounded-full bg-rose-500"></span>
+						Error
+					</span>
 				</td>
 				
 				<!-- Action Buttons Column -->
 				<td class="px-4 py-2.5 text-right select-none">
 					<div class="inline-flex gap-1.5">
-						if job.Status == "DOWNLOADING" {
-							<button hx-post={ fmt.Sprintf("/api/download/pause?id=%s", job.ID) } hx-swap="none" class="bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:border-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1">
-								⏸ Pause
-							</button>
-						} else if job.Status == "PAUSED" {
-							<button hx-post={ fmt.Sprintf("/api/download/resume?id=%s", job.ID) } hx-swap="none" class="bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:border-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1">
-								▶ Resume
-							</button>
-						}
+						<button hx-post={ fmt.Sprintf("/api/download/pause?id=%s", job.ID) } hx-swap="none" class={ "bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:border-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1 pause-btn", templ.KV("hidden", job.Status != "DOWNLOADING") }>
+							⏸ Pause
+						</button>
+						<button hx-post={ fmt.Sprintf("/api/download/resume?id=%s", job.ID) } hx-swap="none" class={ "bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:border-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1 resume-btn", templ.KV("hidden", job.Status != "PAUSED") }>
+							▶ Resume
+						</button>
 						<button hx-post={ fmt.Sprintf("/api/download/delete?id=%s", job.ID) } hx-confirm="Are you sure you want to delete this task and its files?" hx-swap="none" class="bg-rose-950/40 border border-rose-900/60 hover:bg-rose-900/40 hover:border-rose-800 text-rose-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1">
 							🗑️ Delete
 						</button>

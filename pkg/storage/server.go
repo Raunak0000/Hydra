@@ -52,6 +52,7 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 	s.Router.HandleFunc("/download", withCORS(s.handleDownloadTrigger))
 	s.Router.HandleFunc("/", s.handleRenderDashboard)
 	s.Router.HandleFunc("/api/queue", s.handleGetQueueSnippet)
+	s.Router.HandleFunc("/api/queue/json", s.handleGetQueueJSON)
 	s.Router.HandleFunc("/api/download/pause", s.handlePauseJob)
 	s.Router.HandleFunc("/api/download/resume", s.handleResumeJob)
 	s.Router.HandleFunc("/api/download/delete", s.handleDeleteJob)
@@ -261,4 +262,10 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	store.DeleteJob(jobID)
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleGetQueueJSON(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	jobs := GetStore().GetAllJobs()
+	_ = json.NewEncoder(w).Encode(jobs)
 }
