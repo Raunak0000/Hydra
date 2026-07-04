@@ -331,12 +331,24 @@ func main() {
 	}
 
 	// Expose our internal cancel map hook directly to the storage server layout structure
+	// Expose our internal cancel map hook directly to the storage server layout structure
 	storage.GlobalCancelMap = activeCancellations
 	storage.GlobalCancelMutex = &cancelMutex
 
+	// ── 🚀 FIX: LAUNCH IPC SERVER CONCURRENTLY IN A BACKGROUND GOROUTINE ──
+	// This ensures /tmp/hydra.sock actively listens without blocking the web dashboard
+	go func() {
+		// Wrap executeDownloadJob to adapt the 3-argument signature expected by the IPC trigger
+		storage.StartIPCServer(func(url string, savePath string, jobID string) {
+			// Pass an empty headers map since raw CLI text payloads don't forward browser cookies
+			executeDownloadJob(url, savePath, jobID, make(map[string]string))
+		})
+	}()
+
+	// ── RUN HYDRA UI DASHBOARD SERVER (BLOCKING CALL) ──
 	fmt.Println("[⚙] Hydra UI Dashboard Server running on http://localhost:9000")
 	server := storage.NewServer(executeDownloadJob)
-	if err := http.ListenAndServe(":9000", server.Router); err != nil {
+	if err := http.ListenAndServe(":9000", server.Router); err != nil { // cite: 189
 		fmt.Printf("Server runtime exception error: %v\n", err)
 	}
 }

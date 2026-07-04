@@ -142,22 +142,22 @@ func (s *MemoryStore) GetAllJobs() []models.UIJob {
 	return list // cite: 218
 }
 
-func SanitizeDownloadPath(unsafePath string) (string, error) {
-	// 1. Resolve relative shortcuts lexically (e.g., handling ".." tokens)
-	cleaned := filepath.Clean(unsafePath)
+func SanitizeDownloadPath(unsafePath string) (string, error) { // cite: 84
+	// Resolve relative shortcuts lexically (e.g., handling ".." tokens)
+	cleaned := filepath.Clean(unsafePath) // cite: 84
 
-	// 2. Define the absolute secure jail root anchor
-	secureRoot := "/home/raunak/Downloads/"
+	// 🚨 FIX: Clean the secure root path as well so trailing slashes are matched uniformly
+	secureRoot := filepath.Clean("/home/raunak/Downloads/")
 
-	// 3. Enforce prefix checking to prevent escaping the target jail folder
-	if !strings.HasPrefix(cleaned, secureRoot) {
-		return "", fmt.Errorf("security violation: directory traversal attempt blocked")
+	// Enforce prefix checking to prevent escaping the target jail folder
+	if !strings.HasPrefix(cleaned, secureRoot) { // cite: 84
+		return "", fmt.Errorf("security violation: directory traversal attempt blocked") // cite: 84
 	}
 
-	// 4. Truncate filename if it exceeds 120 characters to avoid filesystem ENAMETOOLONG errors
-	cleaned = TruncateFilename(cleaned, 120)
+	// Truncate filename if it exceeds 120 characters to avoid filesystem errors
+	cleaned = TruncateFilename(cleaned, 120) // cite: 85
 
-	return cleaned, nil
+	return cleaned, nil // cite: 85
 }
 
 func TruncateFilename(path string, maxLen int) string {
