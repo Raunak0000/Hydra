@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"sync"
 
 	"github.com/Raunak0000/Hydra/pkg/models"
@@ -53,6 +54,7 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 	s.Router.HandleFunc("/api/queue", s.handleGetQueueSnippet)
 	s.Router.HandleFunc("/api/download/pause", s.handlePauseJob)
 	s.Router.HandleFunc("/api/download/resume", s.handleResumeJob)
+	s.Router.HandleFunc("/api/download/delete", s.handleDeleteJob)
 
 	return s
 }
@@ -215,6 +217,48 @@ func (s *Server) handleResumeJob(w http.ResponseWriter, r *http.Request) {
 
 	// 3. 🚀 RE-LAUNCH THE DOWNLOAD CONCURRENCY WORKERS BACK INTO THE CORE PIPELINE!
 	go s.ExecuteDownloadJob(targetURL, targetSavePath, jobID, targetHeaders)
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
+	jobID := r.URL.Query().Get("id")
+	if jobID == "" {
+		http.Error(w, "Missing job id parameter", http.StatusBadRequest)
+		return
+	}
+
+	store := GetStore()
+
+	// 1. Thread-safely extract target details inside a read lock to identify cleanup files
+	store.mu.RLock()
+	job, exists := store.Jobs[jobID]
+	var targetSavePath string
+	if exists && job != nil {
+		targetSavePath = job.SavePath
+	}
+	store.mu.RUnlock()
+
+	if !exists || job == nil {
+		http.Error(w, "Job profile not found in active cache store", http.StatusNotFound)
+		return
+	}
+
+	// 2. Trigger context cancellation to stop active worker network loops instantly
+	if GlobalCancelMutex != nil && GlobalCancelMap != nil {
+		GlobalCancelMutex.Lock()
+		if cancel, active := GlobalCancelMap[jobID]; active {
+			cancel()
+		}
+		GlobalCancelMutex.Unlock()
+	}
+
+	// 3. Clean out all file payloads and temporary tracking artifacts
+	_ = os.Remove(targetSavePath)
+	ClearJobState(targetSavePath)
+
+	// 4. Evict the job tracking data profile index entirely
+	store.DeleteJob(jobID)
 
 	w.WriteHeader(http.StatusOK)
 }

@@ -377,7 +377,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "\" hx-swap=\"none\" class=\"bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:border-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1\">⏸ Pause</button>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "\" hx-swap=\"none\" class=\"bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:border-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1\">⏸ Pause</button> ")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -395,12 +395,25 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "\" hx-swap=\"none\" class=\"bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:border-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1\">▶ Resume</button>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "\" hx-swap=\"none\" class=\"bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:border-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1\">▶ Resume</button> ")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "</div></td></tr>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "<button hx-post=\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var22 string
+				templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("/api/download/delete?id=%s", job.ID))
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 479, Col: 73}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var22)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "\" hx-confirm=\"Are you sure you want to delete this task and its files?\" hx-swap=\"none\" class=\"bg-rose-950/40 border border-rose-900/60 hover:bg-rose-900/40 hover:border-rose-800 text-rose-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1\">🗑️ Delete</button></div></td></tr>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

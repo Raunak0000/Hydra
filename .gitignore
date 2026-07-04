@@ -1,6 +1,6 @@
 # Compiled Binaries
-hydra
-hydra-cli
+/hydra
+/hydra-cli
 dist/
 
 # Download Artifacts / Test images

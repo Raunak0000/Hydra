@@ -142,6 +142,15 @@ func (s *MemoryStore) GetAllJobs() []models.UIJob {
 	return list // cite: 218
 }
 
+// pkg/storage/store.go
+
+// DeleteJob expels a download task index structural footprint entirely out of registry memory maps
+func (s *MemoryStore) DeleteJob(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.Jobs, id)
+}
+
 func SanitizeDownloadPath(unsafePath string) (string, error) { // cite: 84
 	// Resolve relative shortcuts lexically (e.g., handling ".." tokens)
 	cleaned := filepath.Clean(unsafePath) // cite: 84
