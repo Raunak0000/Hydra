@@ -1,108 +1,93 @@
 // extension/background.js
 
 const HYDRA_API_URL = "http://localhost:9000/download";
-const HYDRA_API_FALLBACK = "http://127.0.0.1:9000/download";
 
-// Track URLs initiated by extension to avoid infinite loops when falling back
-const ignoredUrls = new Set();
+// Target file extensions to snatch automatically regardless of disposition
+const SnatchExtensions = new Set([
+    "zip", "tar", "gz", "7z", "rar", "iso", "bin", "exe", "dmg", "mp4", "mkv"
+]);
 
-// Listen for download triggers inside the browser
-chrome.downloads.onCreated.addListener(async (downloadItem) => {
-    console.log("[Hydra Extension] Intercepted raw download item:", downloadItem);
+// Listen for network response headers before the browser processes the download dialog
+chrome.webRequest.onHeadersReceived.addListener(
+    async (details) => {
+        // Skip internal tracking and loopback requests to avoid cycles
+        if (details.url.includes("localhost") || details.url.includes("127.0.0.1")) {
+            return;
+        }
 
-    // Skip internal browser protocols and dashboard actions to prevent loops
-    if (!downloadItem.url ||
-        downloadItem.url.startsWith("blob:") ||
-        downloadItem.url.startsWith("data:") ||
-        downloadItem.url.includes("localhost") ||
-        downloadItem.url.includes("127.0.0.1")) {
-        return;
-    }
+        let isAttachment = false;
+        let filename = "";
 
-    // Skip downloads that were re-initiated by us as a fallback
-    if (ignoredUrls.has(downloadItem.url)) {
-        console.log("[Hydra Extension] Skipping ignored fallback download:", downloadItem.url);
-        return;
-    }
+        // Sniff response headers for attachment attributes
+        const dispositionHeader = details.responseHeaders.find(
+            h => h.name.toLowerCase() === "content-disposition"
+        );
+        const contentTypeHeader = details.responseHeaders.find(
+            h => h.name.toLowerCase() === "content-type"
+        );
 
-    // Skip items that are not in progress (e.g. already complete or cancelled)
-    if (downloadItem.state && downloadItem.state !== "in_progress") {
-        return;
-    }
-
-    // 1. Immediately cancel and erase the browser's default download to prevent double downloading
-    try {
-        await chrome.downloads.cancel(downloadItem.id);
-        await chrome.downloads.erase({ id: downloadItem.id });
-        console.log(`[Hydra Extension] Instantly cancelled and purged browser download ID: ${downloadItem.id}`);
-    } catch (err) {
-        console.error("[Hydra Extension] Failed to cancel browser download:", err.message);
-        // If we can't cancel it, the browser is downloading it, so abort to avoid double downloading
-        return;
-    }
-
-    // Extract filename from the URL path if the browser hasn't resolved one yet
-    let filename = downloadItem.filename ? downloadItem.filename.split('/').pop() : "";
-    if (!filename) {
-        filename = downloadItem.url.split('/').pop().split('?')[0] || "downloaded_file";
-    }
-    if (!filename.includes(".")) {
-        filename += ".bin";
-    }
-
-    // Helper to send request to Hydra backend with authentication vectors
-    const routeToHydra = async () => {
-        // Fetch all cookies associated with this exact download domain asset
-        chrome.cookies.getAll({ url: downloadItem.url }, async (cookies) => {
-            const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-
-            const payload = {
-                url: downloadItem.url,
-                save_path: "/home/raunak/Downloads/" + filename,
-                // 🚨 NEW: Inject authorization headers package directly into the payload structural frame
-                headers: {
-                    "Cookie": cookieString,
-                    "User-Agent": navigator.userAgent,
-                    "Referer": downloadItem.referrer || ""
-                }
-            };
-
-            console.log(`[Hydra Extension] Routing ${filename} with session credentials to Hydra Core...`);
-
-            try {
-                let res;
-                try {
-                    res = await fetch(HYDRA_API_URL, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(payload)
-                    });
-                } catch (fetchErr) {
-                    console.warn("[Hydra Extension] Primary endpoint dropped, forcing loopback fallback...", fetchErr.message);
-                    res = await fetch(HYDRA_API_FALLBACK, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(payload)
-                    });
-                }
-
-                if (res.ok) {
-                    console.log("[Hydra Extension] Successfully routed authenticated payload to Hydra Core.");
-                } else {
-                    throw new Error(`Hydra backend returned status: ${res.status}`);
-                }
-            } catch (err) {
-                console.error(`[Hydra Extension] Routing failed: ${err.message}. Re-initiating native browser download.`);
-                try {
-                    ignoredUrls.add(downloadItem.url);
-                    await chrome.downloads.download({ url: downloadItem.url });
-                    setTimeout(() => ignoredUrls.delete(downloadItem.url), 5000);
-                } catch (downloadErr) {
-                    console.error("[Hydra Extension] Browser fallback download failed to start:", downloadErr.message);
+        if (dispositionHeader && dispositionHeader.value) {
+            const value = dispositionHeader.value.toLowerCase();
+            if (value.includes("attachment")) {
+                isAttachment = true;
+                // Attempt to extract filename parameter cleanly
+                const match = dispositionHeader.value.match(/filename\*?=["']?([^"';\n]+)/i);
+                if (match && match[1]) {
+                    filename = match[1].replace(/utf-8''/i, '');
                 }
             }
-        });
-    };
+        }
 
-    await routeToHydra();
-});
+        // Fallback: If no explicit attachment directive, check URL lexical structure extensions
+        if (!isAttachment) {
+            const urlPath = new URL(details.url).pathname;
+            const ext = urlPath.split('.').pop().toLowerCase();
+            if (SnatchExtensions.has(ext)) {
+                isAttachment = true;
+                filename = urlPath.split('/').pop() || "download_asset.bin";
+            }
+        }
+
+        // If it's a valid targeted download stream, snatch it!
+        if (isAttachment) {
+            console.log(`[Hydra Sniffer] Snatched target download stream: ${details.url}`);
+
+            if (!filename) {
+                filename = details.url.split('/').pop().split('?')[0] || "downloaded_file.bin";
+            }
+
+            // Route to engine using your Phase 6 session cookie logic
+            chrome.cookies.getAll({ url: details.url }, async (cookies) => {
+                const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+
+                const payload = {
+                    url: details.url,
+                    save_path: "/home/raunak/Downloads/" + decodeURIComponent(filename),
+                    headers: {
+                        "Cookie": cookieString,
+                        "User-Agent": navigator.userAgent,
+                        "Referer": details.initiator || ""
+                    }
+                };
+
+                try {
+                    await fetch(HYDRA_API_URL, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload)
+                    });
+                    console.log("[Hydra Sniffer] Core server notified successfully.");
+                } catch (err) {
+                    console.error("[Hydra Sniffer] Core connection dropped:", err.message);
+                }
+            });
+
+            // 🚨 THE HOLY GRAIL: Return a redirect directive to a dead endpoint cancel string.
+            // This forces the browser to completely drop the request on its side immediately,
+            // preventing the browser from starting any parallel single-threaded download traffic!
+            return { redirectUrl: "javascript:void(0)" };
+        }
+    },
+    { urls: ["<all_urls>"], types: ["main_frame", "sub_frame"] },
+    ["responseHeaders", "blocking"]
+);

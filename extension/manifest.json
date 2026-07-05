@@ -1,18 +1,15 @@
 {
     "manifest_version": 3,
-    "name": "Hydra Download Catcher",
-    "version": "1.0.0",
-    "description": "Automatically intercepts browser downloads and routes them straight to Hydra Core Engine.",
+    "name": "Hydra Advanced Download Interceptor",
+    "version": "2.0.0",
+    "description": "Enterprise-grade low-level header sniffing network interceptor for Hydra Core.",
     "permissions": [
-        "downloads",
-        "cookies",
         "webRequest",
+        "cookies",
         "activeTab"
     ],
     "host_permissions": [
-        "<all_urls>",
-        "http://localhost/*",
-        "http://127.0.0.1/*"
+        "<all_urls>"
     ],
     "background": {
         "scripts": [
@@ -20,11 +17,14 @@
         ]
     },
     "action": {
-        "default_title": "Hydra Catcher Active"
+        "default_title": "Hydra Network Sniffer Active"
     },
     "browser_specific_settings": {
         "gecko": {
-            "id": "hydra-download-catcher@raunak.local"
+            "id": "hydra-download-catcher@raunak.local",
+            "data_collection_permissions": {
+                "required": ["none"]
+            }
         }
     }
 }
