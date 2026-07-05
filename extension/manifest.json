@@ -21,7 +21,7 @@
     },
     "browser_specific_settings": {
         "gecko": {
-            "id": "hydra-download-catcher@raunak.local",
+            "id": "hydra-download-sniffer@raunak.local",
             "data_collection_permissions": {
                 "required": ["none"]
             }
