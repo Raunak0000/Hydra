@@ -155,12 +155,13 @@ func SanitizeDownloadPath(unsafePath string) (string, error) {
 	// Resolve relative shortcuts lexically (e.g., handling ".." tokens)
 	cleaned := filepath.Clean(unsafePath)
 
-	secureRoot := filepath.Clean("/home/raunak/Downloads")
-
-	// Verify that the resolved path lies within the secureRoot jail directory
-	rel, err := filepath.Rel(secureRoot, cleaned)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return "", fmt.Errorf("security violation: directory traversal attempt blocked")
+	// Ensure the path is absolute
+	if !filepath.IsAbs(cleaned) {
+		var err error
+		cleaned, err = filepath.Abs(cleaned)
+		if err != nil {
+			return "", fmt.Errorf("invalid path context: %v", err)
+		}
 	}
 
 	// Truncate filename if it exceeds 120 characters to avoid filesystem errors
