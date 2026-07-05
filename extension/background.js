@@ -73,7 +73,10 @@ chrome.webRequest.onHeadersReceived.addListener(
                 try {
                     await fetch(HYDRA_API_URL, {
                         method: "POST",
-                        headers: { "Content-Type": "application/json" },
+                        headers: { 
+                            "Content-Type": "application/json",
+                            "X-Hydra-Token": "hydra_secure_token_bf1f753e"
+                        },
                         body: JSON.stringify(payload)
                     });
                     console.log("[Hydra Sniffer] Core server notified successfully.");

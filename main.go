@@ -346,9 +346,9 @@ func main() {
 	}()
 
 	// ── RUN HYDRA UI DASHBOARD SERVER (BLOCKING CALL) ──
-	fmt.Println("[⚙] Hydra UI Dashboard Server running on http://localhost:9000")
+	fmt.Println("[⚙] Hydra UI Dashboard Server running on http://127.0.0.1:9000")
 	server := storage.NewServer(executeDownloadJob)
-	if err := http.ListenAndServe(":9000", server.Router); err != nil { // cite: 189
+	if err := http.ListenAndServe("127.0.0.1:9000", server.Router); err != nil { // cite: 189
 		fmt.Printf("Server runtime exception error: %v\n", err)
 	}
 }

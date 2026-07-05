@@ -151,22 +151,22 @@ func (s *MemoryStore) DeleteJob(id string) {
 	delete(s.Jobs, id)
 }
 
-func SanitizeDownloadPath(unsafePath string) (string, error) { // cite: 84
+func SanitizeDownloadPath(unsafePath string) (string, error) {
 	// Resolve relative shortcuts lexically (e.g., handling ".." tokens)
-	cleaned := filepath.Clean(unsafePath) // cite: 84
+	cleaned := filepath.Clean(unsafePath)
 
-	// 🚨 FIX: Clean the secure root path as well so trailing slashes are matched uniformly
-	secureRoot := filepath.Clean("/home/raunak/Downloads/")
+	secureRoot := filepath.Clean("/home/raunak/Downloads")
 
-	// Enforce prefix checking to prevent escaping the target jail folder
-	if !strings.HasPrefix(cleaned, secureRoot) { // cite: 84
-		return "", fmt.Errorf("security violation: directory traversal attempt blocked") // cite: 84
+	// Verify that the resolved path lies within the secureRoot jail directory
+	rel, err := filepath.Rel(secureRoot, cleaned)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return "", fmt.Errorf("security violation: directory traversal attempt blocked")
 	}
 
 	// Truncate filename if it exceeds 120 characters to avoid filesystem errors
-	cleaned = TruncateFilename(cleaned, 120) // cite: 85
+	cleaned = TruncateFilename(cleaned, 120)
 
-	return cleaned, nil // cite: 85
+	return cleaned, nil
 }
 
 func TruncateFilename(path string, maxLen int) string {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/Raunak0000/Hydra/pkg/models"
@@ -37,7 +38,7 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 			// Clear access barriers completely for extension runtime scopes
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Hydra-Token")
 
 			// If browser is just probing for cross-origin permissions, intercept and approve instantly!
 			if r.Method == http.MethodOptions {
@@ -48,14 +49,35 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 		}
 	}
 
+	// ── SAME-ORIGIN SECURITY MIDDLEWARE INTERCEPTOR ──
+	sameOriginOnly := func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			// Verify Origin header if present (always present for cross-origin CORS/state-changing requests)
+			if origin := r.Header.Get("Origin"); origin != "" {
+				if origin != "http://127.0.0.1:9000" && origin != "http://localhost:9000" {
+					http.Error(w, "Forbidden: Cross-Origin Request Blocked", http.StatusForbidden)
+					return
+				}
+			}
+			// Verify Referer header if present
+			if referer := r.Header.Get("Referer"); referer != "" {
+				if !strings.HasPrefix(referer, "http://127.0.0.1:9000") && !strings.HasPrefix(referer, "http://localhost:9000") {
+					http.Error(w, "Forbidden: Cross-Origin Request Blocked", http.StatusForbidden)
+					return
+				}
+			}
+			next(w, r)
+		}
+	}
+
 	// Bind your routes safely without rigid method prefix constraints
 	s.Router.HandleFunc("/download", withCORS(s.handleDownloadTrigger))
-	s.Router.HandleFunc("/", s.handleRenderDashboard)
-	s.Router.HandleFunc("/api/queue", s.handleGetQueueSnippet)
-	s.Router.HandleFunc("/api/queue/json", s.handleGetQueueJSON)
-	s.Router.HandleFunc("/api/download/pause", s.handlePauseJob)
-	s.Router.HandleFunc("/api/download/resume", s.handleResumeJob)
-	s.Router.HandleFunc("/api/download/delete", s.handleDeleteJob)
+	s.Router.HandleFunc("/", sameOriginOnly(s.handleRenderDashboard))
+	s.Router.HandleFunc("/api/queue", sameOriginOnly(s.handleGetQueueSnippet))
+	s.Router.HandleFunc("/api/queue/json", sameOriginOnly(s.handleGetQueueJSON))
+	s.Router.HandleFunc("/api/download/pause", sameOriginOnly(s.handlePauseJob))
+	s.Router.HandleFunc("/api/download/resume", sameOriginOnly(s.handleResumeJob))
+	s.Router.HandleFunc("/api/download/delete", sameOriginOnly(s.handleDeleteJob))
 
 	return s
 }
@@ -66,7 +88,7 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 	// Enable CORS for cross-origin requests (e.g. from bookmarklets or browser pages)
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Hydra-Token")
 
 	// Handle preflight requests
 	if r.Method == http.MethodOptions {
@@ -76,6 +98,11 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if r.Header.Get("X-Hydra-Token") != "hydra_secure_token_bf1f753e" {
+		http.Error(w, "Unauthorized: Invalid or missing security token context", http.StatusUnauthorized)
 		return
 	}
 
