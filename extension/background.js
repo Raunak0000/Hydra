@@ -62,7 +62,8 @@ chrome.webRequest.onHeadersReceived.addListener(
 
                 const payload = {
                     url: details.url,
-                    save_path: "/home/raunak/Downloads/" + decodeURIComponent(filename),
+                    save_path: "PENDING",
+                    filename: decodeURIComponent(filename),
                     headers: {
                         "Cookie": cookieString,
                         "User-Agent": navigator.userAgent,
@@ -71,7 +72,7 @@ chrome.webRequest.onHeadersReceived.addListener(
                 };
 
                 try {
-                    await fetch(HYDRA_API_URL, {
+                    const res = await fetch(HYDRA_API_URL, {
                         method: "POST",
                         headers: { 
                             "Content-Type": "application/json",
@@ -79,6 +80,10 @@ chrome.webRequest.onHeadersReceived.addListener(
                         },
                         body: JSON.stringify(payload)
                     });
+                    const data = await res.json();
+                    if (data.job_id) {
+                        chrome.tabs.create({ url: "http://localhost:9000/?pending_job=" + data.job_id });
+                    }
                     console.log("[Hydra Sniffer] Core server notified successfully.");
                 } catch (err) {
                     console.error("[Hydra Sniffer] Core connection dropped:", err.message);

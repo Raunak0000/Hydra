@@ -107,54 +107,106 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var payload struct {
+		JobID    string            `json:"job_id"`
 		URL      string            `json:"url"`
 		SavePath string            `json:"save_path"`
-		Headers  map[string]string `json:"headers"` // 👈 ADD THIS FIELD HERE
+		Filename string            `json:"filename"`
+		Headers  map[string]string `json:"headers"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil { // cite: file(2).txt
-		http.Error(w, "Malformed JSON payload body context", http.StatusBadRequest) // cite: file(2).txt
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Malformed JSON payload body context", http.StatusBadRequest)
 		return
 	}
 
-	if payload.URL == "" || payload.SavePath == "" { // cite: 213
-		http.Error(w, "Missing url or save_path targeting strings", http.StatusUnprocessableEntity) // cite: 213
+	if payload.URL == "" || payload.SavePath == "" {
+		http.Error(w, "Missing url or save_path targeting strings", http.StatusUnprocessableEntity)
 		return
 	}
 
-	// ── SANITIZE AND ANCHOR THE SAVEPATH INPUT ──
-	securedPath, err := SanitizeDownloadPath(payload.SavePath)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+	// 1. If JobID is provided, this is the user submitting the chosen save path for a pending job
+	if payload.JobID != "" {
+		store := GetStore()
+		store.mu.Lock()
+		job, exists := store.Jobs[payload.JobID]
+		if !exists || job == nil {
+			store.mu.Unlock()
+			http.Error(w, "Job not found", http.StatusNotFound)
+			return
+		}
+
+		securedPath, err := SanitizeDownloadPath(payload.SavePath)
+		if err != nil {
+			store.mu.Unlock()
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+
+		job.SavePath = securedPath
+		job.Status = "DOWNLOADING"
+		urlToDownload := job.URL
+		headersToUse := job.Headers
+		store.mu.Unlock()
+
+		// Start the actual download runner now
+		go s.ExecuteDownloadJob(urlToDownload, securedPath, payload.JobID, headersToUse)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"status": "started",
+			"job_id": payload.JobID,
+		})
 		return
+	}
+
+	// 2. If SavePath is "PENDING", register the job as PENDING_PATH without starting download
+	var securedPath string
+	var status string = "DOWNLOADING"
+	var filename string = "Calculating..."
+
+	if payload.SavePath == "PENDING" {
+		securedPath = "PENDING"
+		status = "PENDING_PATH"
+		if payload.Filename != "" {
+			filename = payload.Filename
+		}
+	} else {
+		var err error
+		securedPath, err = SanitizeDownloadPath(payload.SavePath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
 	}
 
 	store := GetStore()
-	jobID := fmt.Sprintf("job_%d", len(store.GetAllJobs())+1) // Balanced uniform ID alignment
+	jobID := fmt.Sprintf("job_%d", len(store.GetAllJobs())+1)
 
-	newJob := models.UIJob{ // cite: 213
-		ID:         jobID,            // cite: 213
-		FileName:   "Calculating...", // cite: 213
-		URL:        payload.URL,      // cite: 213
-		SavePath:   securedPath,      // Persist the final absolute path
-		Progress:   0.0,              // cite: 213
-		Downloaded: "0.00 MB",        // cite: 213
+	newJob := models.UIJob{
+		ID:         jobID,
+		FileName:   filename,
+		URL:        payload.URL,
+		SavePath:   securedPath,
+		Progress:   0.0,
+		Downloaded: "0.00 MB",
 		Speed:      "0.00 KB/s",
-		Status:     "DOWNLOADING", // cite: 213
+		Status:     status,
 		Headers:    payload.Headers,
-	} // cite: 213
+	}
 
-	store.SetJob(jobID, &newJob) // cite: 213
+	store.SetJob(jobID, &newJob)
 
-	// Pass the verified secure path down to the engine runner
-	go s.ExecuteDownloadJob(payload.URL, securedPath, jobID, payload.Headers)
+	if status == "DOWNLOADING" {
+		go s.ExecuteDownloadJob(payload.URL, securedPath, jobID, payload.Headers)
+	}
 
-	w.Header().Set("Content-Type", "application/json") // cite: 213
-	w.WriteHeader(http.StatusAccepted)                 // cite: 213
-	json.NewEncoder(w).Encode(map[string]string{       // cite: 213
-		"status": "queued", // cite: 213
-		"job_id": jobID,    // cite: 213
-	}) // cite: 213
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "queued",
+		"job_id": jobID,
+	})
 }
 
 // ── FIXED VIEW RENDERING LOOP ──
