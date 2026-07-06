@@ -186,7 +186,7 @@ templ Dashboard(jobs []models.UIJob) {
 							</svg>
 						</button>
 					</div>
-					<form hx-post="/download" hx-ext="json-enc" hx-swap="none" hx-on::after-request="closeModal()" class="space-y-4">
+					<form hx-post="/download" hx-headers='{"X-Hydra-Token": "hydra_secure_token_bf1f753e"}' hx-ext="json-enc" hx-swap="none" hx-on::after-request="closeModal()" class="space-y-4">
 						<div>
 							<label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Source URL</label>
 							<input type="url" name="url" placeholder="https://..." required class="w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono" />
