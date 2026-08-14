@@ -12,7 +12,12 @@ import (
 	"github.com/Raunak0000/Hydra/pkg/models"
 )
 
-const socketPath = "/tmp/hydra.sock"
+var socketPath = func() string {
+	if runtimeDir := os.Getenv("XDG_RUNTIME_DIR"); runtimeDir != "" {
+		return runtimeDir + "/hydra.sock"
+	}
+	return "/tmp/hydra.sock"
+}()
 
 func main() {
 	if len(os.Args) < 2 {

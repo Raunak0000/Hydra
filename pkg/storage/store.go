@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"fmt"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -151,23 +150,10 @@ func (s *MemoryStore) DeleteJob(id string) {
 	delete(s.Jobs, id)
 }
 
+// pkg/storage/store.go
+
 func SanitizeDownloadPath(unsafePath string) (string, error) {
-	// Resolve relative shortcuts lexically (e.g., handling ".." tokens)
-	cleaned := filepath.Clean(unsafePath)
-
-	// Ensure the path is absolute
-	if !filepath.IsAbs(cleaned) {
-		var err error
-		cleaned, err = filepath.Abs(cleaned)
-		if err != nil {
-			return "", fmt.Errorf("invalid path context: %v", err)
-		}
-	}
-
-	// Truncate filename if it exceeds 120 characters to avoid filesystem errors
-	cleaned = TruncateFilename(cleaned, 120)
-
-	return cleaned, nil
+	return ResolvePath(unsafePath)
 }
 
 func TruncateFilename(path string, maxLen int) string {

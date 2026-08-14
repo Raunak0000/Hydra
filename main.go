@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strings"
+	"os/signal"
+	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Raunak0000/Hydra/pkg/downloader"
@@ -15,112 +17,121 @@ import (
 	"github.com/Raunak0000/Hydra/pkg/storage"
 )
 
-// Global map to track active cancel functions per job ID
 var (
 	activeCancellations = make(map[string]context.CancelFunc)
 	cancelMutex         sync.Mutex
 )
 
-// main.go -> Update the top of main() to parse daemon flags
-
 func main() {
-	// 1. CHOOSE BACKGROUND EXECUTION FLAGS
-	daemonMode := flag.Bool("daemon", false, "Run Hydra core server as a detached background Linux daemon process")
-	shortDaemonMode := flag.Bool("d", false, "Run Hydra core server as a detached background Linux daemon process (shortcut)")
+	daemonMode := flag.Bool("daemon", false, "Run Hydra as a detached background Linux daemon")
+	shortDaemonMode := flag.Bool("d", false, "Run Hydra as a detached background Linux daemon (shortcut)")
 	flag.Parse()
 
-	// 2. CHECK IF DETACHMENT IS REQUESTED
 	if *daemonMode || *shortDaemonMode {
-		fmt.Println("[⚙] Detaching process from terminal session context...")
-		storage.InitializeDaemon() // 🚀 Sever the TTY bond and fork grandchild log streams!
+		fmt.Println("[⚙] Detaching process from terminal session...")
+		storage.InitializeDaemon()
 	}
 
-	// main.go -> Updated executeDownloadJob with Phase 7 Atomic Work-Stealing Grid
+	// 1. Initialize SQLite Database Engine
+	dbStore, err := storage.GetDBStore()
+	if err != nil {
+		fmt.Printf("[X] Critical: Failed to initialize SQLite storage: %v\n", err)
+		os.Exit(1)
+	}
+	defer dbStore.Close()
+	fmt.Println("[✓] SQLite database initialized successfully at ~/.local/share/hydra/hydra.db")
 
-	executeDownloadJob := func(url string, savePath string, jobID string, headers map[string]string) { // cite: file(1).txt
-		store := storage.GetStore() // cite: file(1).txt
+	// 2. Reconcile Interrupted Tasks on Boot
+	allJobs := dbStore.GetAllJobs()
+	for _, job := range allJobs {
+		if job.Status == "DOWNLOADING" {
+			_ = dbStore.UpdateStatus(job.ID, "PAUSED")
+			fmt.Printf("[⚙] Recovered task %s (%s) -> marked PAUSED\n", job.ID, job.FileName)
+		}
+	}
 
-		cancelMutex.Lock()                                            // cite: file(1).txt
-		jobCtx, jobCancel := context.WithCancel(context.Background()) // cite: file(1).txt
-		activeCancellations[jobID] = jobCancel                        // cite: file(1).txt
-		cancelMutex.Unlock()                                          // cite: file(1).txt
+	// 3. Root Context for Graceful Shutdown
+	rootCtx, rootCancel := context.WithCancel(context.Background())
+	defer rootCancel()
 
-		defer func() { // cite: file(1).txt
-			cancelMutex.Lock()                 // cite: file(1).txt
-			delete(activeCancellations, jobID) // cite: file(1).txt
-			cancelMutex.Unlock()               // cite: file(1).txt
-		}() // cite: file(1).txt
+	storage.GlobalCancelMap = activeCancellations
+	storage.GlobalCancelMutex = &cancelMutex
 
-		metadata, err := downloader.GetMetadata(url, headers) // cite: file(1).txt
-		if err != nil {                                       // cite: file(1).txt
-			fmt.Printf("[X] Handshake system error for %s: %v\n", url, err) // cite: file(1).txt
-			store.UpdateStatus(jobID, "FAILED")                             // cite: file(1).txt
-			return                                                          // cite: file(1).txt
+	executeDownloadJob := func(url string, savePath string, jobID string, headers map[string]string) {
+		cancelMutex.Lock()
+		jobCtx, jobCancel := context.WithCancel(rootCtx)
+		activeCancellations[jobID] = jobCancel
+		cancelMutex.Unlock()
+
+		defer func() {
+			cancelMutex.Lock()
+			delete(activeCancellations, jobID)
+			cancelMutex.Unlock()
+		}()
+
+		metadata, err := downloader.GetMetadata(url, headers)
+		if err != nil {
+			fmt.Printf("[X] Handshake error for %s: %v\n", url, err)
+			_ = dbStore.UpdateStatus(jobID, "FAILED")
+			return
 		}
 
-		var totalSizeStr string // cite: file(1).txt
-		if metadata.Size > 0 {  // cite: file(1).txt
-			totalSizeStr = fmt.Sprintf("%.2f MB", float64(metadata.Size)/(1024*1024)) // cite: file(1).txt
-		} else { // cite: file(1).txt
-			totalSizeStr = "Unknown" // cite: file(1).txt
-		} // cite: file(1).txt
-		store.UpdateTotalSize(jobID, totalSizeStr) // cite: file(1).txt
-
-		var cleanName string                                       // cite: file(1).txt
-		if parts := strings.Split(savePath, "/"); len(parts) > 0 { // cite: file(1).txt
-			cleanName = parts[len(parts)-1] // cite: file(1).txt
-		} // cite: file(1).txt
-		if cleanName != "" { // cite: file(1).txt
-			store.UpdateProgress(jobID, 0.0, "0.00 MB", "0.00 KB/s", cleanName, "DOWNLOADING") // cite: file(1).txt
+		var totalSizeStr string
+		if metadata.Size > 0 {
+			totalSizeStr = fmt.Sprintf("%.2f MB", float64(metadata.Size)/(1024*1024))
+		} else {
+			totalSizeStr = "Unknown"
 		}
+		_ = dbStore.UpdateTotalSize(jobID, totalSizeStr)
+
+		cleanName := filepath.Base(savePath)
+		_ = dbStore.UpdateProgress(jobID, 0.0, "0.00 MB", "0.00 KB/s", cleanName, "DOWNLOADING")
 
 		var trackers []*downloader.AdaptiveTracker
 		var totalDownloaded int64 = 0
 		stateLoaded := false
-		numThreads := 4 // cite: file(1).txt
+		numThreads := 4
 
-		if !metadata.AcceptRanges || metadata.Size <= 0 { // cite: file(1).txt
-			numThreads = 1 // cite: file(1).txt
+		if !metadata.AcceptRanges || metadata.Size <= 0 {
+			numThreads = 1
 		}
 
-		// 1. STATE LOAD ENHANCEMENT: Rebuild dynamic trackers from .hydra file configs if they exist
-		jobState, loadErr := storage.LoadJobState(savePath) // cite: file(1).txt
-		if loadErr == nil && len(jobState.Chunks) > 0 {     // cite: file(1).txt
-			stateLoaded = true // cite: file(1).txt
-			numThreads = len(jobState.Chunks)
-			fmt.Printf("[⚙] Resuming download for job %s via Adaptive Grid snapshot...\n", jobID) // cite: file(1).txt
-			for _, cs := range jobState.Chunks {                                                  // cite: file(1).txt
+		// Rebuild dynamic trackers from SQLite or file snapshot
+		savedJob, hasSavedJob := dbStore.GetJob(jobID)
+		if hasSavedJob && len(savedJob.Chunks) > 0 {
+			stateLoaded = true
+			numThreads = len(savedJob.Chunks)
+			fmt.Printf("[⚙] Resuming task %s via database chunk snapshot...\n", jobID)
+			for _, cs := range savedJob.Chunks {
 				trackers = append(trackers, &downloader.AdaptiveTracker{
 					Index:       cs.Index,
 					CurrentPtr:  cs.CurrentOffset,
 					EndBoundary: cs.End,
 				})
-				totalDownloaded += (cs.CurrentOffset - cs.Start) // cite: file(1).txt
+				totalDownloaded += (cs.CurrentOffset - cs.Start)
 			}
 		}
 
-		var sharedFile *os.File // cite: file(1).txt
-		if stateLoaded {        // cite: file(1).txt
-			sharedFile, err = os.OpenFile(savePath, os.O_RDWR, 0666) // cite: file(1).txt
-			if err != nil {                                          // cite: file(1).txt
-				fmt.Printf("[X] Failed to open target file for resume: %v\n", err) // cite: file(1).txt
-				store.UpdateStatus(jobID, "FAILED")                                // cite: file(1).txt
-				return                                                             // cite: file(1).txt
+		var sharedFile *os.File
+		if stateLoaded {
+			sharedFile, err = os.OpenFile(savePath, os.O_RDWR, 0666)
+			if err != nil {
+				fmt.Printf("[X] Failed to open target file for resume: %v\n", err)
+				_ = dbStore.UpdateStatus(jobID, "FAILED")
+				return
 			}
-		} else { // cite: file(1).txt
-			fmt.Printf("[⚙] Pre-allocating continuous physical space footprint at: %s\n", savePath) // cite: file(1).txt
-			sharedFile, err = storage.PreallocateSpace(savePath, metadata.Size)                     // cite: file(1).txt
-			if err != nil {                                                                         // cite: file(1).txt
-				fmt.Println("[X] Pre-allocation allocation failed:", err) // cite: file(1).txt
-				store.UpdateStatus(jobID, "FAILED")                       // cite: file(1).txt
-				return                                                    // cite: file(1).txt
+		} else {
+			sharedFile, err = storage.PreallocateSpace(savePath, metadata.Size)
+			if err != nil {
+				fmt.Println("[X] Pre-allocation failed:", err)
+				_ = dbStore.UpdateStatus(jobID, "FAILED")
+				return
 			}
-		} // cite: file(1).txt
-		defer sharedFile.Close() // cite: file(1).txt
+		}
+		defer sharedFile.Close()
 
-		// 2. FRESH INITIALIZATION: If no snapshot, calculate standard balanced base offsets
 		if !stateLoaded {
-			initialChunks := downloader.CalculateChunks(metadata.Size, numThreads) // cite: file(1).txt
+			initialChunks := downloader.CalculateChunks(metadata.Size, numThreads)
 			for _, ch := range initialChunks {
 				trackers = append(trackers, &downloader.AdaptiveTracker{
 					Index:       ch.Index,
@@ -130,23 +141,22 @@ func main() {
 			}
 		}
 
-		downloadDone := make(chan bool, 1)                         // cite: file(1).txt
-		workerErrors := make(chan error, numThreads)               // cite: file(1).txt
-		progressChan := make(chan int64, 2000)                     // cite: file(1).txt
-		tempStateChan := make(chan downloader.Chunk, numThreads*2) // cite: file(1).txt
+		downloadDone := make(chan bool, 1)
+		workerErrors := make(chan error, numThreads)
+		progressChan := make(chan int64, 2000)
+		tempStateChan := make(chan downloader.Chunk, numThreads*2)
 
-		var wg sync.WaitGroup // cite: file(1).txt
+		var wg sync.WaitGroup
 
-		// 3. PERSISTENCE ENGINE Realignment
-		var stateWg sync.WaitGroup // cite: file(1).txt
-		stateWg.Add(1)             // cite: file(1).txt
-		go func() {                // cite: file(1).txt
-			defer stateWg.Done()                      // cite: file(1).txt
-			ticker := time.NewTicker(1 * time.Second) // cite: file(1).txt
-			defer ticker.Stop()                       // cite: file(1).txt
-			dirty := false                            // cite: file(1).txt
+		// State Persistence Routine
+		var stateWg sync.WaitGroup
+		stateWg.Add(1)
+		go func() {
+			defer stateWg.Done()
+			ticker := time.NewTicker(1 * time.Second)
+			defer ticker.Stop()
+			dirty := false
 
-			// Remap dynamic trackers into serializable array elements
 			buildChunkStates := func() []models.ChunkState {
 				var states []models.ChunkState
 				for _, tr := range trackers {
@@ -154,7 +164,7 @@ func main() {
 					end := tr.GetEnd()
 					states = append(states, models.ChunkState{
 						Index:         tr.Index,
-						Start:         current - (current - tr.GetCurrent()), // Retain baseline reference markers
+						Start:         current,
 						CurrentOffset: current,
 						End:           end,
 						Completed:     current >= end,
@@ -163,192 +173,147 @@ func main() {
 				return states
 			}
 
-			for { // cite: file(1).txt
-				select { // cite: file(1).txt
-				case _, ok := <-tempStateChan: // cite: file(1).txt
-					if !ok { // cite: file(1).txt
-						if dirty { // cite: file(1).txt
-							jobState := models.UIJob{ // cite: file(1).txt
-								ID:         jobID,                                                        // cite: file(1).txt
-								FileName:   cleanName,                                                    // cite: file(1).txt
-								URL:        url,                                                          // cite: file(1).txt
-								SavePath:   savePath,                                                     // cite: file(1).txt
-								Progress:   (float64(totalDownloaded) / float64(metadata.Size)) * 100,    // cite: file(1).txt
-								TotalSize:  totalSizeStr,                                                 // cite: file(1).txt
-								Downloaded: fmt.Sprintf("%.2f MB", float64(totalDownloaded)/(1024*1024)), // cite: file(1).txt
-								Status:     "DOWNLOADING",                                                // cite: file(1).txt
-								Chunks:     buildChunkStates(),
-							} // cite: file(1).txt
-							if metadata.Size <= 0 { // cite: file(1).txt
-								jobState.Progress = 0.0 // cite: file(1).txt
-							} // cite: file(1).txt
-							_ = storage.SaveJobState(jobState) // cite: file(1).txt
-						} // cite: file(1).txt
-						return // cite: file(1).txt
-					} // cite: file(1).txt
-					dirty = true // cite: file(1).txt
-				case <-ticker.C: // cite: file(1).txt
-					if dirty { // cite: file(1).txt
-						jobState := models.UIJob{ // cite: file(1).txt
-							ID:         jobID,                                                        // cite: file(1).txt
-							FileName:   cleanName,                                                    // cite: file(1).txt
-							URL:        url,                                                          // cite: file(1).txt
-							SavePath:   savePath,                                                     // cite: file(1).txt
-							Progress:   (float64(totalDownloaded) / float64(metadata.Size)) * 100,    // cite: file(1).txt
-							TotalSize:  totalSizeStr,                                                 // cite: file(1).txt
-							Downloaded: fmt.Sprintf("%.2f MB", float64(totalDownloaded)/(1024*1024)), // cite: file(1).txt
-							Status:     "DOWNLOADING",                                                // cite: file(1).txt
-							Chunks:     buildChunkStates(),
-						} // cite: file(1).txt
-						if metadata.Size <= 0 { // cite: file(1).txt
-							jobState.Progress = 0.0 // cite: file(1).txt
-						} // cite: file(1).txt
-						_ = storage.SaveJobState(jobState) // cite: file(1).txt
-						dirty = false                      // cite: file(1).txt
-					} // cite: file(1).txt
-				} // cite: file(1).txt
-			} // cite: file(1).txt
-		}() // cite: file(1).txt
+			for {
+				select {
+				case _, ok := <-tempStateChan:
+					if !ok {
+						if dirty {
+							_ = dbStore.UpdateJobChunks(jobID, buildChunkStates())
+						}
+						return
+					}
+					dirty = true
+				case <-ticker.C:
+					if dirty {
+						_ = dbStore.UpdateJobChunks(jobID, buildChunkStates())
+						dirty = false
+					}
+				}
+			}
+		}()
 
-		// 4. TELEMETRY CONTROLLER PIPELINE (Channel delta metric accumulator)
+		// Telemetry Controller Routine
 		go func() {
-			var lastDownloaded int64 = 0              // cite: file(1).txt
-			ticker := time.NewTicker(1 * time.Second) // cite: file(1).txt
-			defer ticker.Stop()                       // cite: file(1).txt
-			speedStr := "0.00 KB/s"                   // cite: file(1).txt
+			var lastDownloaded int64 = 0
+			ticker := time.NewTicker(1 * time.Second)
+			defer ticker.Stop()
+			speedStr := "0.00 KB/s"
 
-			go func() { // cite: file(1).txt
-				for range ticker.C { // cite: file(1).txt
-					deltaBytes := totalDownloaded - lastDownloaded // cite: file(1).txt
-					lastDownloaded = totalDownloaded               // cite: file(1).txt
+			go func() {
+				for range ticker.C {
+					deltaBytes := totalDownloaded - lastDownloaded
+					lastDownloaded = totalDownloaded
 
-					if deltaBytes > 1024*1024 { // cite: file(1).txt
-						speedStr = fmt.Sprintf("%.2f MB/s", float64(deltaBytes)/(1024*1024)) // cite: file(1).txt
-					} else if deltaBytes > 1024 { // cite: file(1).txt
-						speedStr = fmt.Sprintf("%.2f KB/s", float64(deltaBytes)/1024) // cite: file(1).txt
-					} else { // cite: file(1).txt
-						speedStr = "0.00 KB/s" // cite: file(1).txt
-					} // cite: file(1).txt
-				} // cite: file(1).txt
-			}() // cite: file(1).txt
+					if deltaBytes > 1024*1024 {
+						speedStr = fmt.Sprintf("%.2f MB/s", float64(deltaBytes)/(1024*1024))
+					} else if deltaBytes > 1024 {
+						speedStr = fmt.Sprintf("%.2f KB/s", float64(deltaBytes)/1024)
+					} else {
+						speedStr = "0.00 KB/s"
+					}
+				}
+			}()
 
-			for bytes := range progressChan { // cite: file(1).txt
-				totalDownloaded += bytes                                                      // cite: file(1).txt
-				downloadedStr := fmt.Sprintf("%.2f MB", float64(totalDownloaded)/(1024*1024)) // cite: file(1).txt
+			for bytes := range progressChan {
+				totalDownloaded += bytes
+				downloadedStr := fmt.Sprintf("%.2f MB", float64(totalDownloaded)/(1024*1024))
 
-				var cleanFilename string                                   // cite: file(1).txt
-				if parts := strings.Split(savePath, "/"); len(parts) > 0 { // cite: file(1).txt
-					cleanFilename = parts[len(parts)-1] // cite: file(1).txt
-				} // cite: file(1).txt
-
-				// Push live structural updates to sync memory structures
-				var activeChunksForUI []models.ChunkState
-				for _, tr := range trackers {
-					current := tr.GetCurrent()
-					activeChunksForUI = append(activeChunksForUI, models.ChunkState{
-						Index:         tr.Index,
-						CurrentOffset: current,
-						End:           tr.GetEnd(),
-						Completed:     current >= tr.GetEnd(),
-					})
+				var percentage float64 = 0.0
+				if metadata.Size > 0 {
+					percentage = (float64(totalDownloaded) / float64(metadata.Size)) * 100
 				}
 
-				globalStore := storage.GetStore()
-				globalStore.UpdateJobChunks(jobID, activeChunksForUI)
+				_ = dbStore.UpdateProgress(jobID, percentage, downloadedStr, speedStr, cleanName, "DOWNLOADING")
+			}
 
-				if metadata.Size > 0 { // cite: file(1).txt
-					percentage := (float64(totalDownloaded) / float64(metadata.Size)) * 100                        // cite: file(1).txt
-					store.UpdateProgress(jobID, percentage, downloadedStr, speedStr, cleanFilename, "DOWNLOADING") // cite: file(1).txt
-				} else { // cite: file(1).txt
-					store.UpdateProgress(jobID, 0.0, downloadedStr, speedStr, cleanFilename, "DOWNLOADING") // cite: file(1).txt
-				} // cite: file(1).txt
-			} // cite: file(1).txt
+			close(tempStateChan)
+			stateWg.Wait()
+			downloadDone <- true
+		}()
 
-			close(tempStateChan) // cite: file(1).txt
-			stateWg.Wait()       // cite: file(1).txt
-			downloadDone <- true // cite: file(1).txt
-		}() // cite: file(1).txt
-
-		// 5. RUN ASYNC WORK-STEALING POOLS
+		// Launch Worker Threads
 		go func() {
 			for i := 0; i < numThreads; i++ {
 				wg.Add(1)
 				go downloader.DownloadChunkParallel(jobCtx, metadata.FinalURL, i, trackers, sharedFile, &wg, workerErrors, progressChan, tempStateChan, headers)
 			}
-			wg.Wait()           // cite: file(1).txt
-			close(progressChan) // cite: file(1).txt
-		}() // cite: file(1).txt
+			wg.Wait()
+			close(progressChan)
+		}()
 
-		cancelChan := downloader.SetupSignalHandling(make(chan bool)) // cite: file(1).txt
+		select {
+		case <-downloadDone:
+			close(workerErrors)
 
-		select { // cite: file(1).txt
-		case <-downloadDone: // cite: file(1).txt
-			close(workerErrors) // cite: file(1).txt
+			if jobCtx.Err() != nil {
+				fmt.Printf("[⏸] Job %s suspended.\n", jobID)
+				_ = dbStore.UpdateStatus(jobID, "PAUSED")
+				return
+			}
 
-			if jobCtx.Err() != nil { // cite: file(1).txt
-				fmt.Printf("[⏸] Job %s successfully suspended by adaptive runtime intervention.\n", jobID) // cite: file(1).txt
-				store.UpdateStatus(jobID, "PAUSED")                                                        // cite: file(1).txt
-				return                                                                                     // cite: file(1).txt
-			} // cite: file(1).txt
+			if len(workerErrors) > 0 {
+				firstErr := <-workerErrors
+				fmt.Printf("[X] Task %s failed: %v\n", jobID, firstErr)
+				_ = dbStore.UpdateStatus(jobID, "FAILED")
+				return
+			}
 
-			if len(workerErrors) > 0 { // cite: file(1).txt
-				firstErr := <-workerErrors                                                  // cite: file(1).txt
-				fmt.Printf("\n[X] CRITICAL ABORT: Thread failure detected: %v\n", firstErr) // cite: file(1).txt
-				store.UpdateStatus(jobID, "FAILED")                                         // cite: file(1).txt
-				os.Remove(savePath)                                                         // cite: file(1).txt
-				storage.ClearJobState(savePath)                                             // cite: file(1).txt
-				return                                                                      // cite: file(1).txt
-			} // cite: file(1).txt
+			var finalSizeStr string
+			if metadata.Size > 0 {
+				finalSizeStr = fmt.Sprintf("%.2f MB", float64(metadata.Size)/(1024*1024))
+			} else {
+				finalSizeStr = fmt.Sprintf("%.2f MB", float64(totalDownloaded)/(1024*1024))
+			}
 
-			var finalSizeStr string // cite: file(1).txt
-			if metadata.Size > 0 {  // cite: file(1).txt
-				finalSizeStr = fmt.Sprintf("%.2f MB", float64(metadata.Size)/(1024*1024)) // cite: file(1).txt
-			} else { // cite: file(1).txt
-				finalSizeStr = fmt.Sprintf("%.2f MB", float64(totalDownloaded)/(1024*1024)) // cite: file(1).txt
-			} // cite: file(1).txt
-			var cleanFilename string                                   // cite: file(1).txt
-			if parts := strings.Split(savePath, "/"); len(parts) > 0 { // cite: file(1).txt
-				cleanFilename = parts[len(parts)-1] // cite: file(1).txt
-			} // cite: file(1).txt
+			_ = dbStore.UpdateProgress(jobID, 100.0, finalSizeStr, "--", cleanName, "COMPLETED")
+			storage.ClearJobState(savePath)
+			fmt.Printf("\n=== SUCCESS: FILE SAVED SAFELY TO %s ===\n", savePath)
 
-			storage.GetStore().UpdateProgress(jobID, 100.0, finalSizeStr, "--", cleanFilename, "COMPLETED") // cite: file(1).txt
-			storage.ClearJobState(savePath)                                                                 // cite: file(1).txt
-			fmt.Printf("\n=== SUCCESS: FILE SAVED SAFELY TO %s ===\n", savePath)                            // cite: file(1).txt
-
-		case workerErr := <-workerErrors: // cite: file(1).txt
-			if jobCtx.Err() == nil { // cite: file(1).txt
-				fmt.Printf("\n[X] PIPELINE CRASHED: Intercepted thread panic: %v\n", workerErr) // cite: file(1).txt
-				store.UpdateStatus(jobID, "FAILED")                                             // cite: file(1).txt
-				os.Remove(savePath)                                                             // cite: file(1).txt
-				storage.ClearJobState(savePath)                                                 // cite: file(1).txt
-			} // cite: file(1).txt
-			return // cite: file(1).txt
-
-		case <-cancelChan: // cite: file(1).txt
-			fmt.Println("[🛑] Job signature canceled by hardware kernel interrupt.") // cite: file(1).txt
-			return                                                                  // cite: file(1).txt
-		} // cite: file(1).txt
+		case workerErr := <-workerErrors:
+			if jobCtx.Err() == nil {
+				fmt.Printf("\n[X] Thread panic: %v\n", workerErr)
+				_ = dbStore.UpdateStatus(jobID, "FAILED")
+			}
+			return
+		}
 	}
 
-	// Expose our internal cancel map hook directly to the storage server layout structure
-	// Expose our internal cancel map hook directly to the storage server layout structure
-	storage.GlobalCancelMap = activeCancellations
-	storage.GlobalCancelMutex = &cancelMutex
+	// 4. Start IPC Server
+	go storage.StartIPCServer(func(url string, savePath string, jobID string) {
+		executeDownloadJob(url, savePath, jobID, make(map[string]string))
+	})
 
-	// ── 🚀 FIX: LAUNCH IPC SERVER CONCURRENTLY IN A BACKGROUND GOROUTINE ──
-	// This ensures /tmp/hydra.sock actively listens without blocking the web dashboard
+	// 5. Start HTTP Server
+	server := storage.NewServer(executeDownloadJob)
+	httpServer := &http.Server{
+		Addr:    "127.0.0.1:9000",
+		Handler: server.Router,
+	}
+
 	go func() {
-		// Wrap executeDownloadJob to adapt the 3-argument signature expected by the IPC trigger
-		storage.StartIPCServer(func(url string, savePath string, jobID string) {
-			// Pass an empty headers map since raw CLI text payloads don't forward browser cookies
-			executeDownloadJob(url, savePath, jobID, make(map[string]string))
-		})
+		fmt.Println("[⚙] Hydra UI Dashboard Server running on http://127.0.0.1:9000")
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			fmt.Printf("HTTP Server error: %v\n", err)
+		}
 	}()
 
-	// ── RUN HYDRA UI DASHBOARD SERVER (BLOCKING CALL) ──
-	fmt.Println("[⚙] Hydra UI Dashboard Server running on http://127.0.0.1:9000")
-	server := storage.NewServer(executeDownloadJob)
-	if err := http.ListenAndServe("127.0.0.1:9000", server.Router); err != nil { // cite: 189
-		fmt.Printf("Server runtime exception error: %v\n", err)
-	}
+	// 6. Graceful Shutdown Signal Trap
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	sig := <-sigChan
+	fmt.Printf("\n[🛑] Captured signal %v: Shutting down Hydra gracefully...\n", sig)
+
+	// Cancel root context to stop all active download workers
+	rootCancel()
+
+	// Shut down HTTP server with timeout
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer shutdownCancel()
+	_ = httpServer.Shutdown(shutdownCtx)
+
+	// Remove socket file
+	_ = os.Remove(storage.GetSocketPath())
+
+	fmt.Println("[✓] All resources flushed. Goodbye!")
 }

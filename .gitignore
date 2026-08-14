@@ -1,28 +1,48 @@
-# Compiled Binaries
+# ──────────────────────────────────────────
+# 🗄️ Database & State Files
+# ──────────────────────────────────────────
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.hydra
+
+# ──────────────────────────────────────────
+# 🔨 Binaries & Test Artifacts
+# ──────────────────────────────────────────
 /hydra
 /hydra-cli
 /hydra-daemon
+*-test
+*_test
+hydra-*
 dist/
+build/
+out/
 
-# Download Artifacts / Test images
-*.img
-*.bin
-*.tmp
-part_*.tmp
+# ──────────────────────────────────────────
+# 📦 Packaging & Release Artifacts
+# ──────────────────────────────────────────
+*.deb
+*.rpm
+*.tar.gz
+extension.zip
+hydra_optimized_output.zip
 
-# IDE / System files
+# ──────────────────────────────────────────
+# ⚙️ OS, IDE & Environment Files
+# ──────────────────────────────────────────
+.env
+.env.*
+.DS_Store
 .idea/
 .vscode/
-.DS_Store
 
-# Log Files
+# ──────────────────────────────────────────
+# 🧪 Coverage & Profiling Logs
+# ──────────────────────────────────────────
 *.log
-
-# Workspace Files
-go.work
-go.work.sum
-
-# Temporary Results
-downloaded_result.html
-hydra_optimized_output.zip
-extension.zip
+*.prof
+coverage.out
+coverage.html
