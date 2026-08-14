@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Hydra Downloader
+Comment=High-Performance Multi-threaded Download Manager
+Exec=xdg-open http://127.0.0.1:9000
+Icon=hydra
+Terminal=false
+Type=Application
+Categories=Network;FileTransfer;
+StartupNotify=false

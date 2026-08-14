@@ -1,0 +1,13 @@
+[Unit]
+Description=Hydra Core Download Daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/hydra-daemon
+Restart=on-failure
+RestartSec=3s
+Environment=XDG_RUNTIME_DIR=%t
+
+[Install]
+WantedBy=default.target
