@@ -11,14 +11,15 @@ type ChunkState struct {
 
 // UIJob handles real-time download status metrics across backend and frontend layers
 type UIJob struct {
-	ID         string       `json:"id"`
-	FileName   string       `json:"file_name"`
-	URL        string       `json:"url"`
-	SavePath   string       `json:"save_path"`
-	Progress   float64      `json:"progress"`
-	TotalSize  string       `json:"total_size"`
-	Downloaded string       `json:"downloaded"`
-	Speed      string       `json:"speed"`
+	ID         string            `json:"id"`
+	FileName   string            `json:"file_name"`
+	URL        string            `json:"url"`
+	SavePath   string            `json:"save_path"`
+	Progress   float64           `json:"progress"`
+	TotalSize  string            `json:"total_size"`
+	Downloaded string            `json:"downloaded"`
+	Speed      string            `json:"speed"`
+	ETA        string            `json:"eta"`
 	Status     string            `json:"status"`
 	Chunks     []ChunkState      `json:"chunks,omitempty"` // Captured for state persistence
 	Headers    map[string]string `json:"headers,omitempty"`

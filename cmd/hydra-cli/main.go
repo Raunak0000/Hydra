@@ -88,12 +88,16 @@ func executeStatusRequest(conn net.Conn) {
 
 	fmt.Println("\n🐉 HYDRA CORE DOWNLOAD ACTIVE QUEUE:")
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', tabwriter.Debug)
-	fmt.Fprintln(w, "JOB ID\t FILE NAME\t PROGRESS\t SIZE / DOWNLOADED\t SPEED\t STATUS")
-	fmt.Fprintln(w, "------\t ---------\t --------\t ─────────────────\t ─────\t ──────")
+	fmt.Fprintln(w, "JOB ID\t FILE NAME\t PROGRESS\t SIZE / DOWNLOADED\t SPEED\t ETA\t STATUS")
+	fmt.Fprintln(w, "------\t ---------\t --------\t ─────────────────\t ─────\t ---\t ──────")
 
 	for _, job := range jobs {
-		fmt.Fprintf(w, "%s\t %s\t %.2f%%\t %s / %s\t %s\t %s\n",
-			job.ID, job.FileName, job.Progress, job.Downloaded, job.TotalSize, job.Speed, job.Status)
+		eta := job.ETA
+		if eta == "" {
+			eta = "--"
+		}
+		fmt.Fprintf(w, "%s\t %s\t %.2f%%\t %s / %s\t %s\t %s\t %s\n",
+			job.ID, job.FileName, job.Progress, job.Downloaded, job.TotalSize, job.Speed, eta, job.Status)
 	}
 	w.Flush()
 	fmt.Println()

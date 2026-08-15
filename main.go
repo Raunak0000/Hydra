@@ -22,6 +22,29 @@ var (
 	cancelMutex         sync.Mutex
 )
 
+// formatETA converts remaining seconds into human-readable strings
+func formatETA(seconds int64) string {
+	if seconds <= 0 {
+		return "0s"
+	}
+	if seconds < 60 {
+		return fmt.Sprintf("%ds", seconds)
+	}
+	if seconds < 3600 {
+		mins := seconds / 60
+		secs := seconds % 60
+		return fmt.Sprintf("%dm %ds", mins, secs)
+	}
+	if seconds < 86400 {
+		hours := seconds / 3600
+		mins := (seconds % 3600) / 60
+		return fmt.Sprintf("%dh %dm", hours, mins)
+	}
+	days := seconds / 86400
+	hours := (seconds % 86400) / 3600
+	return fmt.Sprintf("%dd %dh", days, hours)
+}
+
 func main() {
 	daemonMode := flag.Bool("daemon", false, "Run Hydra as a detached background Linux daemon")
 	shortDaemonMode := flag.Bool("d", false, "Run Hydra as a detached background Linux daemon (shortcut)")
@@ -85,7 +108,7 @@ func main() {
 		_ = dbStore.UpdateTotalSize(jobID, totalSizeStr)
 
 		cleanName := filepath.Base(savePath)
-		_ = dbStore.UpdateProgress(jobID, 0.0, "0.00 MB", "0.00 KB/s", cleanName, "DOWNLOADING")
+		_ = dbStore.UpdateProgress(jobID, 0.0, "0.00 MB", "0.00 KB/s", "--", cleanName, "DOWNLOADING")
 
 		var trackers []*downloader.AdaptiveTracker
 		var totalDownloaded int64 = 0
@@ -96,7 +119,6 @@ func main() {
 			numThreads = 1
 		}
 
-		// Rebuild dynamic trackers from SQLite or file snapshot
 		savedJob, hasSavedJob := dbStore.GetJob(jobID)
 		if hasSavedJob && len(savedJob.Chunks) > 0 {
 			stateLoaded = true
@@ -192,12 +214,13 @@ func main() {
 			}
 		}()
 
-		// Telemetry Controller Routine
+		// Telemetry Controller Routine (Calculates Speed & ETA)
 		go func() {
 			var lastDownloaded int64 = 0
 			ticker := time.NewTicker(1 * time.Second)
 			defer ticker.Stop()
 			speedStr := "0.00 KB/s"
+			etaStr := "--"
 
 			go func() {
 				for range ticker.C {
@@ -211,6 +234,19 @@ func main() {
 					} else {
 						speedStr = "0.00 KB/s"
 					}
+
+					// Compute ETA dynamically
+					if metadata.Size > 0 && deltaBytes > 0 {
+						remainingBytes := metadata.Size - totalDownloaded
+						if remainingBytes > 0 {
+							secs := remainingBytes / deltaBytes
+							etaStr = formatETA(secs)
+						} else {
+							etaStr = "0s"
+						}
+					} else {
+						etaStr = "--"
+					}
 				}
 			}()
 
@@ -223,7 +259,7 @@ func main() {
 					percentage = (float64(totalDownloaded) / float64(metadata.Size)) * 100
 				}
 
-				_ = dbStore.UpdateProgress(jobID, percentage, downloadedStr, speedStr, cleanName, "DOWNLOADING")
+				_ = dbStore.UpdateProgress(jobID, percentage, downloadedStr, speedStr, etaStr, cleanName, "DOWNLOADING")
 			}
 
 			close(tempStateChan)
@@ -265,7 +301,7 @@ func main() {
 				finalSizeStr = fmt.Sprintf("%.2f MB", float64(totalDownloaded)/(1024*1024))
 			}
 
-			_ = dbStore.UpdateProgress(jobID, 100.0, finalSizeStr, "--", cleanName, "COMPLETED")
+			_ = dbStore.UpdateProgress(jobID, 100.0, finalSizeStr, "--", "--", cleanName, "COMPLETED")
 			storage.ClearJobState(savePath)
 			fmt.Printf("\n=== SUCCESS: FILE SAVED SAFELY TO %s ===\n", savePath)
 
@@ -304,16 +340,12 @@ func main() {
 	sig := <-sigChan
 	fmt.Printf("\n[🛑] Captured signal %v: Shutting down Hydra gracefully...\n", sig)
 
-	// Cancel root context to stop all active download workers
 	rootCancel()
 
-	// Shut down HTTP server with timeout
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer shutdownCancel()
 	_ = httpServer.Shutdown(shutdownCtx)
 
-	// Remove socket file
 	_ = os.Remove(storage.GetSocketPath())
-
 	fmt.Println("[✓] All resources flushed. Goodbye!")
 }
