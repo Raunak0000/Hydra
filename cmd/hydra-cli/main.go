@@ -6,18 +6,39 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/Raunak0000/Hydra/pkg/models"
 )
 
-var socketPath = func() string {
+func getSocketPath() string {
+	// 1. Check user runtime directory ($XDG_RUNTIME_DIR/hydra.sock)
 	if runtimeDir := os.Getenv("XDG_RUNTIME_DIR"); runtimeDir != "" {
-		return runtimeDir + "/hydra.sock"
+		sock := filepath.Join(runtimeDir, "hydra.sock")
+		if _, err := os.Stat(sock); err == nil {
+			return sock
+		}
+	}
+
+	// 2. Check /run/user/<UID>/hydra.sock
+	uidSock := fmt.Sprintf("/run/user/%d/hydra.sock", os.Getuid())
+	if _, err := os.Stat(uidSock); err == nil {
+		return uidSock
+	}
+
+	// 3. Check /tmp/hydra.sock
+	if _, err := os.Stat("/tmp/hydra.sock"); err == nil {
+		return "/tmp/hydra.sock"
+	}
+
+	// Default fallback to XDG_RUNTIME_DIR or /tmp/hydra.sock
+	if runtimeDir := os.Getenv("XDG_RUNTIME_DIR"); runtimeDir != "" {
+		return filepath.Join(runtimeDir, "hydra.sock")
 	}
 	return "/tmp/hydra.sock"
-}()
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -26,11 +47,12 @@ func main() {
 	}
 
 	action := os.Args[1]
+	socketPath := getSocketPath()
 
-	// 1. Establish low-level connection through the local Linux socket file
+	// Establish low-level connection through the local Linux socket file
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
-		fmt.Println("[X] Error: Could not connect to Hydra background daemon. Is the server running?")
+		fmt.Printf("[X] Error: Could not connect to Hydra background daemon at %s. Is the server running?\n", socketPath)
 		os.Exit(1)
 	}
 	defer conn.Close()
@@ -51,10 +73,8 @@ func main() {
 }
 
 func executeStatusRequest(conn net.Conn) {
-	// Write standard command token directly to the socket wire
 	_, _ = conn.Write([]byte("STATUS\n"))
 
-	// Decode incoming JSON array from the socket stream
 	var jobs []models.UIJob
 	if err := json.NewDecoder(conn).Decode(&jobs); err != nil {
 		fmt.Println("[X] Error: Failed to parse active queue records:", err)
@@ -80,11 +100,9 @@ func executeStatusRequest(conn net.Conn) {
 }
 
 func executeActionRequest(conn net.Conn, action string, jobID string) {
-	// Format plaintext command payload string (e.g. PAUSE|job_1\n, DELETE|job_1\n)
 	payload := fmt.Sprintf("%s|%s\n", strings.ToUpper(action), jobID)
 	_, _ = conn.Write([]byte(payload))
 
-	// Wait and read line confirmation reply string back from daemon
 	reply, err := bufio.NewReader(conn).ReadString('\n')
 	if err != nil {
 		fmt.Printf("[X] Error: Failed to read daemon confirmation for %s action.\n", action)

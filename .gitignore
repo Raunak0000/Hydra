@@ -14,21 +14,28 @@
 /hydra
 /hydra-cli
 /hydra-daemon
+/bin/
+bin/
 *-test
 *_test
-hydra-*
+/hydra-*
 dist/
 build/
 out/
 
 # ──────────────────────────────────────────
-# 📦 Packaging & Release Artifacts
+# 📦 Packaging & Download Artifacts
 # ──────────────────────────────────────────
 *.deb
 *.rpm
 *.tar.gz
+*.img
+*.bin
+*.tmp
+part_*.tmp
 extension.zip
 hydra_optimized_output.zip
+downloaded_result.html
 
 # ──────────────────────────────────────────
 # ⚙️ OS, IDE & Environment Files
