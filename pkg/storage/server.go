@@ -77,6 +77,10 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 	return s
 }
 
+func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
+	GetBroker().ServeHTTP(w, r)
+}
+
 func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
@@ -273,8 +277,4 @@ func (s *Server) handleGetQueueJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	jobs := s.db.GetAllJobs()
 	_ = json.NewEncoder(w).Encode(jobs)
-}
-
-func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
-	GetBroker().ServeHTTP(w, r)
 }
