@@ -395,126 +395,136 @@ templ Dashboard(jobs []models.UIJob) {
 					}
 				}
 
-				async function pollQueue() {
-					try {
-						const res = await fetch('/api/queue/json');
-						const jobs = await res.json();
-						
-						const existingRows = document.querySelectorAll('.download-row');
-						const existingIds = Array.from(existingRows).map(r => r.getAttribute('data-id')).sort();
-						const fetchedIds = jobs.map(j => j.id).sort();
-						
-						if (JSON.stringify(existingIds) !== JSON.stringify(fetchedIds)) {
-							const htmlRes = await fetch('/api/queue');
-							const html = await htmlRes.text();
-							document.getElementById('download-queue').innerHTML = html;
-							htmx.process(document.getElementById('download-queue'));
-							updateUIState();
-							return;
-						}
-						
-						jobs.forEach(job => {
-							const row = document.querySelector(`.download-row[data-id="${job.id}"]`);
-							if (!row) return;
-							
-							row.setAttribute('data-status', job.status);
-							row.setAttribute('data-eta', job.eta || '--');
-							row.setAttribute('data-chunks', JSON.stringify(job.chunks || []));
-							
-							const sizeCell = row.querySelector('.size-metrics');
-							if (sizeCell) {
-								sizeCell.innerHTML = `<span>${job.downloaded}</span> / <span class="text-slate-600">${job.total_size}</span>`;
-							}
-							
-							const bar = row.querySelector('.progress-bar');
-							if (bar) {
-								bar.style.width = job.progress.toFixed(1) + '%';
-								bar.classList.remove('bg-blue-600', 'bg-amber-500', 'bg-emerald-500', 'bg-rose-500');
-								if (job.status === 'DOWNLOADING') {
-									bar.classList.add('bg-blue-600');
-								} else if (job.status === 'PAUSED') {
-									bar.classList.add('bg-amber-500');
-								} else if (job.status === 'COMPLETED') {
-									bar.classList.add('bg-emerald-500');
-								} else {
-									bar.classList.add('bg-rose-500');
-								}
-							}
-							const txt = row.querySelector('.progress-text');
-							if (txt) {
-								txt.innerText = job.progress.toFixed(1) + '%';
-							}
-							
-							const speedCell = row.querySelector('.speed-cell');
-							if (speedCell) {
-								if (job.status === 'DOWNLOADING') {
-									speedCell.innerText = job.speed;
-									speedCell.classList.remove('text-slate-600');
-								} else {
-									speedCell.innerText = '-';
-									speedCell.classList.add('text-slate-600');
-								}
-							}
+				// Replace pollQueue and interval setup with native EventSource:
+function setupEventStream() {
+    const eventSource = new EventSource('/api/events');
 
-							const etaCell = row.querySelector('.eta-cell');
-							if (etaCell) {
-								if (job.status === 'DOWNLOADING') {
-									etaCell.innerText = job.eta || '--';
-									etaCell.classList.remove('text-slate-600');
-								} else {
-									etaCell.innerText = '--';
-									etaCell.classList.add('text-slate-600');
-								}
-							}
-							
-							const badges = row.querySelectorAll('.status-badge');
-							badges.forEach(b => {
-								if (b.getAttribute('data-badge-status') === job.status) {
-									b.classList.remove('hidden');
-								} else {
-									b.classList.add('hidden');
-								}
-							});
-							
-							const configureBtn = row.querySelector('.configure-btn');
-							if (configureBtn) {
-								if (job.status === 'PENDING_PATH') configureBtn.classList.remove('hidden');
-								else configureBtn.classList.add('hidden');
-							}
-							const pauseBtn = row.querySelector('.pause-btn');
-							if (pauseBtn) {
-								if (job.status === 'DOWNLOADING') pauseBtn.classList.remove('hidden');
-								else pauseBtn.classList.add('hidden');
-							}
-							const resumeBtn = row.querySelector('.resume-btn');
-							if (resumeBtn) {
-								if (job.status === 'PAUSED') resumeBtn.classList.remove('hidden');
-								else resumeBtn.classList.add('hidden');
-							}
-						});
-						
-						updateUIState();
-					} catch (e) {
-						console.error("Queue poll issue", e);
-					}
-				}
+    eventSource.addEventListener('queue', (event) => {
+        try {
+            const jobs = JSON.parse(event.data);
+            
+            // Check if DOM structure changed (task added or removed)
+            const existingRows = document.querySelectorAll('.download-row');
+            const existingIds = Array.from(existingRows).map(r => r.getAttribute('data-id')).sort();
+            const fetchedIds = jobs.map(j => j.id).sort();
 
-				window.addEventListener('DOMContentLoaded', () => {
-					updateUIState();
-					setInterval(pollQueue, 250);
+            if (JSON.stringify(existingIds) !== JSON.stringify(fetchedIds)) {
+                fetch('/api/queue').then(res => res.text()).then(html => {
+                    document.getElementById('download-queue').innerHTML = html;
+                    htmx.process(document.getElementById('download-queue'));
+                    updateUIState();
+                });
+                return;
+            }
 
-					document.addEventListener('click', (e) => {
-						const btn = e.target.closest('.configure-btn');
-						if (btn) {
-							e.stopPropagation();
-							const jobID = btn.getAttribute('data-job-id');
-							const url = btn.getAttribute('data-url');
-							const filename = btn.getAttribute('data-filename');
-							openPendingPathModal(jobID, url, filename);
-						}
-					});
-				});
-			</script>
+            // Surgically update existing DOM nodes
+            jobs.forEach(job => {
+                const row = document.querySelector(`.download-row[data-id="${job.id}"]`);
+                if (!row) return;
+
+                row.setAttribute('data-status', job.status);
+                row.setAttribute('data-eta', job.eta || '--');
+                row.setAttribute('data-chunks', JSON.stringify(job.chunks || []));
+
+                const sizeCell = row.querySelector('.size-metrics');
+                if (sizeCell) {
+                    sizeCell.innerHTML = `<span>${job.downloaded}</span> / <span class="text-slate-600">${job.total_size}</span>`;
+                }
+
+                const bar = row.querySelector('.progress-bar');
+                if (bar) {
+                    bar.style.width = job.progress.toFixed(1) + '%';
+                    bar.classList.remove('bg-blue-600', 'bg-amber-500', 'bg-emerald-500', 'bg-rose-500');
+                    if (job.status === 'DOWNLOADING') {
+                        bar.classList.add('bg-blue-600');
+                    } else if (job.status === 'PAUSED') {
+                        bar.classList.add('bg-amber-500');
+                    } else if (job.status === 'COMPLETED') {
+                        bar.classList.add('bg-emerald-500');
+                    } else {
+                        bar.classList.add('bg-rose-500');
+                    }
+                }
+                const txt = row.querySelector('.progress-text');
+                if (txt) {
+                    txt.innerText = job.progress.toFixed(1) + '%';
+                }
+
+                const speedCell = row.querySelector('.speed-cell');
+                if (speedCell) {
+                    if (job.status === 'DOWNLOADING') {
+                        speedCell.innerText = job.speed;
+                        speedCell.classList.remove('text-slate-600');
+                    } else {
+                        speedCell.innerText = '-';
+                        speedCell.classList.add('text-slate-600');
+                    }
+                }
+
+                const etaCell = row.querySelector('.eta-cell');
+                if (etaCell) {
+                    if (job.status === 'DOWNLOADING') {
+                        etaCell.innerText = job.eta || '--';
+                        etaCell.classList.remove('text-slate-600');
+                    } else {
+                        etaCell.innerText = '--';
+                        etaCell.classList.add('text-slate-600');
+                    }
+                }
+
+                const badges = row.querySelectorAll('.status-badge');
+                badges.forEach(b => {
+                    if (b.getAttribute('data-badge-status') === job.status) {
+                        b.classList.remove('hidden');
+                    } else {
+                        b.classList.add('hidden');
+                    }
+                });
+
+                const configureBtn = row.querySelector('.configure-btn');
+                if (configureBtn) {
+                    if (job.status === 'PENDING_PATH') configureBtn.classList.remove('hidden');
+                    else configureBtn.classList.add('hidden');
+                }
+                const pauseBtn = row.querySelector('.pause-btn');
+                if (pauseBtn) {
+                    if (job.status === 'DOWNLOADING') pauseBtn.classList.remove('hidden');
+                    else pauseBtn.classList.add('hidden');
+                }
+                const resumeBtn = row.querySelector('.resume-btn');
+                if (resumeBtn) {
+                    if (job.status === 'PAUSED') resumeBtn.classList.remove('hidden');
+                    else resumeBtn.classList.add('hidden');
+                }
+            });
+
+            updateUIState();
+        } catch (e) {
+            console.error("SSE parse error", e);
+        }
+    });
+
+    eventSource.onerror = (err) => {
+        console.warn("SSE connection interrupted, retrying...", err);
+    };
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    updateUIState();
+    setupEventStream();
+
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('.configure-btn');
+        if (btn) {
+            e.stopPropagation();
+            const jobID = btn.getAttribute('data-job-id');
+            const url = btn.getAttribute('data-url');
+            const filename = btn.getAttribute('data-filename');
+            openPendingPathModal(jobID, url, filename);
+        }
+    });
+});
+</script>
 		</body>
 	</html>
 }

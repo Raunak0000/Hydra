@@ -71,6 +71,8 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 	s.Router.HandleFunc("/api/download/pause", sameOriginOnly(s.handlePauseJob))
 	s.Router.HandleFunc("/api/download/resume", sameOriginOnly(s.handleResumeJob))
 	s.Router.HandleFunc("/api/download/delete", sameOriginOnly(s.handleDeleteJob))
+	// Server-Sent Events real-time push endpoint
+	s.Router.HandleFunc("/api/events", s.handleEventsStream)
 
 	return s
 }
@@ -271,4 +273,8 @@ func (s *Server) handleGetQueueJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	jobs := s.db.GetAllJobs()
 	_ = json.NewEncoder(w).Encode(jobs)
+}
+
+func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
+	GetBroker().ServeHTTP(w, r)
 }

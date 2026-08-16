@@ -260,6 +260,9 @@ func main() {
 				}
 
 				_ = dbStore.UpdateProgress(jobID, percentage, downloadedStr, speedStr, etaStr, cleanName, "DOWNLOADING")
+
+				// Broadcast initial state
+				storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
 			}
 
 			close(tempStateChan)
