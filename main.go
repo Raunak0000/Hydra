@@ -87,14 +87,25 @@ func main() {
 			delete(activeCancellations, jobID)
 			cancelMutex.Unlock()
 
-			// 🚀 Automatically promote next queued download when worker pool frees up
 			storage.GetQueueManager().ProcessNext()
 		}()
 
+		// 1. Resolve and ensure save path directory exists
+		resolvedPath, err := storage.ResolvePath(savePath)
+		if err != nil {
+			fmt.Printf("[X] Invalid destination path '%s' for job %s: %v\n", savePath, jobID, err)
+			_ = dbStore.UpdateStatus(jobID, "FAILED")
+			storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
+			return
+		}
+		savePath = resolvedPath
+
+		// 2. Fetch Metadata with non-blocking fail-fast logic
 		metadata, err := downloader.GetMetadata(url, headers)
 		if err != nil {
-			fmt.Printf("[X] Handshake error for %s: %v\n", url, err)
+			fmt.Printf("[X] Handshake error for %s (%s): %v\n", jobID, url, err)
 			_ = dbStore.UpdateStatus(jobID, "FAILED")
+			storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
 			return
 		}
 
@@ -102,12 +113,13 @@ func main() {
 		if metadata.Size > 0 {
 			totalSizeStr = fmt.Sprintf("%.2f MB", float64(metadata.Size)/(1024*1024))
 		} else {
-			totalSizeStr = "Unknown"
+			totalSizeStr = "Dynamic Stream"
 		}
 		_ = dbStore.UpdateTotalSize(jobID, totalSizeStr)
 
 		cleanName := filepath.Base(savePath)
 		_ = dbStore.UpdateProgress(jobID, 0.0, "0.00 MB", "0.00 KB/s", "--", cleanName, "DOWNLOADING")
+		storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
 
 		var trackers []*downloader.AdaptiveTracker
 		var totalDownloaded int64 = 0

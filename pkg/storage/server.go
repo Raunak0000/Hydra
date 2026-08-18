@@ -237,8 +237,9 @@ func (s *Server) handlePauseJob(w http.ResponseWriter, r *http.Request) {
 	_ = s.db.UpdateStatus(jobID, "PAUSED")
 	GetBroker().BroadcastQueueState(s.db.GetAllJobs())
 
-	// 🚀 Check if a queued task can now run
-	GetQueueManager().ProcessNext()
+	if GetQueueManager() != nil {
+		GetQueueManager().ProcessNext()
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -255,7 +256,7 @@ func (s *Server) handleResumeJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if GetQueueManager().ShouldQueue() {
+	if GetQueueManager() != nil && GetQueueManager().ShouldQueue() {
 		_ = s.db.UpdateStatus(jobID, "QUEUED")
 	} else {
 		_ = s.db.UpdateStatus(jobID, "DOWNLOADING")
