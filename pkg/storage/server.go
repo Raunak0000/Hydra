@@ -165,20 +165,30 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Inside handleDownloadTrigger:
 	jobID := fmt.Sprintf("job_%d", len(s.db.GetAllJobs())+1)
+
+	// Determine if job should run immediately or queue
+	if status == "DOWNLOADING" && GetQueueManager().ShouldQueue() {
+		status = "QUEUED"
+	}
+
 	newJob := models.UIJob{
 		ID:         jobID,
 		FileName:   filename,
 		URL:        payload.URL,
 		SavePath:   securedPath,
 		Progress:   0.0,
+		TotalSize:  "Calculating...",
 		Downloaded: "0.00 MB",
 		Speed:      "0.00 KB/s",
+		ETA:        "--",
 		Status:     status,
 		Headers:    payload.Headers,
 	}
 
 	_ = s.db.SaveJob(&newJob)
+	GetBroker().BroadcastQueueState(s.db.GetAllJobs())
 
 	if status == "DOWNLOADING" {
 		go s.ExecuteDownloadJob(payload.URL, securedPath, jobID, payload.Headers)
@@ -186,7 +196,7 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "queued", "job_id": jobID})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": status, "job_id": jobID})
 }
 
 func (s *Server) handleRenderDashboard(w http.ResponseWriter, r *http.Request) {
@@ -225,6 +235,10 @@ func (s *Server) handlePauseJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = s.db.UpdateStatus(jobID, "PAUSED")
+	GetBroker().BroadcastQueueState(s.db.GetAllJobs())
+
+	// 🚀 Check if a queued task can now run
+	GetQueueManager().ProcessNext()
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -241,8 +255,14 @@ func (s *Server) handleResumeJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = s.db.UpdateStatus(jobID, "DOWNLOADING")
-	go s.ExecuteDownloadJob(job.URL, job.SavePath, jobID, job.Headers)
+	if GetQueueManager().ShouldQueue() {
+		_ = s.db.UpdateStatus(jobID, "QUEUED")
+	} else {
+		_ = s.db.UpdateStatus(jobID, "DOWNLOADING")
+		go s.ExecuteDownloadJob(job.URL, job.SavePath, jobID, job.Headers)
+	}
+
+	GetBroker().BroadcastQueueState(s.db.GetAllJobs())
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -270,6 +290,10 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	_ = os.Remove(job.SavePath)
 	ClearJobState(job.SavePath)
 	_ = s.db.DeleteJob(jobID)
+	GetBroker().BroadcastQueueState(s.db.GetAllJobs())
+
+	// 🚀 Free slot for next queued job
+	GetQueueManager().ProcessNext()
 	w.WriteHeader(http.StatusOK)
 }
 

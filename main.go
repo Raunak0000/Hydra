@@ -22,27 +22,21 @@ var (
 	cancelMutex         sync.Mutex
 )
 
-// formatETA converts remaining seconds into human-readable strings
-func formatETA(seconds int64) string {
-	if seconds <= 0 {
+func formatETA(sec int64) string {
+	if sec <= 0 {
 		return "0s"
 	}
-	if seconds < 60 {
-		return fmt.Sprintf("%ds", seconds)
+	if sec < 60 {
+		return fmt.Sprintf("%ds", sec)
 	}
-	if seconds < 3600 {
-		mins := seconds / 60
-		secs := seconds % 60
-		return fmt.Sprintf("%dm %ds", mins, secs)
+	m := sec / 60
+	s := sec % 60
+	if m < 60 {
+		return fmt.Sprintf("%dm %ds", m, s)
 	}
-	if seconds < 86400 {
-		hours := seconds / 3600
-		mins := (seconds % 3600) / 60
-		return fmt.Sprintf("%dh %dm", hours, mins)
-	}
-	days := seconds / 86400
-	hours := (seconds % 86400) / 3600
-	return fmt.Sprintf("%dd %dh", days, hours)
+	h := m / 60
+	m = m % 60
+	return fmt.Sprintf("%dh %dm", h, m)
 }
 
 func main() {
@@ -80,7 +74,9 @@ func main() {
 	storage.GlobalCancelMap = activeCancellations
 	storage.GlobalCancelMutex = &cancelMutex
 
-	executeDownloadJob := func(url string, savePath string, jobID string, headers map[string]string) {
+	var executeDownloadJob func(url string, savePath string, jobID string, headers map[string]string)
+
+	executeDownloadJob = func(url string, savePath string, jobID string, headers map[string]string) {
 		cancelMutex.Lock()
 		jobCtx, jobCancel := context.WithCancel(rootCtx)
 		activeCancellations[jobID] = jobCancel
@@ -90,6 +86,9 @@ func main() {
 			cancelMutex.Lock()
 			delete(activeCancellations, jobID)
 			cancelMutex.Unlock()
+
+			// 🚀 Automatically promote next queued download when worker pool frees up
+			storage.GetQueueManager().ProcessNext()
 		}()
 
 		metadata, err := downloader.GetMetadata(url, headers)
@@ -119,6 +118,7 @@ func main() {
 			numThreads = 1
 		}
 
+		// Rebuild dynamic trackers from SQLite or file snapshot
 		savedJob, hasSavedJob := dbStore.GetJob(jobID)
 		if hasSavedJob && len(savedJob.Chunks) > 0 {
 			stateLoaded = true
@@ -214,7 +214,7 @@ func main() {
 			}
 		}()
 
-		// Telemetry Controller Routine (Calculates Speed & ETA)
+		// Telemetry Controller Routine
 		go func() {
 			var lastDownloaded int64 = 0
 			ticker := time.NewTicker(1 * time.Second)
@@ -235,12 +235,10 @@ func main() {
 						speedStr = "0.00 KB/s"
 					}
 
-					// Compute ETA dynamically
 					if metadata.Size > 0 && deltaBytes > 0 {
-						remainingBytes := metadata.Size - totalDownloaded
-						if remainingBytes > 0 {
-							secs := remainingBytes / deltaBytes
-							etaStr = formatETA(secs)
+						remaining := metadata.Size - totalDownloaded
+						if remaining > 0 {
+							etaStr = formatETA(remaining / deltaBytes)
 						} else {
 							etaStr = "0s"
 						}
@@ -260,9 +258,6 @@ func main() {
 				}
 
 				_ = dbStore.UpdateProgress(jobID, percentage, downloadedStr, speedStr, etaStr, cleanName, "DOWNLOADING")
-
-				// Broadcast initial state
-				storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
 			}
 
 			close(tempStateChan)
@@ -317,6 +312,9 @@ func main() {
 		}
 	}
 
+	// Initialize global concurrency manager (limit: 2 concurrent active downloads)
+	storage.InitQueueManager(2, executeDownloadJob)
+
 	// 4. Start IPC Server
 	go storage.StartIPCServer(func(url string, savePath string, jobID string) {
 		executeDownloadJob(url, savePath, jobID, make(map[string]string))
@@ -343,12 +341,16 @@ func main() {
 	sig := <-sigChan
 	fmt.Printf("\n[🛑] Captured signal %v: Shutting down Hydra gracefully...\n", sig)
 
+	// Cancel root context to stop all active download workers
 	rootCancel()
 
+	// Shut down HTTP server with timeout
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer shutdownCancel()
 	_ = httpServer.Shutdown(shutdownCtx)
 
+	// Remove socket file
 	_ = os.Remove(storage.GetSocketPath())
+
 	fmt.Println("[✓] All resources flushed. Goodbye!")
 }
