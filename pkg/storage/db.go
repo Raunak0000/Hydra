@@ -60,6 +60,7 @@ func GetDBStore() (*DBStore, error) {
 			total_size TEXT DEFAULT 'Calculating...',
 			downloaded TEXT DEFAULT '0.00 MB',
 			speed TEXT DEFAULT '0.00 KB/s',
+			eta TEXT DEFAULT '--',
 			status TEXT NOT NULL,
 			chunks TEXT,
 			headers TEXT,
@@ -71,6 +72,9 @@ func GetDBStore() (*DBStore, error) {
 			initErr = fmt.Errorf("failed to create database tables: %w", err)
 			return
 		}
+
+		// Migration: add eta column to existing databases that lack it
+		db.Exec(`ALTER TABLE jobs ADD COLUMN eta TEXT DEFAULT '--';`)
 
 		globalDBStore = &DBStore{db: db}
 	})
@@ -144,6 +148,13 @@ func (s *DBStore) UpdateStatus(jobID string, status string) error {
 	return err
 }
 
+func (s *DBStore) UpdateJobURL(jobID string, newURL string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`UPDATE jobs SET url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;`, newURL, jobID)
+	return err
+}
+
 func (s *DBStore) UpdateJobChunks(jobID string, chunks []models.ChunkState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -156,17 +167,20 @@ func (s *DBStore) GetJob(jobID string) (models.UIJob, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	query := `SELECT id, file_name, url, save_path, progress, total_size, downloaded, speed, status, chunks, headers FROM jobs WHERE id = ?;`
+	query := `SELECT id, file_name, url, save_path, progress, total_size, downloaded, speed, eta, status, chunks, headers FROM jobs WHERE id = ?;`
 	row := s.db.QueryRow(query, jobID)
 
 	var job models.UIJob
-	var chunksStr, headersStr sql.NullString
+	var chunksStr, headersStr, etaStr sql.NullString
 
-	err := row.Scan(&job.ID, &job.FileName, &job.URL, &job.SavePath, &job.Progress, &job.TotalSize, &job.Downloaded, &job.Speed, &job.Status, &chunksStr, &headersStr)
+	err := row.Scan(&job.ID, &job.FileName, &job.URL, &job.SavePath, &job.Progress, &job.TotalSize, &job.Downloaded, &job.Speed, &etaStr, &job.Status, &chunksStr, &headersStr)
 	if err != nil {
 		return models.UIJob{}, false
 	}
 
+	if etaStr.Valid {
+		job.ETA = etaStr.String
+	}
 	if chunksStr.Valid && chunksStr.String != "" {
 		_ = json.Unmarshal([]byte(chunksStr.String), &job.Chunks)
 	}
@@ -181,7 +195,7 @@ func (s *DBStore) GetAllJobs() []models.UIJob {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	query := `SELECT id, file_name, url, save_path, progress, total_size, downloaded, speed, status, chunks, headers FROM jobs ORDER BY created_at ASC;`
+	query := `SELECT id, file_name, url, save_path, progress, total_size, downloaded, speed, eta, status, chunks, headers FROM jobs ORDER BY created_at ASC;`
 	rows, err := s.db.Query(query)
 	if err != nil {
 		return nil
@@ -191,8 +205,11 @@ func (s *DBStore) GetAllJobs() []models.UIJob {
 	var list []models.UIJob
 	for rows.Next() {
 		var job models.UIJob
-		var chunksStr, headersStr sql.NullString
-		if err := rows.Scan(&job.ID, &job.FileName, &job.URL, &job.SavePath, &job.Progress, &job.TotalSize, &job.Downloaded, &job.Speed, &job.Status, &chunksStr, &headersStr); err == nil {
+		var chunksStr, headersStr, etaStr sql.NullString
+		if err := rows.Scan(&job.ID, &job.FileName, &job.URL, &job.SavePath, &job.Progress, &job.TotalSize, &job.Downloaded, &job.Speed, &etaStr, &job.Status, &chunksStr, &headersStr); err == nil {
+			if etaStr.Valid {
+				job.ETA = etaStr.String
+			}
 			if chunksStr.Valid && chunksStr.String != "" {
 				_ = json.Unmarshal([]byte(chunksStr.String), &job.Chunks)
 			}

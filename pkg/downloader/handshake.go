@@ -43,6 +43,12 @@ func GetMetadata(url string, headers map[string]string) (HandshakeResult, error)
 	defer response.Body.Close()
 
 	if response.StatusCode == http.StatusTooManyRequests {
+		bodyBuf := make([]byte, 256)
+		n, _ := response.Body.Read(bodyBuf)
+		msg := strings.TrimSpace(string(bodyBuf[:n]))
+		if msg != "" {
+			return HandshakeResult{}, fmt.Errorf("HTTP 429: %s", msg)
+		}
 		return HandshakeResult{}, fmt.Errorf("HTTP 429: Host rate limit exceeded")
 	}
 	if response.StatusCode == http.StatusForbidden || response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusGone {

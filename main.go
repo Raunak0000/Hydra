@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -226,51 +227,79 @@ func main() {
 			}
 		}()
 
-		// Telemetry Controller Routine
+		// Telemetry Controller Routine: calculate speed, ETA, update DB, and broadcast SSE live updates
 		go func() {
 			var lastDownloaded int64 = 0
-			ticker := time.NewTicker(1 * time.Second)
+			ticker := time.NewTicker(250 * time.Millisecond) // 4 updates/second for smooth live UI updates
 			defer ticker.Stop()
+
 			speedStr := "0.00 KB/s"
 			etaStr := "--"
 
+			telemetryCtx, cancelTelemetry := context.WithCancel(jobCtx)
+			defer cancelTelemetry()
+
+			// Background ticker goroutine: recalculates speed/ETA and broadcasts SSE updates
 			go func() {
-				for range ticker.C {
-					deltaBytes := totalDownloaded - lastDownloaded
-					lastDownloaded = totalDownloaded
+				for {
+					select {
+					case <-telemetryCtx.Done():
+						return
+					case <-ticker.C:
+						currentDownloaded := atomic.LoadInt64(&totalDownloaded)
+						deltaBytes := currentDownloaded - lastDownloaded
+						lastDownloaded = currentDownloaded
 
-					if deltaBytes > 1024*1024 {
-						speedStr = fmt.Sprintf("%.2f MB/s", float64(deltaBytes)/(1024*1024))
-					} else if deltaBytes > 1024 {
-						speedStr = fmt.Sprintf("%.2f KB/s", float64(deltaBytes)/1024)
-					} else {
-						speedStr = "0.00 KB/s"
-					}
+						// Ticker interval is 250ms (0.25s), so speed = deltaBytes * 4 / sec
+						speedBytesPerSec := deltaBytes * 4
 
-					if metadata.Size > 0 && deltaBytes > 0 {
-						remaining := metadata.Size - totalDownloaded
-						if remaining > 0 {
-							etaStr = formatETA(remaining / deltaBytes)
+						if speedBytesPerSec > 1024*1024 {
+							speedStr = fmt.Sprintf("%.2f MB/s", float64(speedBytesPerSec)/(1024*1024))
+						} else if speedBytesPerSec > 1024 {
+							speedStr = fmt.Sprintf("%.2f KB/s", float64(speedBytesPerSec)/1024)
 						} else {
-							etaStr = "0s"
+							speedStr = "0.00 KB/s"
 						}
-					} else {
-						etaStr = "--"
+
+						if metadata.Size > 0 && speedBytesPerSec > 0 {
+							remaining := metadata.Size - currentDownloaded
+							if remaining > 0 {
+								etaStr = formatETA(remaining / speedBytesPerSec)
+							} else {
+								etaStr = "0s"
+							}
+						} else {
+							etaStr = "--"
+						}
+
+						downloadedStr := fmt.Sprintf("%.2f MB", float64(currentDownloaded)/(1024*1024))
+						var percentage float64 = 0.0
+						if metadata.Size > 0 {
+							percentage = (float64(currentDownloaded) / float64(metadata.Size)) * 100
+						}
+
+						// Update DB & Broadcast SSE to web dashboard clients in real-time
+						_ = dbStore.UpdateProgress(jobID, percentage, downloadedStr, speedStr, etaStr, cleanName, "DOWNLOADING")
+						storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
 					}
 				}
 			}()
 
+			// Accumulate downloaded bytes from worker threads
 			for bytes := range progressChan {
-				totalDownloaded += bytes
-				downloadedStr := fmt.Sprintf("%.2f MB", float64(totalDownloaded)/(1024*1024))
-
-				var percentage float64 = 0.0
-				if metadata.Size > 0 {
-					percentage = (float64(totalDownloaded) / float64(metadata.Size)) * 100
-				}
-
-				_ = dbStore.UpdateProgress(jobID, percentage, downloadedStr, speedStr, etaStr, cleanName, "DOWNLOADING")
+				atomic.AddInt64(&totalDownloaded, bytes)
 			}
+
+			// Final calculation when progressChan closes
+			cancelTelemetry()
+			currentDownloaded := atomic.LoadInt64(&totalDownloaded)
+			downloadedStr := fmt.Sprintf("%.2f MB", float64(currentDownloaded)/(1024*1024))
+			var percentage float64 = 0.0
+			if metadata.Size > 0 {
+				percentage = (float64(currentDownloaded) / float64(metadata.Size)) * 100
+			}
+			_ = dbStore.UpdateProgress(jobID, percentage, downloadedStr, "--", "--", cleanName, "DOWNLOADING")
+			storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
 
 			close(tempStateChan)
 			stateWg.Wait()
@@ -294,6 +323,7 @@ func main() {
 			if jobCtx.Err() != nil {
 				fmt.Printf("[⏸] Job %s suspended.\n", jobID)
 				_ = dbStore.UpdateStatus(jobID, "PAUSED")
+				storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
 				return
 			}
 
@@ -301,6 +331,7 @@ func main() {
 				firstErr := <-workerErrors
 				fmt.Printf("[X] Task %s failed: %v\n", jobID, firstErr)
 				_ = dbStore.UpdateStatus(jobID, "FAILED")
+				storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
 				return
 			}
 
@@ -312,6 +343,7 @@ func main() {
 			}
 
 			_ = dbStore.UpdateProgress(jobID, 100.0, finalSizeStr, "--", "--", cleanName, "COMPLETED")
+			storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
 			storage.ClearJobState(savePath)
 			fmt.Printf("\n=== SUCCESS: FILE SAVED SAFELY TO %s ===\n", savePath)
 
@@ -319,6 +351,7 @@ func main() {
 			if jobCtx.Err() == nil {
 				fmt.Printf("\n[X] Thread panic: %v\n", workerErr)
 				_ = dbStore.UpdateStatus(jobID, "FAILED")
+				storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
 			}
 			return
 		}

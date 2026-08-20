@@ -434,9 +434,11 @@ function setupEventStream() {
                 const bar = row.querySelector('.progress-bar');
                 if (bar) {
                     bar.style.width = job.progress.toFixed(1) + '%';
-                    bar.classList.remove('bg-blue-600', 'bg-amber-500', 'bg-emerald-500', 'bg-rose-500');
+                    bar.classList.remove('bg-blue-600', 'bg-indigo-500', 'bg-amber-500', 'bg-emerald-500', 'bg-rose-500');
                     if (job.status === 'DOWNLOADING') {
                         bar.classList.add('bg-blue-600');
+                    } else if (job.status === 'QUEUED') {
+                        bar.classList.add('bg-indigo-500');
                     } else if (job.status === 'PAUSED') {
                         bar.classList.add('bg-amber-500');
                     } else if (job.status === 'COMPLETED') {
@@ -521,6 +523,23 @@ window.addEventListener('DOMContentLoaded', () => {
             const url = btn.getAttribute('data-url');
             const filename = btn.getAttribute('data-filename');
             openPendingPathModal(jobID, url, filename);
+        }
+
+        const updateBtn = e.target.closest('.update-url-btn');
+        if (updateBtn) {
+            e.stopPropagation();
+            const jobID = updateBtn.getAttribute('data-job-id');
+            const currentURL = updateBtn.getAttribute('data-url');
+            const newURL = prompt("Paste the new/refreshed download URL for this task:", currentURL);
+            if (newURL && newURL.trim() !== "" && newURL.trim() !== currentURL) {
+                fetch('/api/download/update-url', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ job_id: jobID, new_url: newURL.trim() })
+                }).then(res => {
+                    if (!res.ok) alert("Failed to update URL");
+                });
+            }
         }
     });
 });
@@ -647,6 +666,9 @@ templ QueueRows(jobs []models.UIJob) {
 						</button>
 						<button hx-post={ fmt.Sprintf("/api/download/resume?id=%s", job.ID) } hx-swap="none" class={ "bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:border-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1 resume-btn", templ.KV("hidden", job.Status != "PAUSED" && job.Status != "QUEUED" && job.Status != "FAILED") }>
 							▶ Resume
+						</button>
+						<button data-job-id={ job.ID } data-url={ job.URL } class={ "bg-indigo-950/60 border border-indigo-800/80 hover:bg-indigo-900/60 text-indigo-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1 update-url-btn", templ.KV("hidden", job.Status == "COMPLETED") }>
+							🔗 Refresh Link
 						</button>
 						<button hx-post={ fmt.Sprintf("/api/download/delete?id=%s", job.ID) } hx-confirm="Are you sure you want to delete this task and its files?" hx-swap="none" class="bg-rose-950/40 border border-rose-900/60 hover:bg-rose-900/40 hover:border-rose-800 text-rose-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1">
 							🗑️ Delete
