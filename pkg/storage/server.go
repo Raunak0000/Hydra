@@ -71,7 +71,6 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 	s.Router.HandleFunc("/api/queue/json", sameOriginOnly(s.handleGetQueueJSON))
 	s.Router.HandleFunc("/api/download/pause", sameOriginOnly(s.handlePauseJob))
 	s.Router.HandleFunc("/api/download/resume", sameOriginOnly(s.handleResumeJob))
-	s.Router.HandleFunc("/api/download/update-url", sameOriginOnly(s.handleUpdateJobURL))
 	s.Router.HandleFunc("/api/download/delete", sameOriginOnly(s.handleDeleteJob))
 	// Server-Sent Events real-time push endpoint
 	s.Router.HandleFunc("/api/events", s.handleEventsStream)
@@ -304,43 +303,4 @@ func (s *Server) handleGetQueueJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	jobs := s.db.GetAllJobs()
 	_ = json.NewEncoder(w).Encode(jobs)
-}
-
-func (s *Server) handleUpdateJobURL(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var payload struct {
-		JobID  string `json:"job_id"`
-		NewURL string `json:"new_url"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Malformed JSON", http.StatusBadRequest)
-		return
-	}
-
-	if payload.JobID == "" || payload.NewURL == "" {
-		http.Error(w, "Missing job_id or new_url", http.StatusUnprocessableEntity)
-		return
-	}
-
-	job, exists := s.db.GetJob(payload.JobID)
-	if !exists {
-		http.Error(w, "Job profile not found", http.StatusNotFound)
-		return
-	}
-
-	_ = s.db.UpdateJobURL(payload.JobID, payload.NewURL)
-
-	if GetQueueManager() != nil && GetQueueManager().ShouldQueue() {
-		_ = s.db.UpdateStatus(payload.JobID, "QUEUED")
-	} else {
-		_ = s.db.UpdateStatus(payload.JobID, "DOWNLOADING")
-		go s.ExecuteDownloadJob(payload.NewURL, job.SavePath, payload.JobID, job.Headers)
-	}
-
-	GetBroker().BroadcastQueueState(s.db.GetAllJobs())
-	w.WriteHeader(http.StatusOK)
 }

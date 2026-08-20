@@ -148,13 +148,6 @@ func (s *DBStore) UpdateStatus(jobID string, status string) error {
 	return err
 }
 
-func (s *DBStore) UpdateJobURL(jobID string, newURL string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	_, err := s.db.Exec(`UPDATE jobs SET url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;`, newURL, jobID)
-	return err
-}
-
 func (s *DBStore) UpdateJobChunks(jobID string, chunks []models.ChunkState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
