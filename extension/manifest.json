@@ -1,24 +1,30 @@
 {
-    "manifest_version": 2,
+    "manifest_version": 3,
     "name": "Hydra Advanced Download Interceptor",
-    "version": "2.0.0",
-    "description": "Enterprise-grade low-level header sniffing network interceptor for Hydra Core.",
+    "version": "3.0.0",
+    "description": "Native download sniffer and session interceptor for Hydra Core Daemon.",
     "permissions": [
         "webRequest",
-        "webRequestBlocking",
         "cookies",
-        "activeTab",
+        "tabs",
+        "declarativeNetRequest"
+    ],
+    "host_permissions": [
         "<all_urls>"
     ],
     "background": {
         "scripts": [
             "background.js"
-        ],
-        "persistent": true
+        ]
     },
     "browser_specific_settings": {
         "gecko": {
-            "id": "hydra-download-sniffer@raunak.local"
+            "id": "hydra-core-sniffer@hydra.app",
+            "data_collection_permissions": {
+                "required": [
+                    "none"
+                ]
+            }
         }
     }
 }

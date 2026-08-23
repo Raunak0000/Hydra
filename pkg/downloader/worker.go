@@ -52,7 +52,6 @@ func DownloadChunkParallel(ctx context.Context, url string, myIndex int, tracker
 				return
 			}
 
-			// Only set Range header if chunk has a positive boundary or offset
 			if endBoundary > 0 {
 				req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", writeOffset, endBoundary))
 			} else if writeOffset > 0 {
@@ -116,17 +115,23 @@ func DownloadChunkParallel(ctx context.Context, url string, myIndex int, tracker
 			bytesRead, readErr := resp.Body.Read(buffer)
 			if bytesRead > 0 {
 				currentEnd := atomic.LoadInt64(&me.EndBoundary)
-				if currentEnd > 0 && writeOffset >= currentEnd {
-					break
+
+				// 🛡️ Rigid Boundary Clamping: prevent overrun past stolen midpoints
+				effectiveBytes := bytesRead
+				if currentEnd > 0 && writeOffset+int64(effectiveBytes) > currentEnd+1 {
+					effectiveBytes = int(currentEnd + 1 - writeOffset)
+					if effectiveBytes <= 0 {
+						break
+					}
 				}
 
-				_, writeErr := finalFile.WriteAt(buffer[:bytesRead], writeOffset)
+				_, writeErr := finalFile.WriteAt(buffer[:effectiveBytes], writeOffset)
 				if writeErr != nil {
 					resp.Body.Close()
 					errChan <- fmt.Errorf("thread %d write failed: %v", myIndex, writeErr)
 					return
 				}
-				writeOffset += int64(bytesRead)
+				writeOffset += int64(effectiveBytes)
 				atomic.StoreInt64(&me.CurrentPtr, writeOffset)
 
 				select {
@@ -134,7 +139,11 @@ func DownloadChunkParallel(ctx context.Context, url string, myIndex int, tracker
 				default:
 				}
 
-				progressChan <- int64(bytesRead)
+				progressChan <- int64(effectiveBytes)
+
+				if currentEnd > 0 && writeOffset > currentEnd {
+					break
+				}
 			}
 
 			if readErr == io.EOF {
@@ -147,7 +156,6 @@ func DownloadChunkParallel(ctx context.Context, url string, myIndex int, tracker
 		}
 		resp.Body.Close()
 
-		// For open-ended streams (endBoundary <= 0), EOF means completed
 		if endBoundary <= 0 {
 			return
 		}

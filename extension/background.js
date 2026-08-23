@@ -1,63 +1,54 @@
-// extension/background.js
+const HYDRA_API_URL = "http://127.0.0.1:9000/download";
 
-const HYDRA_API_URL = "http://localhost:9000/download";
-
-// Target file extensions to snatch automatically regardless of disposition
 const SnatchExtensions = new Set([
-    "zip", "tar", "gz", "7z", "rar", "iso", "bin", "exe", "dmg", "mp4", "mkv"
+    "zip", "tar", "gz", "7z", "rar", "iso", "bin", "exe", "dmg", "mp4", "mkv", "avi", "mov", "flv"
 ]);
 
-// Listen for network response headers before the browser processes the download dialog
 chrome.webRequest.onHeadersReceived.addListener(
     async (details) => {
-        // Skip internal tracking and loopback requests to avoid cycles
-        if (details.url.includes("localhost") || details.url.includes("127.0.0.1")) {
+        if (details.url.includes("127.0.0.1") || details.url.includes("localhost")) {
             return;
         }
 
         let isAttachment = false;
         let filename = "";
 
-        // Sniff response headers for attachment attributes
-        const dispositionHeader = details.responseHeaders.find(
+        const dispositionHeader = details.responseHeaders?.find(
             h => h.name.toLowerCase() === "content-disposition"
         );
-        const contentTypeHeader = details.responseHeaders.find(
+        const contentTypeHeader = details.responseHeaders?.find(
             h => h.name.toLowerCase() === "content-type"
         );
 
         if (dispositionHeader && dispositionHeader.value) {
             const value = dispositionHeader.value.toLowerCase();
-            if (value.includes("attachment")) {
+            if (value.includes("attachment") || value.includes("filename=")) {
                 isAttachment = true;
-                // Attempt to extract filename parameter cleanly
                 const match = dispositionHeader.value.match(/filename\*?=["']?([^"';\n]+)/i);
                 if (match && match[1]) {
-                    filename = match[1].replace(/utf-8''/i, '');
+                    filename = match[1].replace(/utf-8''/i, '').replace(/['"]/g, '');
                 }
             }
         }
 
-        // Fallback: If no explicit attachment directive, check URL lexical structure extensions
         if (!isAttachment) {
-            const urlPath = new URL(details.url).pathname;
-            const ext = urlPath.split('.').pop().toLowerCase();
-            if (SnatchExtensions.has(ext)) {
-                isAttachment = true;
-                filename = urlPath.split('/').pop() || "download_asset.bin";
-            }
+            try {
+                const urlPath = new URL(details.url).pathname;
+                const ext = urlPath.split('.').pop().toLowerCase();
+                if (SnatchExtensions.has(ext)) {
+                    isAttachment = true;
+                    filename = urlPath.split('/').pop() || "download_asset.bin";
+                }
+            } catch (e) { }
         }
 
-        // If it's a valid targeted download stream, snatch it!
         if (isAttachment) {
-            console.log(`[Hydra Sniffer] Snatched target download stream: ${details.url}`);
-
             if (!filename) {
                 filename = details.url.split('/').pop().split('?')[0] || "downloaded_file.bin";
             }
 
-            // Route to engine using your Phase 6 session cookie logic
-            chrome.cookies.getAll({ url: details.url }, async (cookies) => {
+            try {
+                const cookies = await chrome.cookies.getAll({ url: details.url });
                 const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
                 const payload = {
@@ -67,35 +58,28 @@ chrome.webRequest.onHeadersReceived.addListener(
                     headers: {
                         "Cookie": cookieString,
                         "User-Agent": navigator.userAgent,
-                        "Referer": details.initiator || ""
+                        "Referer": details.initiator || details.url
                     }
                 };
 
-                try {
-                    const res = await fetch(HYDRA_API_URL, {
-                        method: "POST",
-                        headers: { 
-                            "Content-Type": "application/json",
-                            "X-Hydra-Token": "hydra_secure_token_bf1f753e"
-                        },
-                        body: JSON.stringify(payload)
-                    });
-                    const data = await res.json();
-                    if (data.job_id) {
-                        chrome.tabs.create({ url: "http://localhost:9000/?pending_job=" + data.job_id });
-                    }
-                    console.log("[Hydra Sniffer] Core server notified successfully.");
-                } catch (err) {
-                    console.error("[Hydra Sniffer] Core connection dropped:", err.message);
-                }
-            });
+                const res = await fetch(HYDRA_API_URL, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Hydra-Token": "hydra_secure_token_bf1f753e"
+                    },
+                    body: JSON.stringify(payload)
+                });
 
-            // 🚨 THE HOLY GRAIL: Return a redirect directive to a dead endpoint cancel string.
-            // This forces the browser to completely drop the request on its side immediately,
-            // preventing the browser from starting any parallel single-threaded download traffic!
-            return { redirectUrl: "javascript:void(0)" };
+                const data = await res.json();
+                if (data.job_id) {
+                    chrome.tabs.create({ url: "http://127.0.0.1:9000/?pending_job=" + data.job_id });
+                }
+            } catch (err) {
+                console.error("[Hydra Sniffer] Dispatch error:", err);
+            }
         }
     },
     { urls: ["<all_urls>"], types: ["main_frame", "sub_frame"] },
-    ["responseHeaders", "blocking"]
+    ["responseHeaders", "extraHeaders"]
 );
