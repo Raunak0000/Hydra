@@ -306,11 +306,17 @@ func main() {
 			downloadDone <- true
 		}()
 
+		// Initialize per-job speed limiter from saved configuration
+		var limiter *downloader.RateLimiter
+		if savedJob.MaxSpeedBytes > 0 {
+			limiter = downloader.NewRateLimiter(savedJob.MaxSpeedBytes)
+		}
+
 		// Launch Worker Threads
 		go func() {
 			for i := 0; i < numThreads; i++ {
 				wg.Add(1)
-				go downloader.DownloadChunkParallel(jobCtx, metadata.FinalURL, i, trackers, sharedFile, &wg, workerErrors, progressChan, tempStateChan, headers, nil)
+				go downloader.DownloadChunkParallel(jobCtx, metadata.FinalURL, i, trackers, sharedFile, &wg, workerErrors, progressChan, tempStateChan, headers, limiter)
 			}
 			wg.Wait()
 			close(progressChan)
