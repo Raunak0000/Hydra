@@ -1,5 +1,3 @@
-// pkg/storage/db.go
-
 package storage
 
 import (
