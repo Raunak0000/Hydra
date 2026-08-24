@@ -310,7 +310,7 @@ func main() {
 		go func() {
 			for i := 0; i < numThreads; i++ {
 				wg.Add(1)
-				go downloader.DownloadChunkParallel(jobCtx, metadata.FinalURL, i, trackers, sharedFile, &wg, workerErrors, progressChan, tempStateChan, headers)
+				go downloader.DownloadChunkParallel(jobCtx, metadata.FinalURL, i, trackers, sharedFile, &wg, workerErrors, progressChan, tempStateChan, headers, nil)
 			}
 			wg.Wait()
 			close(progressChan)
@@ -340,6 +340,19 @@ func main() {
 				finalSizeStr = fmt.Sprintf("%.2f MB", float64(metadata.Size)/(1024*1024))
 			} else {
 				finalSizeStr = fmt.Sprintf("%.2f MB", float64(totalDownloaded)/(1024*1024))
+			}
+
+			// Checksum verification immediately upon completion of chunk workers
+			job, _ := dbStore.GetJob(jobID)
+			if job.ExpectedChecksum != "" && job.ChecksumAlgo != "" {
+				res, err := downloader.VerifyFileChecksum(savePath, job.ExpectedChecksum, job.ChecksumAlgo)
+				if err != nil || !res.Matched {
+					fmt.Printf("[X] Checksum verification failed for %s! Expected %s, got %s\n", jobID, res.Expected, res.Computed)
+					_ = dbStore.UpdateStatus(jobID, "CHECKSUM_FAILED")
+					storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
+					return
+				}
+				fmt.Printf("[✓] Checksum (%s) verified successfully for %s\n", res.Algorithm, cleanName)
 			}
 
 			_ = dbStore.UpdateProgress(jobID, 100.0, finalSizeStr, "--", "--", cleanName, "COMPLETED")

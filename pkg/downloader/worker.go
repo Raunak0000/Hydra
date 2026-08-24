@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func DownloadChunkParallel(ctx context.Context, url string, myIndex int, trackers []*AdaptiveTracker, finalFile *os.File, wg *sync.WaitGroup, errChan chan error, progressChan chan int64, stateUpdateChan chan<- Chunk, headers map[string]string) {
+func DownloadChunkParallel(ctx context.Context, url string, myIndex int, trackers []*AdaptiveTracker, finalFile *os.File, wg *sync.WaitGroup, errChan chan error, progressChan chan int64, stateUpdateChan chan<- Chunk, headers map[string]string, limiter *RateLimiter) {
 	defer wg.Done()
 
 	client := &http.Client{}
@@ -112,11 +112,18 @@ func DownloadChunkParallel(ctx context.Context, url string, myIndex int, tracker
 				return
 			}
 
+			// Inside DownloadChunkParallel write loop:
 			bytesRead, readErr := resp.Body.Read(buffer)
 			if bytesRead > 0 {
-				currentEnd := atomic.LoadInt64(&me.EndBoundary)
+				// 🚦 Apply Token-Bucket Rate Limiter
+				if limiter != nil {
+					if err := limiter.WaitN(ctx, bytesRead); err != nil {
+						resp.Body.Close()
+						return
+					}
+				}
 
-				// 🛡️ Rigid Boundary Clamping: prevent overrun past stolen midpoints
+				currentEnd := atomic.LoadInt64(&me.EndBoundary)
 				effectiveBytes := bytesRead
 				if currentEnd > 0 && writeOffset+int64(effectiveBytes) > currentEnd+1 {
 					effectiveBytes = int(currentEnd + 1 - writeOffset)
