@@ -359,6 +359,7 @@ func main() {
 					return
 				}
 				fmt.Printf("[✓] Checksum (%s) verified successfully for %s\n", res.Algorithm, cleanName)
+				_ = dbStore.UpdateChecksumVerified(jobID, true)
 			}
 
 			_ = dbStore.UpdateProgress(jobID, 100.0, finalSizeStr, "--", "--", cleanName, "COMPLETED")
