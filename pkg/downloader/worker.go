@@ -79,6 +79,7 @@ func DownloadChunkParallel(
 				return // No remaining work across any channel
 			}
 
+			atomic.StoreInt64(&me.StartByte, newStart)
 			atomic.StoreInt64(&me.CurrentPtr, newStart)
 			atomic.StoreInt64(&me.EndBoundary, newEnd)
 			writeOffset = newStart

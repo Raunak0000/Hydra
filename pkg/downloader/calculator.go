@@ -10,8 +10,13 @@ type Chunk struct {
 
 type AdaptiveTracker struct {
 	Index       int
+	StartByte   int64
 	CurrentPtr  int64
 	EndBoundary int64
+}
+
+func (at *AdaptiveTracker) GetStart() int64 {
+	return atomic.LoadInt64(&at.StartByte)
 }
 
 func (at *AdaptiveTracker) GetCurrent() int64 {

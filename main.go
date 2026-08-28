@@ -138,9 +138,6 @@ func main() {
 		}
 		_ = dbStore.UpdateTotalSize(jobID, totalSizeStr)
 
-		_ = dbStore.UpdateProgress(jobID, 0.0, "0.00 MB", "0.00 KB/s", "--", cleanName, "DOWNLOADING")
-		storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
-
 		var trackers []*downloader.AdaptiveTracker
 		var totalDownloaded int64 = 0
 		stateLoaded := false
@@ -155,12 +152,26 @@ func main() {
 			for _, cs := range savedJob.Chunks {
 				trackers = append(trackers, &downloader.AdaptiveTracker{
 					Index:       cs.Index,
+					StartByte:   cs.Start,
 					CurrentPtr:  cs.CurrentOffset,
 					EndBoundary: cs.End,
 				})
-				totalDownloaded += (cs.CurrentOffset - cs.Start)
+				if cs.CurrentOffset > cs.Start {
+					totalDownloaded += (cs.CurrentOffset - cs.Start)
+				}
 			}
 		}
+
+		initialPercentage := 0.0
+		initialDownloadedStr := "0.00 MB"
+		if stateLoaded {
+			initialDownloadedStr = fmt.Sprintf("%.2f MB", float64(totalDownloaded)/(1024*1024))
+			if metadata.Size > 0 {
+				initialPercentage = (float64(totalDownloaded) / float64(metadata.Size)) * 100
+			}
+		}
+		_ = dbStore.UpdateProgress(jobID, initialPercentage, initialDownloadedStr, "0.00 KB/s", "--", cleanName, "DOWNLOADING")
+		storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
 
 		var sharedFile *os.File
 		if stateLoaded {
@@ -187,6 +198,7 @@ func main() {
 			for _, ch := range initialChunks {
 				trackers = append(trackers, &downloader.AdaptiveTracker{
 					Index:       ch.Index,
+					StartByte:   ch.Start,
 					CurrentPtr:  ch.Start,
 					EndBoundary: ch.End,
 				})
@@ -212,14 +224,15 @@ func main() {
 			buildChunkStates := func() []models.ChunkState {
 				var states []models.ChunkState
 				for _, tr := range trackers {
+					start := tr.GetStart()
 					current := tr.GetCurrent()
 					end := tr.GetEnd()
 					states = append(states, models.ChunkState{
 						Index:         tr.Index,
-						Start:         current,
+						Start:         start,
 						CurrentOffset: current,
 						End:           end,
-						Completed:     current >= end,
+						Completed:     end > 0 && current >= end,
 					})
 				}
 				return states
