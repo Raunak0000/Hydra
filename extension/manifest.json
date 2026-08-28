@@ -1,13 +1,13 @@
 {
     "manifest_version": 3,
     "name": "Hydra Advanced Download Interceptor",
-    "version": "3.0.0",
+    "version": "3.1.0",
     "description": "Native download sniffer and session interceptor for Hydra Core Daemon.",
     "permissions": [
         "webRequest",
         "cookies",
         "tabs",
-        "declarativeNetRequest"
+        "downloads"
     ],
     "host_permissions": [
         "<all_urls>"
