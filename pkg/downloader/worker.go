@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -12,10 +13,28 @@ import (
 	"time"
 )
 
+// SharedHTTPClient is tuned specifically for high-speed multi-threaded downloads (IDM-style connection pooling)
+var SharedHTTPClient = &http.Client{
+	Transport: &http.Transport{
+		MaxIdleConns:        200,
+		MaxIdleConnsPerHost: 64,
+		IdleConnTimeout:     120 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
+		DisableCompression:  true, // Avoid decompression CPU overhead on raw binary streams
+		WriteBufferSize:     256 * 1024,
+		ReadBufferSize:      256 * 1024,
+		ForceAttemptHTTP2:   true,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+	},
+}
+
 func DownloadChunkParallel(ctx context.Context, url string, myIndex int, trackers []*AdaptiveTracker, finalFile *os.File, wg *sync.WaitGroup, errChan chan error, progressChan chan int64, stateUpdateChan chan<- Chunk, headers map[string]string, limiter *RateLimiter) {
 	defer wg.Done()
 
-	client := &http.Client{}
+	client := SharedHTTPClient
 	me := trackers[myIndex]
 
 	const dynamicMinChunk int64 = 2 * 1024 * 1024
@@ -103,7 +122,7 @@ func DownloadChunkParallel(ctx context.Context, url string, myIndex int, tracker
 			return
 		}
 
-		buffer := make([]byte, 64*1024)
+		buffer := make([]byte, 256*1024)
 		streamFailed := false
 
 		for {

@@ -126,9 +126,19 @@ func main() {
 		var totalDownloaded int64 = 0
 		stateLoaded := false
 		numThreads := 4
-
 		if !metadata.AcceptRanges || metadata.Size <= 0 {
 			numThreads = 1
+		} else {
+			switch {
+			case metadata.Size < 10*1024*1024: // < 10 MB
+				numThreads = 4
+			case metadata.Size < 100*1024*1024: // < 100 MB
+				numThreads = 8
+			case metadata.Size < 1024*1024*1024: // < 1 GB
+				numThreads = 16
+			default: // >= 1 GB (Games, ISOs, Movies)
+				numThreads = 32
+			}
 		}
 
 		// Rebuild dynamic trackers from SQLite or file snapshot

@@ -16,6 +16,7 @@ type HandshakeResult struct {
 
 func GetMetadata(url string, headers map[string]string) (HandshakeResult, error) {
 	client := &http.Client{
+		Transport: SharedHTTPClient.Transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return nil
 		},
