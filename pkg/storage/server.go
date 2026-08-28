@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -72,6 +73,7 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 	s.Router.HandleFunc("/api/download/pause", sameOriginOnly(s.handlePauseJob))
 	s.Router.HandleFunc("/api/download/resume", sameOriginOnly(s.handleResumeJob))
 	s.Router.HandleFunc("/api/download/delete", sameOriginOnly(s.handleDeleteJob))
+	s.Router.HandleFunc("/api/settings", sameOriginOnly(s.handleSettings))
 	// Server-Sent Events real-time push endpoint
 	s.Router.HandleFunc("/api/events", s.handleEventsStream)
 
@@ -80,6 +82,42 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 
 func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 	GetBroker().ServeHTTP(w, r)
+}
+
+func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case http.MethodGet:
+		cfg := GetConfig()
+		_ = json.NewEncoder(w).Encode(cfg)
+
+	case http.MethodPost:
+		var updated Config
+		if err := json.NewDecoder(r.Body).Decode(&updated); err != nil {
+			http.Error(w, "Malformed JSON config", http.StatusBadRequest)
+			return
+		}
+
+		if err := SaveConfig(&updated); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Dynamically update runtime queue concurrency limit
+		if qm := GetQueueManager(); qm != nil && updated.MaxConcurrentDownloads > 0 {
+			qm.mu.Lock()
+			qm.maxConcurrent = updated.MaxConcurrentDownloads
+			qm.mu.Unlock()
+			qm.ProcessNext()
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "success", "message": "Settings updated"})
+
+	default:
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
@@ -156,7 +194,10 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		status = "PENDING_PATH"
 		if payload.Filename != "" {
 			filename = payload.Filename
+			categoryDir := ResolveCategoryPath(filename)
+			securedPath = filepath.Join(categoryDir, filename)
 		}
+		NotifyPendingPath(filename)
 	} else {
 		var err error
 		securedPath, err = ResolvePath(payload.SavePath)
@@ -294,7 +335,7 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	_ = s.db.DeleteJob(jobID)
 	GetBroker().BroadcastQueueState(s.db.GetAllJobs())
 
-	// 🚀 Free slot for next queued job
+	// Free slot for next queued job
 	GetQueueManager().ProcessNext()
 	w.WriteHeader(http.StatusOK)
 }

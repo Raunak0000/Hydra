@@ -51,7 +51,7 @@ func calculateDynamicThreads(size int64, acceptRanges bool) int {
 		return 8
 	case size < 1024*1024*1024: // < 1 GB
 		return 16
-	default: // >= 1 GB (Games, Movies, ISOs)
+	default: // >= 1 GB
 		return 32
 	}
 }
@@ -94,12 +94,14 @@ func main() {
 	var executeDownloadJob func(url string, savePath string, jobID string, headers map[string]string)
 
 	executeDownloadJob = func(url string, savePath string, jobID string, headers map[string]string) {
-		cancelMutex.Lock()
 		jobCtx, jobCancel := context.WithCancel(rootCtx)
+
+		cancelMutex.Lock()
 		activeCancellations[jobID] = jobCancel
 		cancelMutex.Unlock()
 
 		defer func() {
+			jobCancel() // Ensure context is always cleaned up on exit
 			cancelMutex.Lock()
 			delete(activeCancellations, jobID)
 			cancelMutex.Unlock()
@@ -107,7 +109,7 @@ func main() {
 			storage.GetQueueManager().ProcessNext()
 		}()
 
-		// 1. Resolve and ensure save path directory exists
+		// 1. Resolve destination path
 		resolvedPath, err := storage.ResolvePath(savePath)
 		if err != nil {
 			fmt.Printf("[X] Invalid destination path '%s' for job %s: %v\n", savePath, jobID, err)
@@ -117,10 +119,9 @@ func main() {
 			return
 		}
 		savePath = resolvedPath
-
 		cleanName := filepath.Base(savePath)
 
-		// 2. Fetch Metadata with non-blocking fail-fast logic
+		// 2. Fetch Metadata
 		metadata, err := downloader.GetMetadata(url, headers)
 		if err != nil {
 			fmt.Printf("[X] Handshake error for %s (%s): %v\n", jobID, url, err)
@@ -143,11 +144,10 @@ func main() {
 		stateLoaded := false
 		numThreads := calculateDynamicThreads(metadata.Size, metadata.AcceptRanges)
 
-		// Rebuild dynamic trackers from SQLite or file snapshot
 		savedJob, hasSavedJob := dbStore.GetJob(jobID)
 		if hasSavedJob && len(savedJob.Chunks) > 0 {
 			stateLoaded = true
-			numThreads = len(savedJob.Chunks)
+			numThreads = len(savedJob.Chunks) // Sync worker count
 			fmt.Printf("[⚙] Resuming task %s via database chunk snapshot...\n", jobID)
 			for _, cs := range savedJob.Chunks {
 				trackers = append(trackers, &downloader.AdaptiveTracker{
@@ -190,10 +190,6 @@ func main() {
 				storage.NotifyDownloadFailed(cleanName, "Disk pre-allocation failed")
 				return
 			}
-		}
-		defer sharedFile.Close()
-
-		if !stateLoaded {
 			initialChunks := downloader.CalculateChunks(metadata.Size, numThreads)
 			for _, ch := range initialChunks {
 				trackers = append(trackers, &downloader.AdaptiveTracker{
@@ -204,15 +200,14 @@ func main() {
 				})
 			}
 		}
+		defer sharedFile.Close()
 
-		downloadDone := make(chan bool, 1)
+		downloadDone := make(chan struct{})
 		workerErrors := make(chan error, numThreads)
 		progressChan := make(chan int64, 4000)
 		tempStateChan := make(chan downloader.Chunk, numThreads*4)
 
-		var wg sync.WaitGroup
-
-		// State Persistence Routine
+		// 3. State Persistence Routine
 		var stateWg sync.WaitGroup
 		stateWg.Add(1)
 		go func() {
@@ -222,7 +217,7 @@ func main() {
 			dirty := false
 
 			buildChunkStates := func() []models.ChunkState {
-				var states []models.ChunkState
+				states := make([]models.ChunkState, 0, len(trackers))
 				for _, tr := range trackers {
 					start := tr.GetStart()
 					current := tr.GetCurrent()
@@ -257,14 +252,11 @@ func main() {
 			}
 		}()
 
-		// Telemetry Controller Routine
+		// 4. Telemetry Controller Routine
 		go func() {
-			var lastDownloaded int64 = 0
-			ticker := time.NewTicker(250 * time.Millisecond) // 4 updates/second for smooth live UI
+			var lastDownloaded int64 = totalDownloaded
+			ticker := time.NewTicker(250 * time.Millisecond)
 			defer ticker.Stop()
-
-			speedStr := "0.00 KB/s"
-			etaStr := "--"
 
 			telemetryCtx, cancelTelemetry := context.WithCancel(jobCtx)
 			defer cancelTelemetry()
@@ -280,7 +272,7 @@ func main() {
 						lastDownloaded = currentDownloaded
 
 						speedBytesPerSec := deltaBytes * 4
-
+						var speedStr string
 						if speedBytesPerSec > 1024*1024 {
 							speedStr = fmt.Sprintf("%.2f MB/s", float64(speedBytesPerSec)/(1024*1024))
 						} else if speedBytesPerSec > 1024 {
@@ -289,6 +281,7 @@ func main() {
 							speedStr = "0.00 KB/s"
 						}
 
+						etaStr := "--"
 						if metadata.Size > 0 && speedBytesPerSec > 0 {
 							remaining := metadata.Size - currentDownloaded
 							if remaining > 0 {
@@ -296,12 +289,10 @@ func main() {
 							} else {
 								etaStr = "0s"
 							}
-						} else {
-							etaStr = "--"
 						}
 
 						downloadedStr := fmt.Sprintf("%.2f MB", float64(currentDownloaded)/(1024*1024))
-						var percentage float64 = 0.0
+						percentage := 0.0
 						if metadata.Size > 0 {
 							percentage = (float64(currentDownloaded) / float64(metadata.Size)) * 100
 						}
@@ -317,40 +308,44 @@ func main() {
 			}
 
 			cancelTelemetry()
-			currentDownloaded := atomic.LoadInt64(&totalDownloaded)
-			downloadedStr := fmt.Sprintf("%.2f MB", float64(currentDownloaded)/(1024*1024))
-			var percentage float64 = 0.0
-			if metadata.Size > 0 {
-				percentage = (float64(currentDownloaded) / float64(metadata.Size)) * 100
-			}
-			_ = dbStore.UpdateProgress(jobID, percentage, downloadedStr, "--", "--", cleanName, "DOWNLOADING")
-			storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
-
 			close(tempStateChan)
 			stateWg.Wait()
-			downloadDone <- true
+			close(downloadDone)
 		}()
 
-		// Initialize per-job speed limiter from saved configuration
+		// 5. Rate Limiter
 		var limiter *downloader.RateLimiter
 		if savedJob.MaxSpeedBytes > 0 {
 			limiter = downloader.NewRateLimiter(savedJob.MaxSpeedBytes)
 		}
 
-		// Launch Worker Threads
+		// 6. Launch Worker Pool
+		var workerWg sync.WaitGroup
+		for i := 0; i < numThreads; i++ {
+			workerWg.Add(1)
+			go downloader.DownloadChunkParallel(jobCtx, metadata.FinalURL, i, trackers, sharedFile, &workerWg, workerErrors, progressChan, tempStateChan, headers, limiter)
+		}
+
+		// Close progress channel once all workers return
 		go func() {
-			for i := 0; i < numThreads; i++ {
-				wg.Add(1)
-				go downloader.DownloadChunkParallel(jobCtx, metadata.FinalURL, i, trackers, sharedFile, &wg, workerErrors, progressChan, tempStateChan, headers, limiter)
-			}
-			wg.Wait()
+			workerWg.Wait()
 			close(progressChan)
 		}()
 
+		// 7. Await completion or worker error
 		select {
-		case <-downloadDone:
-			close(workerErrors)
+		case err := <-workerErrors:
+			jobCancel() // Stop peer workers immediately
+			if jobCtx.Err() == nil || jobCtx.Err() == context.Canceled {
+				fmt.Printf("[X] Task %s worker error: %v\n", jobID, err)
+				_ = dbStore.UpdateStatus(jobID, "FAILED")
+				storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
+				storage.NotifyDownloadFailed(cleanName, err.Error())
+			}
+			<-downloadDone // Ensure channels flush before exiting
+			return
 
+		case <-downloadDone:
 			if jobCtx.Err() != nil {
 				fmt.Printf("[⏸] Job %s suspended.\n", jobID)
 				_ = dbStore.UpdateStatus(jobID, "PAUSED")
@@ -358,23 +353,12 @@ func main() {
 				return
 			}
 
-			if len(workerErrors) > 0 {
-				firstErr := <-workerErrors
-				fmt.Printf("[X] Task %s failed: %v\n", jobID, firstErr)
-				_ = dbStore.UpdateStatus(jobID, "FAILED")
-				storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
-				storage.NotifyDownloadFailed(cleanName, firstErr.Error())
-				return
-			}
-
-			var finalSizeStr string
+			finalSizeStr := fmt.Sprintf("%.2f MB", float64(atomic.LoadInt64(&totalDownloaded))/(1024*1024))
 			if metadata.Size > 0 {
 				finalSizeStr = fmt.Sprintf("%.2f MB", float64(metadata.Size)/(1024*1024))
-			} else {
-				finalSizeStr = fmt.Sprintf("%.2f MB", float64(totalDownloaded)/(1024*1024))
 			}
 
-			// Checksum verification immediately upon completion
+			// Checksum validation
 			job, _ := dbStore.GetJob(jobID)
 			if job.ExpectedChecksum != "" && job.ChecksumAlgo != "" {
 				res, err := downloader.VerifyFileChecksum(savePath, job.ExpectedChecksum, job.ChecksumAlgo)
@@ -394,27 +378,15 @@ func main() {
 			storage.ClearJobState(savePath)
 			storage.NotifyDownloadComplete(cleanName, savePath)
 			fmt.Printf("\n=== SUCCESS: FILE SAVED SAFELY TO %s ===\n", savePath)
-
-		case workerErr := <-workerErrors:
-			if jobCtx.Err() == nil {
-				fmt.Printf("\n[X] Thread panic: %v\n", workerErr)
-				_ = dbStore.UpdateStatus(jobID, "FAILED")
-				storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
-				storage.NotifyDownloadFailed(cleanName, workerErr.Error())
-			}
-			return
 		}
 	}
 
-	// Concurrency manager: max 2 simultaneous active downloads
 	storage.InitQueueManager(2, executeDownloadJob)
 
-	// 4. Start IPC Server
 	go storage.StartIPCServer(func(url string, savePath string, jobID string) {
 		executeDownloadJob(url, savePath, jobID, make(map[string]string))
 	})
 
-	// 5. Start HTTP Server
 	server := storage.NewServer(executeDownloadJob)
 	httpServer := &http.Server{
 		Addr:    "127.0.0.1:9000",
@@ -428,7 +400,6 @@ func main() {
 		}
 	}()
 
-	// 6. Graceful Shutdown Signal Trap
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
