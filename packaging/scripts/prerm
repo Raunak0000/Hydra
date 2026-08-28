@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+
+# Stop and disable systemd service if running
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl --global stop hydra.service || true
+    systemctl --global disable hydra.service || true
+fi
