@@ -10,7 +10,7 @@ if command -v gtk-update-icon-cache >/dev/null 2>&1; then
     gtk-update-icon-cache -q /usr/share/icons/hicolor || true
 fi
 
-# Reload systemd user daemon for all active user sessions
+# Reload systemd system-level daemon
 if command -v systemctl >/dev/null 2>&1; then
-    systemctl --global daemon-reload || true
+    systemctl daemon-reload || true
 fi
