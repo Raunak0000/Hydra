@@ -90,6 +90,10 @@ templ Dashboard(jobs []models.UIJob) {
 						<span class="flex items-center gap-2 text-blue-400">⚡ Active</span>
 						<span class="text-[10px] text-slate-500" id="count-downloading">0</span>
 					</button>
+					<button onclick="filterQueue('SCHEDULED')" id="filter-scheduled" class="w-full text-left text-xs font-semibold px-3 py-2 rounded text-slate-400 hover:bg-slate-850 hover:text-slate-200 flex items-center justify-between group transition">
+						<span class="flex items-center gap-2 text-purple-400">⏰ Scheduled</span>
+						<span class="text-[10px] text-slate-500" id="count-scheduled">0</span>
+					</button>
 					<button onclick="filterQueue('PAUSED')" id="filter-paused" class="w-full text-left text-xs font-semibold px-3 py-2 rounded text-slate-400 hover:bg-slate-850 hover:text-slate-200 flex items-center justify-between group transition">
 						<span class="flex items-center gap-2 text-amber-500">⏸ Paused</span>
 						<span class="text-[10px] text-slate-500" id="count-paused">0</span>
@@ -194,6 +198,10 @@ templ Dashboard(jobs []models.UIJob) {
 							<label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Save Path</label>
 							<input type="text" name="save_path" value="~/Downloads/" required class="w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono" />
 						</div>
+						<div>
+							<label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Schedule Download (Optional)</label>
+							<input type="datetime-local" name="scheduled_at" id="new-task-schedule" class="w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono" />
+						</div>
 						<div class="flex justify-end gap-2 pt-2 border-t border-slate-800">
 							<button type="button" onclick="closeModal()" class="px-4 py-2 bg-slate-900 border border-slate-800 hover:bg-slate-850 text-slate-300 rounded text-xs font-bold transition">Cancel</button>
 							<button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold transition">Download</button>
@@ -219,11 +227,15 @@ templ Dashboard(jobs []models.UIJob) {
 					<form id="batch-task-form" onsubmit="submitBatchDownload(event)" class="space-y-4">
 						<div>
 							<label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Download URLs (One per line)</label>
-							<textarea id="batch-urls-input" rows="6" placeholder="https://example.com/file1.iso&#10;https://example.com/file2.zip&#10;https://example.com/file3.mp4" required class="w-full bg-[#0b0c10] border border-slate-800 rounded p-3 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono resize-none"></textarea>
+							<textarea id="batch-urls-input" rows="5" placeholder="https://example.com/file1.iso&#10;https://example.com/file2.zip&#10;https://example.com/file3.mp4" required class="w-full bg-[#0b0c10] border border-slate-800 rounded p-3 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono resize-none"></textarea>
 						</div>
 						<div>
 							<label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Base Directory (Leave as DEFAULT to auto-categorize)</label>
 							<input type="text" id="batch-save-path" value="DEFAULT" required class="w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono" />
+						</div>
+						<div>
+							<label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Schedule Batch (Optional)</label>
+							<input type="datetime-local" id="batch-schedule" class="w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono" />
 						</div>
 						<div class="flex justify-end gap-2 pt-2 border-t border-slate-800">
 							<button type="button" onclick="closeBatchModal()" class="px-4 py-2 bg-slate-900 border border-slate-800 hover:bg-slate-850 text-slate-300 rounded text-xs font-bold transition">Cancel</button>
@@ -247,6 +259,7 @@ templ Dashboard(jobs []models.UIJob) {
 				}
 				function openBatchTaskModal() {
 					document.getElementById('batch-urls-input').value = "";
+					document.getElementById('batch-schedule').value = "";
 					document.getElementById('batch-task-modal').classList.remove('hidden');
 					document.getElementById('batch-urls-input').focus();
 				}
@@ -258,11 +271,24 @@ templ Dashboard(jobs []models.UIJob) {
 					event.preventDefault();
 					const urlsText = document.getElementById('batch-urls-input').value;
 					const savePath = document.getElementById('batch-save-path').value;
+					const scheduleVal = document.getElementById('batch-schedule').value;
 					const urls = urlsText.split('\n').map(u => u.trim()).filter(u => u.length > 0 && u.startsWith('http'));
 
 					if (urls.length === 0) {
 						alert("Please enter at least one valid HTTP/HTTPS URL.");
 						return;
+					}
+
+					const payload = {
+						urls: urls,
+						save_path: savePath,
+						headers: {
+							"User-Agent": navigator.userAgent
+						}
+					};
+
+					if (scheduleVal) {
+						payload.scheduled_at = new Date(scheduleVal).toISOString();
 					}
 
 					try {
@@ -272,13 +298,7 @@ templ Dashboard(jobs []models.UIJob) {
 								'Content-Type': 'application/json',
 								'X-Hydra-Token': 'hydra_secure_token_bf1f753e'
 							},
-							body: JSON.stringify({
-								urls: urls,
-								save_path: savePath,
-								headers: {
-									"User-Agent": navigator.userAgent
-								}
-							})
+							body: JSON.stringify(payload)
 						});
 
 						if (res.ok) {
@@ -302,6 +322,9 @@ templ Dashboard(jobs []models.UIJob) {
 					
 					const pathInput = document.querySelector('#new-task-modal input[name="save_path"]');
 					pathInput.value = "~/Downloads/";
+
+					const scheduleInput = document.getElementById('new-task-schedule');
+					if (scheduleInput) scheduleInput.value = "";
 					
 					openModal();
 					urlInput.focus();
@@ -347,14 +370,16 @@ templ Dashboard(jobs []models.UIJob) {
 
 				function filterQueue(filter) {
 					activeFilter = filter;
-					['all', 'downloading', 'paused', 'completed'].forEach(f => {
+					['all', 'downloading', 'scheduled', 'paused', 'completed'].forEach(f => {
 						const el = document.getElementById(`filter-${f}`);
-						if (f === filter.toLowerCase()) {
-							el.classList.add('bg-slate-850', 'text-slate-200');
-							el.classList.remove('text-slate-400');
-						} else {
-							el.classList.remove('bg-slate-850', 'text-slate-200');
-							el.classList.add('text-slate-400');
+						if (el) {
+							if (f === filter.toLowerCase()) {
+								el.classList.add('bg-slate-850', 'text-slate-200');
+								el.classList.remove('text-slate-400');
+							} else {
+								el.classList.remove('bg-slate-850', 'text-slate-200');
+								el.classList.add('text-slate-400');
+							}
 						}
 					});
 					applyFilteringToRows();
@@ -452,17 +477,20 @@ templ Dashboard(jobs []models.UIJob) {
 						}
 					}
 
-					let total = 0, active = 0, paused = 0, completed = 0;
+					let total = 0, active = 0, scheduled = 0, paused = 0, completed = 0;
 					document.querySelectorAll('.download-row').forEach(row => {
 						total++;
 						const status = row.getAttribute('data-status');
 						if (status === 'DOWNLOADING') active++;
+						else if (status === 'SCHEDULED') scheduled++;
 						else if (status === 'PAUSED') paused++;
 						else if (status === 'COMPLETED') completed++;
 					});
 
 					document.getElementById('count-all').innerText = total;
 					document.getElementById('count-downloading').innerText = active;
+					const schedEl = document.getElementById('count-scheduled');
+					if (schedEl) schedEl.innerText = scheduled;
 					document.getElementById('count-paused').innerText = paused;
 					document.getElementById('count-completed').innerText = completed;
 
@@ -515,11 +543,13 @@ templ Dashboard(jobs []models.UIJob) {
 								const bar = row.querySelector('.progress-bar');
 								if (bar) {
 									bar.style.width = job.progress.toFixed(1) + '%';
-									bar.classList.remove('bg-blue-600', 'bg-indigo-500', 'bg-amber-500', 'bg-emerald-500', 'bg-rose-500');
+									bar.classList.remove('bg-blue-600', 'bg-indigo-500', 'bg-purple-500', 'bg-amber-500', 'bg-emerald-500', 'bg-rose-500');
 									if (job.status === 'DOWNLOADING') {
 										bar.classList.add('bg-blue-600');
 									} else if (job.status === 'QUEUED') {
 										bar.classList.add('bg-indigo-500');
+									} else if (job.status === 'SCHEDULED') {
+										bar.classList.add('bg-purple-500');
 									} else if (job.status === 'PAUSED') {
 										bar.classList.add('bg-amber-500');
 									} else if (job.status === 'COMPLETED') {
@@ -576,7 +606,7 @@ templ Dashboard(jobs []models.UIJob) {
 								}
 								const resumeBtn = row.querySelector('.resume-btn');
 								if (resumeBtn) {
-									if (job.status === 'PAUSED' || job.status === 'QUEUED' || job.status === 'FAILED') resumeBtn.classList.remove('hidden');
+									if (job.status === 'PAUSED' || job.status === 'QUEUED' || job.status === 'SCHEDULED' || job.status === 'FAILED') resumeBtn.classList.remove('hidden');
 									else resumeBtn.classList.add('hidden');
 								}
 							});
@@ -663,9 +693,10 @@ templ QueueRows(jobs []models.UIJob) {
 								class={ "h-full rounded transition-all duration-350 progress-bar",
 									templ.KV("bg-blue-600", job.Status == "DOWNLOADING"),
 									templ.KV("bg-indigo-500", job.Status == "QUEUED"),
+									templ.KV("bg-purple-500", job.Status == "SCHEDULED"),
 									templ.KV("bg-amber-500", job.Status == "PAUSED"),
 									templ.KV("bg-emerald-500", job.Status == "COMPLETED"),
-									templ.KV("bg-rose-500", job.Status != "DOWNLOADING" && job.Status != "QUEUED" && job.Status != "PAUSED" && job.Status != "COMPLETED") }
+									templ.KV("bg-rose-500", job.Status != "DOWNLOADING" && job.Status != "QUEUED" && job.Status != "SCHEDULED" && job.Status != "PAUSED" && job.Status != "COMPLETED") }
 								style={ fmt.Sprintf("width: %.1f%%", job.Progress) }
 							></div>
 						</div>
@@ -701,6 +732,10 @@ templ QueueRows(jobs []models.UIJob) {
 						<span class="h-1.5 w-1.5 rounded-full bg-indigo-400"></span>
 						Queued
 					</span>
+					<span data-badge-status="SCHEDULED" class={ "text-purple-400 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status != "SCHEDULED") }>
+						<span class="h-1.5 w-1.5 rounded-full bg-purple-400"></span>
+						Scheduled
+					</span>
 					<span data-badge-status="PAUSED" class={ "text-amber-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status != "PAUSED") }>
 						<span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
 						Paused
@@ -713,7 +748,7 @@ templ QueueRows(jobs []models.UIJob) {
 						<span class="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse"></span>
 						Pending Path
 					</span>
-					<span data-badge-status="ERROR" class={ "text-rose-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status == "DOWNLOADING" || job.Status == "QUEUED" || job.Status == "PAUSED" || job.Status == "COMPLETED" || job.Status == "PENDING_PATH") }>
+					<span data-badge-status="ERROR" class={ "text-rose-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status == "DOWNLOADING" || job.Status == "QUEUED" || job.Status == "SCHEDULED" || job.Status == "PAUSED" || job.Status == "COMPLETED" || job.Status == "PENDING_PATH") }>
 						<span class="h-1.5 w-1.5 rounded-full bg-rose-500"></span>
 						Error
 					</span>
@@ -728,7 +763,7 @@ templ QueueRows(jobs []models.UIJob) {
 						<button hx-post={ fmt.Sprintf("/api/download/pause?id=%s", job.ID) } hx-swap="none" class={ "bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:border-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1 pause-btn", templ.KV("hidden", job.Status != "DOWNLOADING") }>
 							⏸ Pause
 						</button>
-						<button hx-post={ fmt.Sprintf("/api/download/resume?id=%s", job.ID) } hx-swap="none" class={ "bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:border-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1 resume-btn", templ.KV("hidden", job.Status != "PAUSED" && job.Status != "QUEUED" && job.Status != "FAILED") }>
+						<button hx-post={ fmt.Sprintf("/api/download/resume?id=%s", job.ID) } hx-swap="none" class={ "bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:border-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1 resume-btn", templ.KV("hidden", job.Status != "PAUSED" && job.Status != "QUEUED" && job.Status != "SCHEDULED" && job.Status != "FAILED") }>
 							▶ Resume
 						</button>
 						<button hx-post={ fmt.Sprintf("/api/download/delete?id=%s", job.ID) } hx-confirm="Are you sure you want to delete this task and its files?" hx-swap="none" class="bg-rose-950/40 border border-rose-900/60 hover:bg-rose-900/40 hover:border-rose-800 text-rose-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1">
