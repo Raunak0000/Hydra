@@ -2,6 +2,7 @@ package storage
 
 import (
 	"sync"
+	"time"
 
 	"github.com/Raunak0000/Hydra/pkg/models"
 )
@@ -17,18 +18,17 @@ var (
 	queueOnce          sync.Once
 )
 
-// InitQueueManager initializes the concurrency coordinator
 func InitQueueManager(maxConcurrent int, trigger func(string, string, string, map[string]string)) *QueueManager {
 	queueOnce.Do(func() {
 		GlobalQueueManager = &QueueManager{
 			maxConcurrent: maxConcurrent,
 			triggerFunc:   trigger,
 		}
+		go GlobalQueueManager.startScheduler()
 	})
 	return GlobalQueueManager
 }
 
-// GetQueueManager returns the global queue coordinator singleton
 func GetQueueManager() *QueueManager {
 	if GlobalQueueManager == nil {
 		GlobalQueueManager = &QueueManager{
@@ -38,7 +38,30 @@ func GetQueueManager() *QueueManager {
 	return GlobalQueueManager
 }
 
-// ActiveCount returns the number of tasks currently in DOWNLOADING state
+func (qm *QueueManager) startScheduler() {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		dbStore, err := GetDBStore()
+		if err != nil {
+			continue
+		}
+
+		dueJobs := dbStore.GetPendingScheduledJobs()
+		if len(dueJobs) == 0 {
+			continue
+		}
+
+		for _, job := range dueJobs {
+			_ = dbStore.UpdateStatus(job.ID, "QUEUED")
+		}
+
+		GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
+		qm.ProcessNext()
+	}
+}
+
 func (qm *QueueManager) ActiveCount() int {
 	dbStore, err := GetDBStore()
 	if err != nil {
@@ -54,14 +77,12 @@ func (qm *QueueManager) ActiveCount() int {
 	return active
 }
 
-// ShouldQueue returns true if active downloads meet or exceed max concurrency
 func (qm *QueueManager) ShouldQueue() bool {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 	return qm.ActiveCount() >= qm.maxConcurrent
 }
 
-// ProcessNext searches for the oldest QUEUED job and promotes it if slots are available
 func (qm *QueueManager) ProcessNext() {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
@@ -84,7 +105,6 @@ func (qm *QueueManager) ProcessNext() {
 		}
 	}
 
-	// Promote next in line if slot is available
 	if activeCount < qm.maxConcurrent && nextQueued != nil && qm.triggerFunc != nil {
 		_ = dbStore.UpdateStatus(nextQueued.ID, "DOWNLOADING")
 		GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
