@@ -20,6 +20,12 @@ var (
 	GlobalCancelMutex *sync.Mutex
 )
 
+type BatchDownloadPayload struct {
+	URLs     []string          `json:"urls"`
+	SavePath string            `json:"save_path"`
+	Headers  map[string]string `json:"headers"`
+}
+
 type Server struct {
 	Router             *http.ServeMux
 	ExecuteDownloadJob func(url string, savePath string, jobID string, headers map[string]string)
@@ -67,6 +73,7 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 	}
 
 	s.Router.HandleFunc("/download", withCORS(s.handleDownloadTrigger))
+	s.Router.HandleFunc("/api/batch/download", withCORS(s.handleBatchDownloadTrigger))
 	s.Router.HandleFunc("/", sameOriginOnly(s.handleRenderDashboard))
 	s.Router.HandleFunc("/api/queue", sameOriginOnly(s.handleGetQueueSnippet))
 	s.Router.HandleFunc("/api/queue/json", sameOriginOnly(s.handleGetQueueJSON))
@@ -239,6 +246,113 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": status, "job_id": jobID})
+}
+
+func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Hydra-Token")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if r.Header.Get("X-Hydra-Token") != "hydra_secure_token_bf1f753e" {
+		http.Error(w, "Unauthorized: Invalid security token", http.StatusUnauthorized)
+		return
+	}
+
+	var payload BatchDownloadPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Malformed JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	if len(payload.URLs) == 0 {
+		http.Error(w, "No URLs provided in batch request", http.StatusUnprocessableEntity)
+		return
+	}
+
+	baseDir := payload.SavePath
+	if baseDir == "" || baseDir == "PENDING" || baseDir == "DEFAULT" {
+		baseDir = GetDefaultDownloadsDir()
+	}
+
+	resolvedBase, err := ResolvePath(baseDir)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Invalid destination directory: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	dispatchedJobIDs := make([]string, 0, len(payload.URLs))
+
+	for _, rawURL := range payload.URLs {
+		trimmedURL := strings.TrimSpace(rawURL)
+		if trimmedURL == "" {
+			continue
+		}
+
+		// Extract suggested filename from URL path
+		urlFilename := "downloaded_file.bin"
+		parts := strings.Split(trimmedURL, "/")
+		if len(parts) > 0 {
+			cleanPart := strings.Split(parts[len(parts)-1], "?")[0]
+			if cleanPart != "" {
+				urlFilename = cleanPart
+			}
+		}
+
+		categoryDir := ResolveCategoryPath(urlFilename)
+		targetDir := resolvedBase
+		if payload.SavePath == "DEFAULT" || payload.SavePath == "" {
+			targetDir, _ = ResolvePath(categoryDir)
+		}
+
+		finalFilePath := filepath.Join(targetDir, urlFilename)
+		jobID := fmt.Sprintf("job_%d", time.Now().UnixNano())
+
+		status := "DOWNLOADING"
+		if GetQueueManager().ShouldQueue() {
+			status = "QUEUED"
+		}
+
+		newJob := models.UIJob{
+			ID:         jobID,
+			FileName:   urlFilename,
+			URL:        trimmedURL,
+			SavePath:   finalFilePath,
+			Progress:   0.0,
+			TotalSize:  "Calculating...",
+			Downloaded: "0.00 MB",
+			Speed:      "0.00 KB/s",
+			ETA:        "--",
+			Status:     status,
+			Headers:    payload.Headers,
+		}
+
+		_ = s.db.SaveJob(&newJob)
+		dispatchedJobIDs = append(dispatchedJobIDs, jobID)
+
+		if status == "DOWNLOADING" {
+			go s.ExecuteDownloadJob(trimmedURL, finalFilePath, jobID, payload.Headers)
+		}
+	}
+
+	GetBroker().BroadcastQueueState(s.db.GetAllJobs())
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":          "accepted",
+		"total_queued":    len(dispatchedJobIDs),
+		"dispatched_jobs": dispatchedJobIDs,
+	})
 }
 
 func (s *Server) handleRenderDashboard(w http.ResponseWriter, r *http.Request) {
