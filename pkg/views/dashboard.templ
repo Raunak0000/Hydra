@@ -10,8 +10,8 @@ templ Dashboard(jobs []models.UIJob) {
 	<!DOCTYPE html>
 	<html lang="en">
 		<head>
-			<meta charset="UTF-8" />
-			<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			<title>Hydra Download Manager</title>
 			<script src="https://unpkg.com/htmx.org@1.9.10"></script>
 			<script src="https://unpkg.com/htmx.org/dist/ext/json-enc.js"></script>
@@ -42,7 +42,6 @@ templ Dashboard(jobs []models.UIJob) {
 			</style>
 		</head>
 		<body class="text-slate-200 min-h-screen flex flex-col antialiased selection:bg-blue-600 selection:text-white">
-			
 			<!-- TOP MENU / NAVIGATION TOOLBAR -->
 			<header class="bg-[#121420] border-b border-slate-800/80 px-4 py-2.5 flex items-center justify-between shrink-0">
 				<div class="flex items-center gap-3">
@@ -54,17 +53,24 @@ templ Dashboard(jobs []models.UIJob) {
 						<p class="text-[9px] text-slate-500 font-semibold tracking-wider uppercase -mt-0.5">Linux Core Daemon</p>
 					</div>
 				</div>
-				
 				<div class="flex items-center gap-2">
+					<!-- Global Rolling Bandwidth Sparkline -->
+					<div class="hidden sm:flex items-center gap-2 bg-slate-900/90 border border-slate-800 px-2.5 py-1 rounded">
+						<span class="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Total Speed</span>
+						<svg id="global-sparkline" class="w-20 h-4 overflow-visible" viewBox="0 0 100 20">
+							<polyline id="sparkline-poly" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" points="0,20 100,20"></polyline>
+						</svg>
+						<span id="global-speed-text" class="text-[11px] font-mono font-bold text-blue-400 w-16 text-right">0.00 KB/s</span>
+					</div>
 					<button onclick="openNewTaskModal()" class="bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs px-3 py-1.5 rounded flex items-center gap-1.5 transition duration-150">
 						<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-							<path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+							<path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"></path>
 						</svg>
 						New Task
 					</button>
 					<button onclick="openBatchTaskModal()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs px-3 py-1.5 rounded flex items-center gap-1.5 transition duration-150">
 						<svg class="h-3.5 w-3.5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-							<path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+							<path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"></path>
 						</svg>
 						Batch Import
 					</button>
@@ -75,10 +81,8 @@ templ Dashboard(jobs []models.UIJob) {
 					</div>
 				</div>
 			</header>
-
 			<!-- MAIN PANELS WRAPPER -->
 			<div class="flex flex-1 min-h-0 overflow-hidden">
-				
 				<!-- LEFT SIDEBAR FILTER LIST -->
 				<aside class="w-52 bg-[#0f111a] border-r border-slate-800/60 p-3 flex flex-col gap-1 shrink-0 select-none">
 					<span class="text-[9px] font-bold text-slate-500 uppercase tracking-widest px-2 mb-2">Category Filters</span>
@@ -103,10 +107,8 @@ templ Dashboard(jobs []models.UIJob) {
 						<span class="text-[10px] text-slate-500" id="count-completed">0</span>
 					</button>
 				</aside>
-
 				<!-- RIGHT MAIN CONTENT WORKSPACE -->
 				<div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-					
 					<!-- TASK LIST SCROLLABLE VIEW -->
 					<div class="flex-1 overflow-auto bg-[#0c0d12]">
 						<table class="w-full border-collapse text-left text-xs">
@@ -126,7 +128,6 @@ templ Dashboard(jobs []models.UIJob) {
 							</tbody>
 						</table>
 					</div>
-
 					<!-- DETAILED INFORMATION BOTTOM TAB PANEL -->
 					<div class="h-64 bg-[#0f111a] border-t border-slate-800/80 flex flex-col shrink-0">
 						<div class="bg-[#121420] border-b border-slate-800/60 px-4 py-1.5 flex items-center gap-4 shrink-0 select-none">
@@ -135,13 +136,11 @@ templ Dashboard(jobs []models.UIJob) {
 							<button onclick="switchTab('general')" id="tab-btn-general" class="text-xs font-bold text-blue-500 border-b-2 border-blue-500 px-1 py-1">General</button>
 							<button onclick="switchTab('workers')" id="tab-btn-workers" class="text-xs font-semibold text-slate-500 hover:text-slate-350 px-1 py-1">Worker Threads</button>
 						</div>
-						
 						<!-- Tab Contents -->
 						<div class="flex-1 p-4 overflow-auto text-xs">
 							<div id="inspector-idle" class="h-full flex items-center justify-center text-slate-500 font-medium">
 								Select a task from the list above to view details
 							</div>
-							
 							<div id="inspector-active" class="hidden h-full flex flex-col gap-3">
 								<!-- General Tab Content -->
 								<div id="tab-content-general" class="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-2.5">
@@ -162,7 +161,6 @@ templ Dashboard(jobs []models.UIJob) {
 										<a id="inspect-url" href="#" target="_blank" class="text-blue-400 font-mono truncate block hover:underline">N/A</a>
 									</div>
 								</div>
-								
 								<!-- Workers Tab Content -->
 								<div id="tab-content-workers" class="hidden">
 									<div class="flex justify-between items-center mb-2">
@@ -173,10 +171,8 @@ templ Dashboard(jobs []models.UIJob) {
 							</div>
 						</div>
 					</div>
-
 				</div>
 			</div>
-
 			<!-- ADD TASK MODAL OVERLAY -->
 			<div id="new-task-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm select-none">
 				<div class="w-[500px] bg-[#121420] border border-slate-800 rounded-xl p-5 shadow-2xl">
@@ -184,23 +180,23 @@ templ Dashboard(jobs []models.UIJob) {
 						<h3 id="modal-title" class="text-sm font-bold text-slate-100 uppercase tracking-wider">Create New Download Task</h3>
 						<button onclick="closeModal()" class="text-slate-400 hover:text-slate-200">
 							<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-								<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+								<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path>
 							</svg>
 						</button>
 					</div>
 					<form id="new-task-form" hx-post="/download" hx-headers='{"X-Hydra-Token": "hydra_secure_token_bf1f753e"}' hx-ext="json-enc" hx-swap="none" hx-on::after-request="closeModal()" class="space-y-4">
-						<input type="hidden" name="job_id" id="modal-job-id" value="" />
+						<input type="hidden" name="job_id" id="modal-job-id" value=""/>
 						<div>
 							<label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Source URL</label>
-							<input type="url" name="url" placeholder="https://..." required class="w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono" />
+							<input type="url" name="url" placeholder="https://..." required class="w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono"/>
 						</div>
 						<div>
 							<label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Save Path</label>
-							<input type="text" name="save_path" value="~/Downloads/" required class="w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono" />
+							<input type="text" name="save_path" value="~/Downloads/" required class="w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono"/>
 						</div>
 						<div>
 							<label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Schedule Download (Optional)</label>
-							<input type="datetime-local" name="scheduled_at" id="new-task-schedule" class="w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono" />
+							<input type="datetime-local" name="scheduled_at" id="new-task-schedule" class="w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono"/>
 						</div>
 						<div class="flex justify-end gap-2 pt-2 border-t border-slate-800">
 							<button type="button" onclick="closeModal()" class="px-4 py-2 bg-slate-900 border border-slate-800 hover:bg-slate-850 text-slate-300 rounded text-xs font-bold transition">Cancel</button>
@@ -209,7 +205,6 @@ templ Dashboard(jobs []models.UIJob) {
 					</form>
 				</div>
 			</div>
-
 			<!-- BATCH ADD TASK MODAL OVERLAY -->
 			<div id="batch-task-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm select-none">
 				<div class="w-[560px] bg-[#121420] border border-slate-800 rounded-xl p-5 shadow-2xl">
@@ -220,7 +215,7 @@ templ Dashboard(jobs []models.UIJob) {
 						</div>
 						<button onclick="closeBatchModal()" class="text-slate-400 hover:text-slate-200">
 							<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-								<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+								<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path>
 							</svg>
 						</button>
 					</div>
@@ -231,11 +226,11 @@ templ Dashboard(jobs []models.UIJob) {
 						</div>
 						<div>
 							<label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Base Directory (Leave as DEFAULT to auto-categorize)</label>
-							<input type="text" id="batch-save-path" value="DEFAULT" required class="w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono" />
+							<input type="text" id="batch-save-path" value="DEFAULT" required class="w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono"/>
 						</div>
 						<div>
 							<label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Schedule Batch (Optional)</label>
-							<input type="datetime-local" id="batch-schedule" class="w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono" />
+							<input type="datetime-local" id="batch-schedule" class="w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono"/>
 						</div>
 						<div class="flex justify-end gap-2 pt-2 border-t border-slate-800">
 							<button type="button" onclick="closeBatchModal()" class="px-4 py-2 bg-slate-900 border border-slate-800 hover:bg-slate-850 text-slate-300 rounded text-xs font-bold transition">Cancel</button>
@@ -244,403 +239,452 @@ templ Dashboard(jobs []models.UIJob) {
 					</form>
 				</div>
 			</div>
-
-			<!-- CLIENT SIDE JAVASCRIPT STATE CONTROL -->
-			<script>
-				let selectedJobId = null;
-				let activeFilter = 'ALL';
-				let currentTab = 'general';
-
-				function openModal() {
-					document.getElementById('new-task-modal').classList.remove('hidden');
-				}
-				function closeModal() {
-					document.getElementById('new-task-modal').classList.add('hidden');
-				}
-				function openBatchTaskModal() {
-					document.getElementById('batch-urls-input').value = "";
-					document.getElementById('batch-schedule').value = "";
-					document.getElementById('batch-task-modal').classList.remove('hidden');
-					document.getElementById('batch-urls-input').focus();
-				}
-				function closeBatchModal() {
-					document.getElementById('batch-task-modal').classList.add('hidden');
-				}
-
-				async function submitBatchDownload(event) {
-					event.preventDefault();
-					const urlsText = document.getElementById('batch-urls-input').value;
-					const savePath = document.getElementById('batch-save-path').value;
-					const scheduleVal = document.getElementById('batch-schedule').value;
-					const urls = urlsText.split('\n').map(u => u.trim()).filter(u => u.length > 0 && u.startsWith('http'));
-
-					if (urls.length === 0) {
-						alert("Please enter at least one valid HTTP/HTTPS URL.");
-						return;
-					}
-
-					const payload = {
-						urls: urls,
-						save_path: savePath,
-						headers: {
-							"User-Agent": navigator.userAgent
-						}
-					};
-
-					if (scheduleVal) {
-						payload.scheduled_at = new Date(scheduleVal).toISOString();
-					}
-
-					try {
-						const res = await fetch('/api/batch/download', {
-							method: 'POST',
-							headers: {
-								'Content-Type': 'application/json',
-								'X-Hydra-Token': 'hydra_secure_token_bf1f753e'
-							},
-							body: JSON.stringify(payload)
-						});
-
-						if (res.ok) {
-							closeBatchModal();
-						} else {
-							const err = await res.text();
-							alert("Batch dispatch error: " + err);
-						}
-					} catch (e) {
-						console.error("Batch dispatch network error", e);
-					}
-				}
-
-				function openNewTaskModal() {
-					document.getElementById('modal-job-id').value = "";
-					document.getElementById('modal-title').innerText = "Create New Download Task";
-					
-					const urlInput = document.querySelector('#new-task-modal input[name="url"]');
-					urlInput.value = "";
-					urlInput.readOnly = false;
-					
-					const pathInput = document.querySelector('#new-task-modal input[name="save_path"]');
-					pathInput.value = "~/Downloads/";
-
-					const scheduleInput = document.getElementById('new-task-schedule');
-					if (scheduleInput) scheduleInput.value = "";
-					
-					openModal();
-					urlInput.focus();
-				}
-				function openPendingPathModal(jobID, url, filename) {
-					document.getElementById('modal-job-id').value = jobID;
-					document.getElementById('modal-title').innerText = "Configure Save Path";
-					
-					const urlInput = document.querySelector('#new-task-modal input[name="url"]');
-					urlInput.value = url;
-					urlInput.readOnly = true;
-					
-					const pathInput = document.querySelector('#new-task-modal input[name="save_path"]');
-					if (filename && filename !== "Calculating..." && filename !== "Pending path...") {
-						pathInput.value = "~/Downloads/" + filename;
-					} else {
-						pathInput.value = "~/Downloads/";
-					}
-					
-					openModal();
-					pathInput.focus();
-				}
-
-				function switchTab(tab) {
-					currentTab = tab;
-					const gBtn = document.getElementById('tab-btn-general');
-					const wBtn = document.getElementById('tab-btn-workers');
-					const gContent = document.getElementById('tab-content-general');
-					const wContent = document.getElementById('tab-content-workers');
-
-					if (tab === 'general') {
-						gBtn.className = "text-xs font-bold text-blue-500 border-b-2 border-blue-500 px-1 py-1";
-						wBtn.className = "text-xs font-semibold text-slate-500 hover:text-slate-350 px-1 py-1";
-						gContent.classList.remove('hidden');
-						wContent.classList.add('hidden');
-					} else {
-						wBtn.className = "text-xs font-bold text-blue-500 border-b-2 border-blue-500 px-1 py-1";
-						gBtn.className = "text-xs font-semibold text-slate-500 hover:text-slate-350 px-1 py-1";
-						wContent.classList.remove('hidden');
-						gContent.classList.add('hidden');
-					}
-				}
-
-				function filterQueue(filter) {
-					activeFilter = filter;
-					['all', 'downloading', 'scheduled', 'paused', 'completed'].forEach(f => {
-						const el = document.getElementById(`filter-${f}`);
-						if (el) {
-							if (f === filter.toLowerCase()) {
-								el.classList.add('bg-slate-850', 'text-slate-200');
-								el.classList.remove('text-slate-400');
-							} else {
-								el.classList.remove('bg-slate-850', 'text-slate-200');
-								el.classList.add('text-slate-400');
-							}
-						}
-					});
-					applyFilteringToRows();
-				}
-
-				function applyFilteringToRows() {
-					const rows = document.querySelectorAll('.download-row');
-					rows.forEach(row => {
-						const status = row.getAttribute('data-status');
-						if (activeFilter === 'ALL' || status === activeFilter) {
-							row.classList.remove('hidden');
-						} else {
-							row.classList.add('hidden');
-						}
-					});
-				}
-
-				function selectJob(row) {
-					document.querySelectorAll('.download-row').forEach(r => r.classList.remove('selected-row'));
-					
-					const id = row.getAttribute('data-id');
-					selectedJobId = id;
-					row.classList.add('selected-row');
-
-					document.getElementById('inspector-idle').classList.add('hidden');
-					document.getElementById('inspector-active').classList.remove('hidden');
-
-					updateInspectorValues(row);
-				}
-
-				function updateInspectorValues(row) {
-					document.getElementById('inspect-filename').innerText = row.getAttribute('data-filename');
-					document.getElementById('inspect-savepath').innerText = row.getAttribute('data-savepath');
-					document.getElementById('inspect-eta').innerText = row.getAttribute('data-eta') || '--';
-					
-					const url = row.getAttribute('data-url');
-					const urlLink = document.getElementById('inspect-url');
-					urlLink.innerText = url;
-					urlLink.href = url;
-
-					const chunksJson = row.getAttribute('data-chunks');
-					const grid = document.getElementById('inspect-workers-grid');
-					grid.innerHTML = '';
-
-					if (chunksJson) {
-						try {
-							const chunks = JSON.parse(chunksJson);
-							if (chunks && chunks.length > 0) {
-								chunks.forEach(ch => {
-									let percent = 0;
-									if (ch.completed) {
-										percent = 100;
-									} else if (ch.end > ch.start) {
-										percent = Math.floor((ch.current_offset - ch.start) / (ch.end - ch.start) * 100);
-										if (percent < 0) percent = 0;
-										if (percent > 100) percent = 100;
-									}
-
-									const card = document.createElement('div');
-									card.className = "bg-[#0b0c10] border border-slate-800 rounded p-2.5";
-									card.innerHTML = `
-										<div class="flex justify-between items-center text-[9px] mb-1 font-bold">
-											<span class="text-slate-500">CHANNEL #${ch.index + 1}</span>
-											<span class="${ch.completed ? 'text-emerald-400' : 'text-blue-400'}">${percent}%</span>
-										</div>
-										<div class="w-full bg-slate-900 h-1 rounded overflow-hidden">
-											<div class="h-full ${ch.completed ? 'bg-emerald-500' : 'bg-blue-600'} transition-all duration-300" style="width: ${percent}%"></div>
-										</div>
-									`;
-									grid.appendChild(card);
-								});
-							} else {
-								grid.innerHTML = '<span class="text-slate-500 italic text-[11px]">No active download thread segments allocated.</span>';
-							}
-						} catch (e) {
-							console.error("Failed to parse chunks JSON", e);
-						}
-					} else {
-						grid.innerHTML = '<span class="text-slate-500 italic text-[11px]">No thread information stored.</span>';
-					}
-				}
-
-				function updateUIState() {
-					applyFilteringToRows();
-
-					if (selectedJobId) {
-						const selectedRow = document.querySelector(`.download-row[data-id="${selectedJobId}"]`);
-						if (selectedRow) {
-							selectedRow.classList.add('selected-row');
-							updateInspectorValues(selectedRow);
-						} else {
-							selectedJobId = null;
-							document.getElementById('inspector-idle').classList.remove('hidden');
-							document.getElementById('inspector-active').classList.add('hidden');
-						}
-					}
-
-					let total = 0, active = 0, scheduled = 0, paused = 0, completed = 0;
-					document.querySelectorAll('.download-row').forEach(row => {
-						total++;
-						const status = row.getAttribute('data-status');
-						if (status === 'DOWNLOADING') active++;
-						else if (status === 'SCHEDULED') scheduled++;
-						else if (status === 'PAUSED') paused++;
-						else if (status === 'COMPLETED') completed++;
-					});
-
-					document.getElementById('count-all').innerText = total;
-					document.getElementById('count-downloading').innerText = active;
-					const schedEl = document.getElementById('count-scheduled');
-					if (schedEl) schedEl.innerText = scheduled;
-					document.getElementById('count-paused').innerText = paused;
-					document.getElementById('count-completed').innerText = completed;
-
-					const params = new URLSearchParams(window.location.search);
-					const pendingJobId = params.get('pending_job');
-					if (pendingJobId) {
-						const row = document.querySelector(`.download-row[data-id="${pendingJobId}"]`);
-						if (row) {
-							const url = row.getAttribute('data-url');
-							const filename = row.getAttribute('data-filename');
-							openPendingPathModal(pendingJobId, url, filename);
-							window.history.replaceState({}, document.title, window.location.pathname);
-						}
-					}
-				}
-
-				function setupEventStream() {
-					const eventSource = new EventSource('/api/events');
-
-					eventSource.addEventListener('queue', (event) => {
-						try {
-							const jobs = JSON.parse(event.data);
-							
-							const existingRows = document.querySelectorAll('.download-row');
-							const existingIds = Array.from(existingRows).map(r => r.getAttribute('data-id')).sort();
-							const fetchedIds = jobs.map(j => j.id).sort();
-
-							if (JSON.stringify(existingIds) !== JSON.stringify(fetchedIds)) {
-								fetch('/api/queue').then(res => res.text()).then(html => {
-									document.getElementById('download-queue').innerHTML = html;
-									htmx.process(document.getElementById('download-queue'));
-									updateUIState();
-								});
-								return;
-							}
-
-							jobs.forEach(job => {
-								const row = document.querySelector(`.download-row[data-id="${job.id}"]`);
-								if (!row) return;
-
-								row.setAttribute('data-status', job.status);
-								row.setAttribute('data-eta', job.eta || '--');
-								row.setAttribute('data-chunks', JSON.stringify(job.chunks || []));
-
-								const sizeCell = row.querySelector('.size-metrics');
-								if (sizeCell) {
-									sizeCell.innerHTML = `<span>${job.downloaded}</span> / <span class="text-slate-600">${job.total_size}</span>`;
-								}
-
-								const bar = row.querySelector('.progress-bar');
-								if (bar) {
-									bar.style.width = job.progress.toFixed(1) + '%';
-									bar.classList.remove('bg-blue-600', 'bg-indigo-500', 'bg-purple-500', 'bg-amber-500', 'bg-emerald-500', 'bg-rose-500');
-									if (job.status === 'DOWNLOADING') {
-										bar.classList.add('bg-blue-600');
-									} else if (job.status === 'QUEUED') {
-										bar.classList.add('bg-indigo-500');
-									} else if (job.status === 'SCHEDULED') {
-										bar.classList.add('bg-purple-500');
-									} else if (job.status === 'PAUSED') {
-										bar.classList.add('bg-amber-500');
-									} else if (job.status === 'COMPLETED') {
-										bar.classList.add('bg-emerald-500');
-									} else {
-										bar.classList.add('bg-rose-500');
-									}
-								}
-								const txt = row.querySelector('.progress-text');
-								if (txt) {
-									txt.innerText = job.progress.toFixed(1) + '%';
-								}
-
-								const speedCell = row.querySelector('.speed-cell');
-								if (speedCell) {
-									if (job.status === 'DOWNLOADING') {
-										speedCell.innerText = job.speed;
-										speedCell.classList.remove('text-slate-600');
-									} else {
-										speedCell.innerText = '-';
-										speedCell.classList.add('text-slate-600');
-									}
-								}
-
-								const etaCell = row.querySelector('.eta-cell');
-								if (etaCell) {
-									if (job.status === 'DOWNLOADING') {
-										etaCell.innerText = job.eta || '--';
-										etaCell.classList.remove('text-slate-600');
-									} else {
-										etaCell.innerText = '--';
-										etaCell.classList.add('text-slate-600');
-									}
-								}
-
-								const badges = row.querySelectorAll('.status-badge');
-								badges.forEach(b => {
-									if (b.getAttribute('data-badge-status') === job.status) {
-										b.classList.remove('hidden');
-									} else {
-										b.classList.add('hidden');
-									}
-								});
-
-								const configureBtn = row.querySelector('.configure-btn');
-								if (configureBtn) {
-									if (job.status === 'PENDING_PATH') configureBtn.classList.remove('hidden');
-									else configureBtn.classList.add('hidden');
-								}
-								const pauseBtn = row.querySelector('.pause-btn');
-								if (pauseBtn) {
-									if (job.status === 'DOWNLOADING') pauseBtn.classList.remove('hidden');
-									else pauseBtn.classList.add('hidden');
-								}
-								const resumeBtn = row.querySelector('.resume-btn');
-								if (resumeBtn) {
-									if (job.status === 'PAUSED' || job.status === 'QUEUED' || job.status === 'SCHEDULED' || job.status === 'FAILED') resumeBtn.classList.remove('hidden');
-									else resumeBtn.classList.add('hidden');
-								}
-							});
-
-							updateUIState();
-						} catch (e) {
-							console.error("SSE parse error", e);
-						}
-					});
-
-					eventSource.onerror = (err) => {
-						console.warn("SSE connection interrupted, retrying...", err);
-					};
-				}
-
-				window.addEventListener('DOMContentLoaded', () => {
-					updateUIState();
-					setupEventStream();
-
-					document.addEventListener('click', (e) => {
-						const btn = e.target.closest('.configure-btn');
-						if (btn) {
-							e.stopPropagation();
-							const jobID = btn.getAttribute('data-job-id');
-							const url = btn.getAttribute('data-url');
-							const filename = btn.getAttribute('data-filename');
-							openPendingPathModal(jobID, url, filename);
-						}
-					});
-				});
-			</script>
+			<!-- INJECT SAFE RAW JAVASCRIPT BODY -->
+			@templ.Raw("<script>" + dashboardClientScript + "</script>")
 		</body>
 	</html>
 }
+
+const dashboardClientScript = `
+let selectedJobId = null;
+let activeFilter = 'ALL';
+let currentTab = 'general';
+
+const sparklineHistory = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+
+function parseSpeedToBytes(speedStr) {
+	if (!speedStr || speedStr === "-" || speedStr === "--") return 0;
+	const parts = speedStr.trim().split(" ");
+	if (parts.length < 2) return 0;
+	const val = parseFloat(parts[0]);
+	const unit = parts[1].toUpperCase();
+	if (unit.indexOf("MB") === 0) return val * 1024 * 1024;
+	if (unit.indexOf("KB") === 0) return val * 1024;
+	if (unit.indexOf("GB") === 0) return val * 1024 * 1024 * 1024;
+	return val;
+}
+
+function formatBytesToSpeed(bytesPerSec) {
+	if (bytesPerSec > 1024 * 1024) return (bytesPerSec / (1024 * 1024)).toFixed(2) + " MB/s";
+	if (bytesPerSec > 1024) return (bytesPerSec / 1024).toFixed(2) + " KB/s";
+	return bytesPerSec.toFixed(2) + " B/s";
+}
+
+function updateGlobalSparkline(totalBytes) {
+	sparklineHistory.shift();
+	sparklineHistory.push(totalBytes);
+
+	const maxVal = Math.max.apply(null, sparklineHistory.concat([1024 * 512]));
+	const points = sparklineHistory.map(function(val, idx) {
+		const x = (idx / (sparklineHistory.length - 1)) * 100;
+		const y = 18 - (val / maxVal) * 16;
+		return x.toFixed(1) + "," + y.toFixed(1);
+	}).join(" ");
+
+	const poly = document.getElementById('sparkline-poly');
+	if (poly) poly.setAttribute('points', points);
+
+	const speedTxt = document.getElementById('global-speed-text');
+	if (speedTxt) speedTxt.innerText = formatBytesToSpeed(totalBytes);
+}
+
+function openModal() {
+	document.getElementById('new-task-modal').classList.remove('hidden');
+}
+function closeModal() {
+	document.getElementById('new-task-modal').classList.add('hidden');
+}
+function openBatchTaskModal() {
+	document.getElementById('batch-urls-input').value = "";
+	document.getElementById('batch-schedule').value = "";
+	document.getElementById('batch-task-modal').classList.remove('hidden');
+	document.getElementById('batch-urls-input').focus();
+}
+function closeBatchModal() {
+	document.getElementById('batch-task-modal').classList.add('hidden');
+}
+
+function submitBatchDownload(event) {
+	event.preventDefault();
+	const urlsText = document.getElementById('batch-urls-input').value;
+	const savePath = document.getElementById('batch-save-path').value;
+	const scheduleVal = document.getElementById('batch-schedule').value;
+	const urls = urlsText.split('\\n').map(function(u) { return u.trim(); }).filter(function(u) { return u.length > 0 && u.indexOf('http') === 0; });
+
+	if (urls.length === 0) {
+		alert("Please enter at least one valid HTTP/HTTPS URL.");
+		return;
+	}
+
+	const payload = {
+		urls: urls,
+		save_path: savePath,
+		headers: {
+			"User-Agent": navigator.userAgent
+		}
+	};
+
+	if (scheduleVal) {
+		payload.scheduled_at = new Date(scheduleVal).toISOString();
+	}
+
+	fetch('/api/batch/download', {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			'X-Hydra-Token': 'hydra_secure_token_bf1f753e'
+		},
+		body: JSON.stringify(payload)
+	}).then(function(res) {
+		if (res.ok) {
+			closeBatchModal();
+		} else {
+			res.text().then(function(err) { alert("Batch dispatch error: " + err); });
+		}
+	}).catch(function(e) {
+		console.error("Batch dispatch network error", e);
+	});
+}
+
+function openNewTaskModal() {
+	document.getElementById('modal-job-id').value = "";
+	document.getElementById('modal-title').innerText = "Create New Download Task";
+	
+	const urlInput = document.querySelector('#new-task-modal input[name="url"]');
+	urlInput.value = "";
+	urlInput.readOnly = false;
+	
+	const pathInput = document.querySelector('#new-task-modal input[name="save_path"]');
+	pathInput.value = "~/Downloads/";
+
+	const scheduleInput = document.getElementById('new-task-schedule');
+	if (scheduleInput) scheduleInput.value = "";
+	
+	openModal();
+	urlInput.focus();
+}
+function openPendingPathModal(jobID, url, filename) {
+	document.getElementById('modal-job-id').value = jobID;
+	document.getElementById('modal-title').innerText = "Configure Save Path";
+	
+	const urlInput = document.querySelector('#new-task-modal input[name="url"]');
+	urlInput.value = url;
+	urlInput.readOnly = true;
+	
+	const pathInput = document.querySelector('#new-task-modal input[name="save_path"]');
+	if (filename && filename !== "Calculating..." && filename !== "Pending path...") {
+		pathInput.value = "~/Downloads/" + filename;
+	} else {
+		pathInput.value = "~/Downloads/";
+	}
+	
+	openModal();
+	pathInput.focus();
+}
+
+function switchTab(tab) {
+	currentTab = tab;
+	const gBtn = document.getElementById('tab-btn-general');
+	const wBtn = document.getElementById('tab-btn-workers');
+	const gContent = document.getElementById('tab-content-general');
+	const wContent = document.getElementById('tab-content-workers');
+
+	if (tab === 'general') {
+		gBtn.className = "text-xs font-bold text-blue-500 border-b-2 border-blue-500 px-1 py-1";
+		wBtn.className = "text-xs font-semibold text-slate-500 hover:text-slate-350 px-1 py-1";
+		gContent.classList.remove('hidden');
+		wContent.classList.add('hidden');
+	} else {
+		wBtn.className = "text-xs font-bold text-blue-500 border-b-2 border-blue-500 px-1 py-1";
+		gBtn.className = "text-xs font-semibold text-slate-500 hover:text-slate-350 px-1 py-1";
+		wContent.classList.remove('hidden');
+		gContent.classList.add('hidden');
+	}
+}
+
+function filterQueue(filter) {
+	activeFilter = filter;
+	['all', 'downloading', 'scheduled', 'paused', 'completed'].forEach(function(f) {
+		const el = document.getElementById('filter-' + f);
+		if (el) {
+			if (f === filter.toLowerCase()) {
+				el.classList.add('bg-slate-850', 'text-slate-200');
+				el.classList.remove('text-slate-400');
+			} else {
+				el.classList.remove('bg-slate-850', 'text-slate-200');
+				el.classList.add('text-slate-400');
+			}
+		}
+	});
+	applyFilteringToRows();
+}
+
+function applyFilteringToRows() {
+	const rows = document.querySelectorAll('.download-row');
+	rows.forEach(function(row) {
+		const status = row.getAttribute('data-status');
+		if (activeFilter === 'ALL' || status === activeFilter) {
+			row.classList.remove('hidden');
+		} else {
+			row.classList.add('hidden');
+		}
+	});
+}
+
+function selectJob(row) {
+	document.querySelectorAll('.download-row').forEach(function(r) { r.classList.remove('selected-row'); });
+	
+	const id = row.getAttribute('data-id');
+	selectedJobId = id;
+	row.classList.add('selected-row');
+
+	document.getElementById('inspector-idle').classList.add('hidden');
+	document.getElementById('inspector-active').classList.remove('hidden');
+
+	updateInspectorValues(row);
+}
+
+function updateInspectorValues(row) {
+	document.getElementById('inspect-filename').innerText = row.getAttribute('data-filename');
+	document.getElementById('inspect-savepath').innerText = row.getAttribute('data-savepath');
+	document.getElementById('inspect-eta').innerText = row.getAttribute('data-eta') || '--';
+	
+	const url = row.getAttribute('data-url');
+	const urlLink = document.getElementById('inspect-url');
+	urlLink.innerText = url;
+	urlLink.href = url;
+
+	const chunksJson = row.getAttribute('data-chunks');
+	const grid = document.getElementById('inspect-workers-grid');
+	grid.innerHTML = '';
+
+	if (chunksJson) {
+		try {
+			const chunks = JSON.parse(chunksJson);
+			if (chunks && chunks.length > 0) {
+				chunks.forEach(function(ch) {
+					let percent = 0;
+					if (ch.completed) {
+						percent = 100;
+					} else if (ch.end > ch.start) {
+						percent = Math.floor((ch.current_offset - ch.start) / (ch.end - ch.start) * 100);
+						if (percent < 0) percent = 0;
+						if (percent > 100) percent = 100;
+					}
+
+					const card = document.createElement('div');
+					card.className = "bg-[#0b0c10] border border-slate-800 rounded p-2.5";
+					
+					const header = document.createElement('div');
+					header.className = "flex justify-between items-center text-[9px] mb-1 font-bold";
+					header.innerHTML = '<span class="text-slate-500">CHANNEL #' + (ch.index + 1) + '</span><span class="' + (ch.completed ? 'text-emerald-400' : 'text-blue-400') + '">' + percent + '%</span>';
+
+					const barWrap = document.createElement('div');
+					barWrap.className = "w-full bg-slate-900 h-1 rounded overflow-hidden";
+
+					const barInner = document.createElement('div');
+					barInner.className = "h-full " + (ch.completed ? 'bg-emerald-500' : 'bg-blue-600') + " transition-all duration-300";
+					barInner.style.width = percent + "%";
+
+					barWrap.appendChild(barInner);
+					card.appendChild(header);
+					card.appendChild(barWrap);
+					grid.appendChild(card);
+				});
+			} else {
+				grid.innerHTML = '<span class="text-slate-500 italic text-[11px]">No active download thread segments allocated.</span>';
+			}
+		} catch (e) {
+			console.error("Failed to parse chunks JSON", e);
+		}
+	} else {
+		grid.innerHTML = '<span class="text-slate-500 italic text-[11px]">No thread information stored.</span>';
+	}
+}
+
+function updateUIState() {
+	applyFilteringToRows();
+
+	if (selectedJobId) {
+		const selectedRow = document.querySelector('.download-row[data-id="' + selectedJobId + '"]');
+		if (selectedRow) {
+			selectedRow.classList.add('selected-row');
+			updateInspectorValues(selectedRow);
+		} else {
+			selectedJobId = null;
+			document.getElementById('inspector-idle').classList.remove('hidden');
+			document.getElementById('inspector-active').classList.add('hidden');
+		}
+	}
+
+	let total = 0, active = 0, scheduled = 0, paused = 0, completed = 0;
+	document.querySelectorAll('.download-row').forEach(function(row) {
+		total++;
+		const status = row.getAttribute('data-status');
+		if (status === 'DOWNLOADING') active++;
+		else if (status === 'SCHEDULED') scheduled++;
+		else if (status === 'PAUSED') paused++;
+		else if (status === 'COMPLETED') completed++;
+	});
+
+	document.getElementById('count-all').innerText = total;
+	document.getElementById('count-downloading').innerText = active;
+	const schedEl = document.getElementById('count-scheduled');
+	if (schedEl) schedEl.innerText = scheduled;
+	document.getElementById('count-paused').innerText = paused;
+	document.getElementById('count-completed').innerText = completed;
+
+	const params = new URLSearchParams(window.location.search);
+	const pendingJobId = params.get('pending_job');
+	if (pendingJobId) {
+		const row = document.querySelector('.download-row[data-id="' + pendingJobId + '"]');
+		if (row) {
+			const url = row.getAttribute('data-url');
+			const filename = row.getAttribute('data-filename');
+			openPendingPathModal(pendingJobId, url, filename);
+			window.history.replaceState({}, document.title, window.location.pathname);
+		}
+	}
+}
+
+function setupEventStream() {
+	const eventSource = new EventSource('/api/events');
+
+	eventSource.addEventListener('queue', function(event) {
+		try {
+			const jobs = JSON.parse(event.data);
+			
+			const existingRows = document.querySelectorAll('.download-row');
+			const existingIds = Array.from(existingRows).map(function(r) { return r.getAttribute('data-id'); }).sort();
+			const fetchedIds = jobs.map(function(j) { return j.id; }).sort();
+
+			if (JSON.stringify(existingIds) !== JSON.stringify(fetchedIds)) {
+				fetch('/api/queue').then(function(res) { return res.text(); }).then(function(html) {
+					document.getElementById('download-queue').innerHTML = html;
+					htmx.process(document.getElementById('download-queue'));
+					updateUIState();
+				});
+				return;
+			}
+
+			let totalActiveSpeedBytes = 0;
+
+			jobs.forEach(function(job) {
+				if (job.status === "DOWNLOADING") {
+					totalActiveSpeedBytes += parseSpeedToBytes(job.speed);
+				}
+
+				const row = document.querySelector('.download-row[data-id="' + job.id + '"]');
+				if (!row) return;
+
+				row.setAttribute('data-status', job.status);
+				row.setAttribute('data-eta', job.eta || '--');
+				row.setAttribute('data-chunks', JSON.stringify(job.chunks || []));
+
+				const sizeCell = row.querySelector('.size-metrics');
+				if (sizeCell) {
+					sizeCell.innerHTML = '<span>' + job.downloaded + '</span> / <span class="text-slate-600">' + job.total_size + '</span>';
+				}
+
+				const bar = row.querySelector('.progress-bar');
+				if (bar) {
+					bar.style.width = job.progress.toFixed(1) + '%';
+					bar.classList.remove('bg-blue-600', 'bg-indigo-500', 'bg-purple-500', 'bg-amber-500', 'bg-emerald-500', 'bg-rose-500');
+					if (job.status === 'DOWNLOADING') {
+						bar.classList.add('bg-blue-600');
+					} else if (job.status === 'QUEUED') {
+						bar.classList.add('bg-indigo-500');
+					} else if (job.status === 'SCHEDULED') {
+						bar.classList.add('bg-purple-500');
+					} else if (job.status === 'PAUSED') {
+						bar.classList.add('bg-amber-500');
+					} else if (job.status === 'COMPLETED') {
+						bar.classList.add('bg-emerald-500');
+					} else {
+						bar.classList.add('bg-rose-500');
+					}
+				}
+				const txt = row.querySelector('.progress-text');
+				if (txt) {
+					txt.innerText = job.progress.toFixed(1) + '%';
+				}
+
+				const speedCell = row.querySelector('.speed-cell');
+				if (speedCell) {
+					if (job.status === 'DOWNLOADING') {
+						speedCell.innerText = job.speed;
+						speedCell.classList.remove('text-slate-600');
+					} else {
+						speedCell.innerText = '-';
+						speedCell.classList.add('text-slate-600');
+					}
+				}
+
+				const etaCell = row.querySelector('.eta-cell');
+				if (etaCell) {
+					if (job.status === 'DOWNLOADING') {
+						etaCell.innerText = job.eta || '--';
+						etaCell.classList.remove('text-slate-600');
+					} else {
+						etaCell.innerText = '--';
+						etaCell.classList.add('text-slate-600');
+					}
+				}
+
+				const badges = row.querySelectorAll('.status-badge');
+				badges.forEach(function(b) {
+					if (b.getAttribute('data-badge-status') === job.status) {
+						b.classList.remove('hidden');
+					} else {
+						b.classList.add('hidden');
+					}
+				});
+
+				const configureBtn = row.querySelector('.configure-btn');
+				if (configureBtn) {
+					if (job.status === 'PENDING_PATH') configureBtn.classList.remove('hidden');
+					else configureBtn.classList.add('hidden');
+				}
+				const pauseBtn = row.querySelector('.pause-btn');
+				if (pauseBtn) {
+					if (job.status === 'DOWNLOADING') pauseBtn.classList.remove('hidden');
+					else pauseBtn.classList.add('hidden');
+				}
+				const resumeBtn = row.querySelector('.resume-btn');
+				if (resumeBtn) {
+					if (job.status === 'PAUSED' || job.status === 'QUEUED' || job.status === 'SCHEDULED' || job.status === 'FAILED') resumeBtn.classList.remove('hidden');
+					else resumeBtn.classList.add('hidden');
+				}
+			});
+
+			updateGlobalSparkline(totalActiveSpeedBytes);
+			updateUIState();
+		} catch (e) {
+			console.error("SSE parse error", e);
+		}
+	});
+
+	eventSource.onerror = function(err) {
+		console.warn("SSE connection interrupted, retrying...", err);
+	};
+}
+
+window.addEventListener('DOMContentLoaded', function() {
+	updateUIState();
+	setupEventStream();
+
+	document.addEventListener('click', function(e) {
+		const btn = e.target.closest('.configure-btn');
+		if (btn) {
+			e.stopPropagation();
+			const jobID = btn.getAttribute('data-job-id');
+			const url = btn.getAttribute('data-url');
+			const filename = btn.getAttribute('data-filename');
+			openPendingPathModal(jobID, url, filename);
+		}
+	});
+});
+`
 
 templ QueueRows(jobs []models.UIJob) {
 	if len(jobs) == 0 {
@@ -669,9 +713,9 @@ templ QueueRows(jobs []models.UIJob) {
 				data-filename={ job.FileName } 
 				data-savepath={ job.SavePath } 
 				data-url={ job.URL } 
-				data-status={ job.Status }
-				data-eta={ etaDisplay }
-				data-chunks={ chunksJSON }
+				data-status={ job.Status } 
+				data-eta={ etaDisplay } 
+				data-chunks={ chunksJSON } 
 				onclick="selectJob(this)"
 			>
 				<!-- Filename & URL Column -->
