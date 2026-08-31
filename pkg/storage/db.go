@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/Raunak0000/Hydra/pkg/models"
 	_ "modernc.org/sqlite"
@@ -47,7 +48,7 @@ func GetDBStore() (*DBStore, error) {
 			return
 		}
 
-		// Initialize Schema
+		// Base Schema
 		schema := `
 		CREATE TABLE IF NOT EXISTS jobs (
 			id TEXT PRIMARY KEY,
@@ -66,6 +67,10 @@ func GetDBStore() (*DBStore, error) {
 			checksum_verified INTEGER DEFAULT 0,
 			chunks TEXT,
 			headers TEXT,
+			batch_id TEXT DEFAULT '',
+			scheduled_at DATETIME,
+			error_message TEXT DEFAULT '',
+			completed_at DATETIME,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
@@ -81,6 +86,11 @@ func GetDBStore() (*DBStore, error) {
 		db.Exec(`ALTER TABLE jobs ADD COLUMN expected_checksum TEXT DEFAULT '';`)
 		db.Exec(`ALTER TABLE jobs ADD COLUMN checksum_algo TEXT DEFAULT '';`)
 		db.Exec(`ALTER TABLE jobs ADD COLUMN checksum_verified INTEGER DEFAULT 0;`)
+		// ── Phase 2 Migrations ──
+		db.Exec(`ALTER TABLE jobs ADD COLUMN batch_id TEXT DEFAULT '';`)
+		db.Exec(`ALTER TABLE jobs ADD COLUMN scheduled_at DATETIME;`)
+		db.Exec(`ALTER TABLE jobs ADD COLUMN error_message TEXT DEFAULT '';`)
+		db.Exec(`ALTER TABLE jobs ADD COLUMN completed_at DATETIME;`)
 
 		globalDBStore = &DBStore{db: db}
 	})
@@ -107,11 +117,22 @@ func (s *DBStore) SaveJob(job *models.UIJob) error {
 		verifiedInt = 1
 	}
 
+	var scheduledAtVal any = nil
+	if job.ScheduledAt != nil {
+		scheduledAtVal = job.ScheduledAt.Format(time.RFC3339)
+	}
+
+	var completedAtVal any = nil
+	if job.CompletedAt != nil {
+		completedAtVal = job.CompletedAt.Format(time.RFC3339)
+	}
+
 	query := `
 	INSERT INTO jobs (
 		id, file_name, url, save_path, progress, total_size, downloaded, speed, eta, status,
-		max_speed_bytes, expected_checksum, checksum_algo, checksum_verified, chunks, headers, updated_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		max_speed_bytes, expected_checksum, checksum_algo, checksum_verified, chunks, headers,
+		batch_id, scheduled_at, error_message, completed_at, updated_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 	ON CONFLICT(id) DO UPDATE SET
 		file_name = excluded.file_name,
 		save_path = excluded.save_path,
@@ -127,6 +148,10 @@ func (s *DBStore) SaveJob(job *models.UIJob) error {
 		checksum_verified = excluded.checksum_verified,
 		chunks = excluded.chunks,
 		headers = excluded.headers,
+		batch_id = excluded.batch_id,
+		scheduled_at = excluded.scheduled_at,
+		error_message = excluded.error_message,
+		completed_at = excluded.completed_at,
 		updated_at = CURRENT_TIMESTAMP;
 	`
 	_, err := s.db.Exec(query,
@@ -134,6 +159,7 @@ func (s *DBStore) SaveJob(job *models.UIJob) error {
 		job.Progress, job.TotalSize, job.Downloaded, job.Speed, job.ETA, job.Status,
 		job.MaxSpeedBytes, job.ExpectedChecksum, job.ChecksumAlgo, verifiedInt,
 		string(chunksJSON), string(headersJSON),
+		job.BatchID, scheduledAtVal, job.ErrorMessage, completedAtVal,
 	)
 	return err
 }
@@ -153,17 +179,32 @@ func (s *DBStore) UpdateProgress(jobID string, progress float64, downloaded stri
 	UPDATE jobs 
 	SET progress = ?, downloaded = ?, speed = ?, eta = ?, status = CASE WHEN status IN ('COMPLETED', 'FAILED') AND ? = 'DOWNLOADING' THEN status ELSE ? END,
 	    file_name = CASE WHEN ? != '' AND ? != 'Calculating...' THEN ? ELSE file_name END,
+	    completed_at = CASE WHEN ? = 'COMPLETED' THEN CURRENT_TIMESTAMP ELSE completed_at END,
 	    updated_at = CURRENT_TIMESTAMP
 	WHERE id = ?;
 	`
-	_, err := s.db.Exec(query, progress, downloaded, speed, eta, status, status, filename, filename, filename, jobID)
+	_, err := s.db.Exec(query, progress, downloaded, speed, eta, status, status, filename, filename, filename, status, jobID)
 	return err
 }
 
 func (s *DBStore) UpdateStatus(jobID string, status string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.Exec(`UPDATE jobs SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;`, status, jobID)
+
+	query := `
+	UPDATE jobs 
+	SET status = ?,
+	    completed_at = CASE WHEN ? = 'COMPLETED' THEN CURRENT_TIMESTAMP ELSE completed_at END,
+	    updated_at = CURRENT_TIMESTAMP 
+	WHERE id = ?;`
+	_, err := s.db.Exec(query, status, status, jobID)
+	return err
+}
+
+func (s *DBStore) UpdateErrorMessage(jobID string, errMsg string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`UPDATE jobs SET error_message = ?, status = 'FAILED', updated_at = CURRENT_TIMESTAMP WHERE id = ?;`, errMsg, jobID)
 	return err
 }
 
@@ -192,21 +233,87 @@ func (s *DBStore) GetJob(jobID string) (models.UIJob, bool) {
 
 	query := `
 	SELECT id, file_name, url, save_path, progress, total_size, downloaded, speed, eta, status,
-	       max_speed_bytes, expected_checksum, checksum_algo, checksum_verified, chunks, headers
+	       max_speed_bytes, expected_checksum, checksum_algo, checksum_verified, chunks, headers,
+	       batch_id, scheduled_at, error_message, completed_at, created_at
 	FROM jobs WHERE id = ?;`
 	row := s.db.QueryRow(query, jobID)
 
-	var job models.UIJob
-	var chunksStr, headersStr, etaStr, expCheckStr, algoStr sql.NullString
-	var maxSpeed sql.NullInt64
-	var verifiedInt sql.NullInt64
-
-	err := row.Scan(
-		&job.ID, &job.FileName, &job.URL, &job.SavePath, &job.Progress, &job.TotalSize, &job.Downloaded, &job.Speed, &etaStr, &job.Status,
-		&maxSpeed, &expCheckStr, &algoStr, &verifiedInt, &chunksStr, &headersStr,
-	)
+	job, err := scanJobRow(row.Scan)
 	if err != nil {
 		return models.UIJob{}, false
+	}
+	return job, true
+}
+
+func (s *DBStore) GetAllJobs() []models.UIJob {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	query := `
+	SELECT id, file_name, url, save_path, progress, total_size, downloaded, speed, eta, status,
+	       max_speed_bytes, expected_checksum, checksum_algo, checksum_verified, chunks, headers,
+	       batch_id, scheduled_at, error_message, completed_at, created_at
+	FROM jobs ORDER BY created_at ASC;`
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var list []models.UIJob
+	for rows.Next() {
+		if job, err := scanJobRow(rows.Scan); err == nil {
+			list = append(list, job)
+		}
+	}
+	return list
+}
+
+func (s *DBStore) GetPendingScheduledJobs() []models.UIJob {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	query := `
+	SELECT id, file_name, url, save_path, progress, total_size, downloaded, speed, eta, status,
+	       max_speed_bytes, expected_checksum, checksum_algo, checksum_verified, chunks, headers,
+	       batch_id, scheduled_at, error_message, completed_at, created_at
+	FROM jobs 
+	WHERE status = 'SCHEDULED' AND scheduled_at <= CURRENT_TIMESTAMP;`
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var list []models.UIJob
+	for rows.Next() {
+		if job, err := scanJobRow(rows.Scan); err == nil {
+			list = append(list, job)
+		}
+	}
+	return list
+}
+
+func (s *DBStore) DeleteJob(jobID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`DELETE FROM jobs WHERE id = ?;`, jobID)
+	return err
+}
+
+func scanJobRow(scanFn func(dest ...any) error) (models.UIJob, error) {
+	var job models.UIJob
+	var chunksStr, headersStr, etaStr, expCheckStr, algoStr, batchIdStr, errMsgStr sql.NullString
+	var maxSpeed, verifiedInt sql.NullInt64
+	var scheduledAt, completedAt, createdAt sql.NullTime
+
+	err := scanFn(
+		&job.ID, &job.FileName, &job.URL, &job.SavePath, &job.Progress, &job.TotalSize, &job.Downloaded, &job.Speed, &etaStr, &job.Status,
+		&maxSpeed, &expCheckStr, &algoStr, &verifiedInt, &chunksStr, &headersStr,
+		&batchIdStr, &scheduledAt, &errMsgStr, &completedAt, &createdAt,
+	)
+	if err != nil {
+		return models.UIJob{}, err
 	}
 
 	if etaStr.Valid {
@@ -224,6 +331,21 @@ func (s *DBStore) GetJob(jobID string) (models.UIJob, bool) {
 	if verifiedInt.Valid {
 		job.ChecksumVerified = verifiedInt.Int64 == 1
 	}
+	if batchIdStr.Valid {
+		job.BatchID = batchIdStr.String
+	}
+	if errMsgStr.Valid {
+		job.ErrorMessage = errMsgStr.String
+	}
+	if scheduledAt.Valid {
+		job.ScheduledAt = &scheduledAt.Time
+	}
+	if completedAt.Valid {
+		job.CompletedAt = &completedAt.Time
+	}
+	if createdAt.Valid {
+		job.CreatedAt = createdAt.Time
+	}
 	if chunksStr.Valid && chunksStr.String != "" {
 		_ = json.Unmarshal([]byte(chunksStr.String), &job.Chunks)
 	}
@@ -231,64 +353,5 @@ func (s *DBStore) GetJob(jobID string) (models.UIJob, bool) {
 		_ = json.Unmarshal([]byte(headersStr.String), &job.Headers)
 	}
 
-	return job, true
-}
-
-func (s *DBStore) GetAllJobs() []models.UIJob {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	query := `
-	SELECT id, file_name, url, save_path, progress, total_size, downloaded, speed, eta, status,
-	       max_speed_bytes, expected_checksum, checksum_algo, checksum_verified, chunks, headers
-	FROM jobs ORDER BY created_at ASC;`
-	rows, err := s.db.Query(query)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-
-	var list []models.UIJob
-	for rows.Next() {
-		var job models.UIJob
-		var chunksStr, headersStr, etaStr, expCheckStr, algoStr sql.NullString
-		var maxSpeed sql.NullInt64
-		var verifiedInt sql.NullInt64
-
-		if err := rows.Scan(
-			&job.ID, &job.FileName, &job.URL, &job.SavePath, &job.Progress, &job.TotalSize, &job.Downloaded, &job.Speed, &etaStr, &job.Status,
-			&maxSpeed, &expCheckStr, &algoStr, &verifiedInt, &chunksStr, &headersStr,
-		); err == nil {
-			if etaStr.Valid {
-				job.ETA = etaStr.String
-			}
-			if maxSpeed.Valid {
-				job.MaxSpeedBytes = maxSpeed.Int64
-			}
-			if expCheckStr.Valid {
-				job.ExpectedChecksum = expCheckStr.String
-			}
-			if algoStr.Valid {
-				job.ChecksumAlgo = algoStr.String
-			}
-			if verifiedInt.Valid {
-				job.ChecksumVerified = verifiedInt.Int64 == 1
-			}
-			if chunksStr.Valid && chunksStr.String != "" {
-				_ = json.Unmarshal([]byte(chunksStr.String), &job.Chunks)
-			}
-			if headersStr.Valid && headersStr.String != "" {
-				_ = json.Unmarshal([]byte(headersStr.String), &job.Headers)
-			}
-			list = append(list, job)
-		}
-	}
-	return list
-}
-
-func (s *DBStore) DeleteJob(jobID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	_, err := s.db.Exec(`DELETE FROM jobs WHERE id = ?;`, jobID)
-	return err
+	return job, nil
 }

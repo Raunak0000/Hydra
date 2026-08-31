@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 // ChunkState tracks the exact slice offset boundaries for a single thread
 type ChunkState struct {
 	Index         int   `json:"index"`
@@ -20,11 +22,18 @@ type UIJob struct {
 	Downloaded       string            `json:"downloaded"`
 	Speed            string            `json:"speed"`
 	ETA              string            `json:"eta"`
-	Status           string            `json:"status"`
+	Status           string            `json:"status"`                    // DOWNLOADING, QUEUED, PAUSED, COMPLETED, FAILED, PENDING_PATH, SCHEDULED
 	MaxSpeedBytes    int64             `json:"max_speed_bytes,omitempty"` // 0 = unlimited
 	ExpectedChecksum string            `json:"expected_checksum,omitempty"`
 	ChecksumAlgo     string            `json:"checksum_algo,omitempty"` // md5, sha256, crc32
 	ChecksumVerified bool              `json:"checksum_verified,omitempty"`
 	Chunks           []ChunkState      `json:"chunks,omitempty"`
 	Headers          map[string]string `json:"headers,omitempty"`
+
+	// ── Phase 2: Batch & Scheduler Extensions ──
+	BatchID      string     `json:"batch_id,omitempty"`      // Groups jobs created in the same batch import
+	ScheduledAt  *time.Time `json:"scheduled_at,omitempty"`  // Timestamp when job should auto-promote to QUEUED/DOWNLOADING
+	CreatedAt    time.Time  `json:"created_at,omitempty"`    // Job creation timestamp
+	CompletedAt  *time.Time `json:"completed_at,omitempty"`  // Job completion timestamp
+	ErrorMessage string     `json:"error_message,omitempty"` // Detailed worker/handshake failure reasons
 }
