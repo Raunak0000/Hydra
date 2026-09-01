@@ -84,9 +84,16 @@ func ResolvePath(rawPath string) (string, error) {
 		}
 	}
 
-	dir := filepath.Dir(cleaned)
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+	// Determine destination directory whether path ends in a file or directory
+	targetDir := cleaned
+	if strings.HasSuffix(rawPath, "/") || strings.HasSuffix(rawPath, string(filepath.Separator)) {
+		targetDir = cleaned
+	} else {
+		targetDir = filepath.Dir(cleaned)
+	}
+
+	if _, err := os.Stat(targetDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(targetDir, 0755); err != nil {
 			return "", fmt.Errorf("failed to create target directory: %w", err)
 		}
 	}

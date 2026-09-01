@@ -447,7 +447,7 @@ func (s *Server) handleRenderDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	jobs := s.db.GetAllJobs()
-	if err := views.Dashboard(jobs).Render(r.Context(), w); err != nil {
+	if err := views.Dashboard(jobs, "yourStringValue").Render(r.Context(), w); err != nil {
 		http.Error(w, "Failed to compile dashboard: "+err.Error(), http.StatusInternalServerError)
 	}
 }

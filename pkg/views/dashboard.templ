@@ -6,7 +6,7 @@ import (
 	"github.com/Raunak0000/Hydra/pkg/models"
 )
 
-templ Dashboard(jobs []models.UIJob) {
+templ Dashboard(jobs []models.UIJob, authToken string) {
 	<!DOCTYPE html>
 	<html lang="en">
 		<head>
@@ -41,7 +41,10 @@ templ Dashboard(jobs []models.UIJob) {
 				}
 			</style>
 		</head>
-		<body class="text-slate-200 min-h-screen flex flex-col antialiased selection:bg-blue-600 selection:text-white">
+		<body 
+			class="text-slate-200 min-h-screen flex flex-col antialiased selection:bg-blue-600 selection:text-white"
+			data-auth-token={ authToken }
+		>
 			<!-- TOP MENU / NAVIGATION TOOLBAR -->
 			<header class="bg-[#121420] border-b border-slate-800/80 px-4 py-2.5 flex items-center justify-between shrink-0">
 				<div class="flex items-center gap-3">
@@ -76,11 +79,12 @@ templ Dashboard(jobs []models.UIJob) {
 					</button>
 					<div class="h-4 w-[1px] bg-slate-800 mx-1"></div>
 					<div class="flex items-center gap-1.5 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded">
-						<span class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-						<span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Connected</span>
+						<span id="daemon-status-dot" class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+						<span id="daemon-status-text" class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Connected</span>
 					</div>
 				</div>
 			</header>
+
 			<!-- MAIN PANELS WRAPPER -->
 			<div class="flex flex-1 min-h-0 overflow-hidden">
 				<!-- LEFT SIDEBAR FILTER LIST -->
@@ -107,6 +111,7 @@ templ Dashboard(jobs []models.UIJob) {
 						<span class="text-[10px] text-slate-500" id="count-completed">0</span>
 					</button>
 				</aside>
+
 				<!-- RIGHT MAIN CONTENT WORKSPACE -->
 				<div class="flex-1 flex flex-col min-w-0 overflow-hidden">
 					<!-- TASK LIST SCROLLABLE VIEW -->
@@ -128,6 +133,7 @@ templ Dashboard(jobs []models.UIJob) {
 							</tbody>
 						</table>
 					</div>
+
 					<!-- DETAILED INFORMATION BOTTOM TAB PANEL -->
 					<div class="h-64 bg-[#0f111a] border-t border-slate-800/80 flex flex-col shrink-0">
 						<div class="bg-[#121420] border-b border-slate-800/60 px-4 py-1.5 flex items-center gap-4 shrink-0 select-none">
@@ -173,6 +179,7 @@ templ Dashboard(jobs []models.UIJob) {
 					</div>
 				</div>
 			</div>
+
 			<!-- ADD TASK MODAL OVERLAY -->
 			<div id="new-task-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm select-none">
 				<div class="w-[500px] bg-[#121420] border border-slate-800 rounded-xl p-5 shadow-2xl">
@@ -184,7 +191,15 @@ templ Dashboard(jobs []models.UIJob) {
 							</svg>
 						</button>
 					</div>
-					<form id="new-task-form" hx-post="/download" hx-headers='{"X-Hydra-Token": "hydra_secure_token_bf1f753e"}' hx-ext="json-enc" hx-swap="none" hx-on::after-request="closeModal()" class="space-y-4">
+					<form 
+						id="new-task-form" 
+						hx-post="/download" 
+						hx-headers={ fmt.Sprintf(`{"X-Hydra-Token": "%s"}`, authToken) }
+						hx-ext="json-enc" 
+						hx-swap="none" 
+						hx-on::after-request="closeModal()" 
+						class="space-y-4"
+					>
 						<input type="hidden" name="job_id" id="modal-job-id" value=""/>
 						<div>
 							<label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Source URL</label>
@@ -210,6 +225,7 @@ templ Dashboard(jobs []models.UIJob) {
 					</form>
 				</div>
 			</div>
+
 			<!-- BATCH ADD TASK MODAL OVERLAY -->
 			<div id="batch-task-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm select-none">
 				<div class="w-[560px] bg-[#121420] border border-slate-800 rounded-xl p-5 shadow-2xl">
@@ -249,6 +265,7 @@ templ Dashboard(jobs []models.UIJob) {
 					</form>
 				</div>
 			</div>
+
 			<!-- INJECT SAFE RAW JAVASCRIPT BODY -->
 			@templ.Raw("<script>" + dashboardClientScript + "</script>")
 		</body>
@@ -261,6 +278,10 @@ let activeFilter = 'ALL';
 let currentTab = 'general';
 
 const sparklineHistory = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+
+function getAuthToken() {
+	return document.body.getAttribute('data-auth-token') || '';
+}
 
 function parseSpeedToBytes(speedStr) {
 	if (!speedStr || speedStr === "-" || speedStr === "--") return 0;
@@ -275,8 +296,9 @@ function parseSpeedToBytes(speedStr) {
 }
 
 function formatBytesToSpeed(bytesPerSec) {
-	if (bytesPerSec > 1024 * 1024) return (bytesPerSec / (1024 * 1024)).toFixed(2) + " MB/s";
-	if (bytesPerSec > 1024) return (bytesPerSec / 1024).toFixed(2) + " KB/s";
+	if (bytesPerSec >= 1024 * 1024 * 1024) return (bytesPerSec / (1024 * 1024 * 1024)).toFixed(2) + " GB/s";
+	if (bytesPerSec >= 1024 * 1024) return (bytesPerSec / (1024 * 1024)).toFixed(2) + " MB/s";
+	if (bytesPerSec >= 1024) return (bytesPerSec / 1024).toFixed(2) + " KB/s";
 	return bytesPerSec.toFixed(2) + " B/s";
 }
 
@@ -287,7 +309,7 @@ function updateGlobalSparkline(totalBytes) {
 	const maxVal = Math.max.apply(null, sparklineHistory.concat([1024 * 512]));
 	const points = sparklineHistory.map(function(val, idx) {
 		const x = (idx / (sparklineHistory.length - 1)) * 100;
-		const y = 18 - (val / maxVal) * 16;
+		const y = maxVal > 0 ? 18 - (val / maxVal) * 16 : 18;
 		return x.toFixed(1) + "," + y.toFixed(1);
 	}).join(" ");
 
@@ -305,7 +327,10 @@ async function browseFolder(targetInputId) {
 	try {
 		const res = await fetch('/api/browse-directory', {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
+			headers: { 
+				'Content-Type': 'application/json',
+				'X-Hydra-Token': getAuthToken()
+			},
 			body: JSON.stringify({ current_path: currentVal })
 		});
 		const data = await res.json();
@@ -370,7 +395,7 @@ function submitBatchDownload(event) {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
-			'X-Hydra-Token': 'hydra_secure_token_bf1f753e'
+			'X-Hydra-Token': getAuthToken()
 		},
 		body: JSON.stringify(payload)
 	}).then(function(res) {
@@ -389,8 +414,10 @@ function openNewTaskModal() {
 	document.getElementById('modal-title').innerText = "Create New Download Task";
 	
 	const urlInput = document.querySelector('#new-task-modal input[name="url"]');
-	urlInput.value = "";
-	urlInput.readOnly = false;
+	if (urlInput) {
+		urlInput.value = "";
+		urlInput.readOnly = false;
+	}
 	
 	const pathInput = document.getElementById('new-task-save-path');
 	if (pathInput) pathInput.value = "~/Downloads/";
@@ -399,7 +426,7 @@ function openNewTaskModal() {
 	if (scheduleInput) scheduleInput.value = "";
 	
 	openModal();
-	urlInput.focus();
+	if (urlInput) urlInput.focus();
 }
 
 function openPendingPathModal(jobID, url, filename) {
@@ -407,8 +434,10 @@ function openPendingPathModal(jobID, url, filename) {
 	document.getElementById('modal-title').innerText = "Configure Save Path";
 	
 	const urlInput = document.querySelector('#new-task-modal input[name="url"]');
-	urlInput.value = url;
-	urlInput.readOnly = true;
+	if (urlInput) {
+		urlInput.value = url;
+		urlInput.readOnly = true;
+	}
 	
 	const pathInput = document.getElementById('new-task-save-path');
 	if (pathInput) {
@@ -432,12 +461,12 @@ function switchTab(tab) {
 
 	if (tab === 'general') {
 		gBtn.className = "text-xs font-bold text-blue-500 border-b-2 border-blue-500 px-1 py-1";
-		wBtn.className = "text-xs font-semibold text-slate-500 hover:text-slate-350 px-1 py-1";
+		wBtn.className = "text-xs font-semibold text-slate-500 hover:text-slate-350 px-1 py-1 cursor-pointer";
 		gContent.classList.remove('hidden');
 		wContent.classList.add('hidden');
 	} else {
 		wBtn.className = "text-xs font-bold text-blue-500 border-b-2 border-blue-500 px-1 py-1";
-		gBtn.className = "text-xs font-semibold text-slate-500 hover:text-slate-350 px-1 py-1";
+		gBtn.className = "text-xs font-semibold text-slate-500 hover:text-slate-350 px-1 py-1 cursor-pointer";
 		wContent.classList.remove('hidden');
 		gContent.classList.add('hidden');
 	}
@@ -486,11 +515,11 @@ function selectJob(row) {
 }
 
 function updateInspectorValues(row) {
-	document.getElementById('inspect-filename').innerText = row.getAttribute('data-filename');
-	document.getElementById('inspect-savepath').innerText = row.getAttribute('data-savepath');
+	document.getElementById('inspect-filename').innerText = row.getAttribute('data-filename') || 'N/A';
+	document.getElementById('inspect-savepath').innerText = row.getAttribute('data-savepath') || 'N/A';
 	document.getElementById('inspect-eta').innerText = row.getAttribute('data-eta') || '--';
 	
-	const url = row.getAttribute('data-url');
+	const url = row.getAttribute('data-url') || '#';
 	const urlLink = document.getElementById('inspect-url');
 	urlLink.innerText = url;
 	urlLink.href = url;
@@ -590,6 +619,18 @@ function updateUIState() {
 
 function setupEventStream() {
 	const eventSource = new EventSource('/api/events');
+
+	eventSource.onopen = function() {
+		const dot = document.getElementById('daemon-status-dot');
+		const text = document.getElementById('daemon-status-text');
+		if (dot) {
+			dot.className = "h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse";
+		}
+		if (text) {
+			text.innerText = "Connected";
+			text.className = "text-[10px] font-bold text-slate-400 uppercase tracking-wider";
+		}
+	};
 
 	eventSource.addEventListener('queue', function(event) {
 		try {
@@ -707,6 +748,15 @@ function setupEventStream() {
 
 	eventSource.onerror = function(err) {
 		console.warn("SSE connection interrupted, retrying...", err);
+		const dot = document.getElementById('daemon-status-dot');
+		const text = document.getElementById('daemon-status-text');
+		if (dot) {
+			dot.className = "h-1.5 w-1.5 rounded-full bg-rose-500";
+		}
+		if (text) {
+			text.innerText = "Reconnecting";
+			text.className = "text-[10px] font-bold text-rose-400 uppercase tracking-wider";
+		}
 	};
 }
 
@@ -833,7 +883,7 @@ templ QueueRows(jobs []models.UIJob) {
 						<span class="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse"></span>
 						Pending Path
 					</span>
-					<span data-badge-status="ERROR" class={ "text-rose-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status == "DOWNLOADING" || job.Status == "QUEUED" || job.Status == "SCHEDULED" || job.Status == "PAUSED" || job.Status == "COMPLETED" || job.Status == "PENDING_PATH") }>
+					<span data-badge-status="FAILED" class={ "text-rose-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status != "FAILED") }>
 						<span class="h-1.5 w-1.5 rounded-full bg-rose-500"></span>
 						Error
 					</span>
