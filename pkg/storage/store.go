@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -156,25 +155,3 @@ func SanitizeDownloadPath(unsafePath string) (string, error) {
 	return ResolvePath(unsafePath)
 }
 
-func TruncateFilename(path string, maxLen int) string {
-	dir := filepath.Dir(path)
-	base := filepath.Base(path)
-
-	if len(base) <= maxLen {
-		return path
-	}
-
-	ext := filepath.Ext(base)
-	if len(ext) > 10 {
-		ext = ""
-	}
-
-	nameLen := maxLen - len(ext)
-	if nameLen <= 0 {
-		nameLen = maxLen
-		ext = ""
-	}
-
-	truncatedBase := base[:nameLen] + ext
-	return filepath.Join(dir, truncatedBase)
-}

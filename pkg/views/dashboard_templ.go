@@ -43,7 +43,7 @@ func Dashboard(jobs []models.UIJob) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</tbody></table></div><!-- DETAILED INFORMATION BOTTOM TAB PANEL --><div class=\"h-64 bg-[#0f111a] border-t border-slate-800/80 flex flex-col shrink-0\"><div class=\"bg-[#121420] border-b border-slate-800/60 px-4 py-1.5 flex items-center gap-4 shrink-0 select-none\"><span class=\"text-[10px] font-bold text-slate-400 uppercase tracking-wider\">Task Inspector</span><div class=\"h-4 w-[1px] bg-slate-800\"></div><button onclick=\"switchTab('general')\" id=\"tab-btn-general\" class=\"text-xs font-bold text-blue-500 border-b-2 border-blue-500 px-1 py-1\">General</button> <button onclick=\"switchTab('workers')\" id=\"tab-btn-workers\" class=\"text-xs font-semibold text-slate-500 hover:text-slate-350 px-1 py-1\">Worker Threads</button></div><!-- Tab Contents --><div class=\"flex-1 p-4 overflow-auto text-xs\"><div id=\"inspector-idle\" class=\"h-full flex items-center justify-center text-slate-500 font-medium\">Select a task from the list above to view details</div><div id=\"inspector-active\" class=\"hidden h-full flex flex-col gap-3\"><!-- General Tab Content --><div id=\"tab-content-general\" class=\"grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-2.5\"><div><span class=\"text-slate-500 block font-semibold text-[10px] uppercase\">File Name</span> <span id=\"inspect-filename\" class=\"text-slate-200 font-bold\">N/A</span></div><div><span class=\"text-slate-500 block font-semibold text-[10px] uppercase\">Storage Destination</span> <span id=\"inspect-savepath\" class=\"text-slate-300 font-mono\">N/A</span></div><div><span class=\"text-slate-500 block font-semibold text-[10px] uppercase\">Est. Time Remaining</span> <span id=\"inspect-eta\" class=\"text-blue-400 font-mono font-bold\">--</span></div><div class=\"col-span-2 md:col-span-3\"><span class=\"text-slate-500 block font-semibold text-[10px] uppercase\">Source URL</span> <a id=\"inspect-url\" href=\"#\" target=\"_blank\" class=\"text-blue-400 font-mono truncate block hover:underline\">N/A</a></div></div><!-- Workers Tab Content --><div id=\"tab-content-workers\" class=\"hidden\"><div class=\"flex justify-between items-center mb-2\"><span class=\"text-[10px] font-bold text-slate-500 uppercase tracking-wider\">Parallel Chunk Offsets</span></div><div id=\"inspect-workers-grid\" class=\"grid grid-cols-2 md:grid-cols-4 gap-2.5\"></div></div></div></div></div></div></div><!-- ADD TASK MODAL OVERLAY --><div id=\"new-task-modal\" class=\"hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm select-none\"><div class=\"w-[500px] bg-[#121420] border border-slate-800 rounded-xl p-5 shadow-2xl\"><div class=\"flex justify-between items-center pb-3 border-b border-slate-800 mb-4\"><h3 id=\"modal-title\" class=\"text-sm font-bold text-slate-100 uppercase tracking-wider\">Create New Download Task</h3><button onclick=\"closeModal()\" class=\"text-slate-400 hover:text-slate-200\"><svg class=\"h-4 w-4\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\" stroke-width=\"2.5\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M6 18L18 6M6 6l12 12\"></path></svg></button></div><form id=\"new-task-form\" hx-post=\"/download\" hx-headers='{\"X-Hydra-Token\": \"hydra_secure_token_bf1f753e\"}' hx-ext=\"json-enc\" hx-swap=\"none\" hx-on::after-request=\"closeModal()\" class=\"space-y-4\"><input type=\"hidden\" name=\"job_id\" id=\"modal-job-id\" value=\"\"><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Source URL</label> <input type=\"url\" name=\"url\" placeholder=\"https://...\" required class=\"w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono\"></div><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Save Path</label> <input type=\"text\" name=\"save_path\" value=\"~/Downloads/\" required class=\"w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono\"></div><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Schedule Download (Optional)</label> <input type=\"datetime-local\" name=\"scheduled_at\" id=\"new-task-schedule\" class=\"w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono\"></div><div class=\"flex justify-end gap-2 pt-2 border-t border-slate-800\"><button type=\"button\" onclick=\"closeModal()\" class=\"px-4 py-2 bg-slate-900 border border-slate-800 hover:bg-slate-850 text-slate-300 rounded text-xs font-bold transition\">Cancel</button> <button type=\"submit\" class=\"px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold transition\">Download</button></div></form></div></div><!-- BATCH ADD TASK MODAL OVERLAY --><div id=\"batch-task-modal\" class=\"hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm select-none\"><div class=\"w-[560px] bg-[#121420] border border-slate-800 rounded-xl p-5 shadow-2xl\"><div class=\"flex justify-between items-center pb-3 border-b border-slate-800 mb-4\"><div><h3 class=\"text-sm font-bold text-slate-100 uppercase tracking-wider\">Batch URL Ingestion</h3><p class=\"text-[10px] text-slate-500 mt-0.5\">Paste multiple URLs (one per line) for parallel queuing</p></div><button onclick=\"closeBatchModal()\" class=\"text-slate-400 hover:text-slate-200\"><svg class=\"h-4 w-4\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\" stroke-width=\"2.5\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M6 18L18 6M6 6l12 12\"></path></svg></button></div><form id=\"batch-task-form\" onsubmit=\"submitBatchDownload(event)\" class=\"space-y-4\"><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Download URLs (One per line)</label> <textarea id=\"batch-urls-input\" rows=\"5\" placeholder=\"https://example.com/file1.iso&#10;https://example.com/file2.zip&#10;https://example.com/file3.mp4\" required class=\"w-full bg-[#0b0c10] border border-slate-800 rounded p-3 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono resize-none\"></textarea></div><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Base Directory (Leave as DEFAULT to auto-categorize)</label> <input type=\"text\" id=\"batch-save-path\" value=\"DEFAULT\" required class=\"w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono\"></div><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Schedule Batch (Optional)</label> <input type=\"datetime-local\" id=\"batch-schedule\" class=\"w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono\"></div><div class=\"flex justify-end gap-2 pt-2 border-t border-slate-800\"><button type=\"button\" onclick=\"closeBatchModal()\" class=\"px-4 py-2 bg-slate-900 border border-slate-800 hover:bg-slate-850 text-slate-300 rounded text-xs font-bold transition\">Cancel</button> <button type=\"submit\" class=\"px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold transition\">Start Batch Ingestion</button></div></form></div></div><!-- INJECT SAFE RAW JAVASCRIPT BODY -->")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</tbody></table></div><!-- DETAILED INFORMATION BOTTOM TAB PANEL --><div class=\"h-64 bg-[#0f111a] border-t border-slate-800/80 flex flex-col shrink-0\"><div class=\"bg-[#121420] border-b border-slate-800/60 px-4 py-1.5 flex items-center gap-4 shrink-0 select-none\"><span class=\"text-[10px] font-bold text-slate-400 uppercase tracking-wider\">Task Inspector</span><div class=\"h-4 w-[1px] bg-slate-800\"></div><button onclick=\"switchTab('general')\" id=\"tab-btn-general\" class=\"text-xs font-bold text-blue-500 border-b-2 border-blue-500 px-1 py-1\">General</button> <button onclick=\"switchTab('workers')\" id=\"tab-btn-workers\" class=\"text-xs font-semibold text-slate-500 hover:text-slate-350 px-1 py-1\">Worker Threads</button></div><!-- Tab Contents --><div class=\"flex-1 p-4 overflow-auto text-xs\"><div id=\"inspector-idle\" class=\"h-full flex items-center justify-center text-slate-500 font-medium\">Select a task from the list above to view details</div><div id=\"inspector-active\" class=\"hidden h-full flex flex-col gap-3\"><!-- General Tab Content --><div id=\"tab-content-general\" class=\"grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-2.5\"><div><span class=\"text-slate-500 block font-semibold text-[10px] uppercase\">File Name</span> <span id=\"inspect-filename\" class=\"text-slate-200 font-bold\">N/A</span></div><div><span class=\"text-slate-500 block font-semibold text-[10px] uppercase\">Storage Destination</span> <span id=\"inspect-savepath\" class=\"text-slate-300 font-mono\">N/A</span></div><div><span class=\"text-slate-500 block font-semibold text-[10px] uppercase\">Est. Time Remaining</span> <span id=\"inspect-eta\" class=\"text-blue-400 font-mono font-bold\">--</span></div><div class=\"col-span-2 md:col-span-3\"><span class=\"text-slate-500 block font-semibold text-[10px] uppercase\">Source URL</span> <a id=\"inspect-url\" href=\"#\" target=\"_blank\" class=\"text-blue-400 font-mono truncate block hover:underline\">N/A</a></div></div><!-- Workers Tab Content --><div id=\"tab-content-workers\" class=\"hidden\"><div class=\"flex justify-between items-center mb-2\"><span class=\"text-[10px] font-bold text-slate-500 uppercase tracking-wider\">Parallel Chunk Offsets</span></div><div id=\"inspect-workers-grid\" class=\"grid grid-cols-2 md:grid-cols-4 gap-2.5\"></div></div></div></div></div></div></div><!-- ADD TASK MODAL OVERLAY --><div id=\"new-task-modal\" class=\"hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm select-none\"><div class=\"w-[500px] bg-[#121420] border border-slate-800 rounded-xl p-5 shadow-2xl\"><div class=\"flex justify-between items-center pb-3 border-b border-slate-800 mb-4\"><h3 id=\"modal-title\" class=\"text-sm font-bold text-slate-100 uppercase tracking-wider\">Create New Download Task</h3><button onclick=\"closeModal()\" class=\"text-slate-400 hover:text-slate-200\"><svg class=\"h-4 w-4\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\" stroke-width=\"2.5\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M6 18L18 6M6 6l12 12\"></path></svg></button></div><form id=\"new-task-form\" hx-post=\"/download\" hx-headers='{\"X-Hydra-Token\": \"hydra_secure_token_bf1f753e\"}' hx-ext=\"json-enc\" hx-swap=\"none\" hx-on::after-request=\"closeModal()\" class=\"space-y-4\"><input type=\"hidden\" name=\"job_id\" id=\"modal-job-id\" value=\"\"><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Source URL</label> <input type=\"url\" name=\"url\" placeholder=\"https://...\" required class=\"w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono\"></div><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Save Path</label><div class=\"flex gap-2\"><input type=\"text\" name=\"save_path\" id=\"new-task-save-path\" value=\"~/Downloads/\" required class=\"flex-1 bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono\"> <button type=\"button\" onclick=\"browseFolder('new-task-save-path')\" class=\"bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-2 rounded text-xs font-bold transition shrink-0\">📁 Browse</button></div></div><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Schedule Download (Optional)</label> <input type=\"datetime-local\" name=\"scheduled_at\" id=\"new-task-schedule\" class=\"w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono\"></div><div class=\"flex justify-end gap-2 pt-2 border-t border-slate-800\"><button type=\"button\" onclick=\"closeModal()\" class=\"px-4 py-2 bg-slate-900 border border-slate-800 hover:bg-slate-850 text-slate-300 rounded text-xs font-bold transition\">Cancel</button> <button type=\"submit\" class=\"px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold transition\">Download</button></div></form></div></div><!-- BATCH ADD TASK MODAL OVERLAY --><div id=\"batch-task-modal\" class=\"hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm select-none\"><div class=\"w-[560px] bg-[#121420] border border-slate-800 rounded-xl p-5 shadow-2xl\"><div class=\"flex justify-between items-center pb-3 border-b border-slate-800 mb-4\"><div><h3 class=\"text-sm font-bold text-slate-100 uppercase tracking-wider\">Batch URL Ingestion</h3><p class=\"text-[10px] text-slate-500 mt-0.5\">Paste multiple URLs (one per line) for parallel queuing</p></div><button onclick=\"closeBatchModal()\" class=\"text-slate-400 hover:text-slate-200\"><svg class=\"h-4 w-4\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\" stroke-width=\"2.5\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M6 18L18 6M6 6l12 12\"></path></svg></button></div><form id=\"batch-task-form\" onsubmit=\"submitBatchDownload(event)\" class=\"space-y-4\"><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Download URLs (One per line)</label> <textarea id=\"batch-urls-input\" rows=\"5\" placeholder=\"https://example.com/file1.iso&#10;https://example.com/file2.zip&#10;https://example.com/file3.mp4\" required class=\"w-full bg-[#0b0c10] border border-slate-800 rounded p-3 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono resize-none\"></textarea></div><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Base Directory (Leave as DEFAULT to auto-categorize)</label><div class=\"flex gap-2\"><input type=\"text\" id=\"batch-save-path\" value=\"DEFAULT\" required class=\"flex-1 bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono\"> <button type=\"button\" onclick=\"browseFolder('batch-save-path')\" class=\"bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-2 rounded text-xs font-bold transition shrink-0\">📁 Browse</button></div></div><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Schedule Batch (Optional)</label> <input type=\"datetime-local\" id=\"batch-schedule\" class=\"w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono\"></div><div class=\"flex justify-end gap-2 pt-2 border-t border-slate-800\"><button type=\"button\" onclick=\"closeBatchModal()\" class=\"px-4 py-2 bg-slate-900 border border-slate-800 hover:bg-slate-850 text-slate-300 rounded text-xs font-bold transition\">Cancel</button> <button type=\"submit\" class=\"px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold transition\">Start Batch Ingestion</button></div></form></div></div><!-- INJECT SAFE RAW JAVASCRIPT BODY -->")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -100,6 +100,34 @@ function updateGlobalSparkline(totalBytes) {
 
 	const speedTxt = document.getElementById('global-speed-text');
 	if (speedTxt) speedTxt.innerText = formatBytesToSpeed(totalBytes);
+}
+
+async function browseFolder(targetInputId) {
+	const inputEl = document.getElementById(targetInputId);
+	const currentVal = inputEl ? inputEl.value : "";
+
+	try {
+		const res = await fetch('/api/browse-directory', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ current_path: currentVal })
+		});
+		const data = await res.json();
+		if (data.success && data.path) {
+			if (inputEl) {
+				if (currentVal.endsWith('/') || targetInputId === 'batch-save-path') {
+					inputEl.value = data.path.endsWith('/') ? data.path : data.path + '/';
+				} else {
+					const filename = currentVal.split('/').pop();
+					inputEl.value = data.path.replace(/\\/$/, '') + '/' + filename;
+				}
+			}
+		} else if (data.error) {
+			console.warn("Folder picker dialog cancelled or unavailable:", data.error);
+		}
+	} catch (e) {
+		console.error("Failed to invoke native directory chooser:", e);
+	}
 }
 
 function openModal() {
@@ -168,8 +196,8 @@ function openNewTaskModal() {
 	urlInput.value = "";
 	urlInput.readOnly = false;
 	
-	const pathInput = document.querySelector('#new-task-modal input[name="save_path"]');
-	pathInput.value = "~/Downloads/";
+	const pathInput = document.getElementById('new-task-save-path');
+	if (pathInput) pathInput.value = "~/Downloads/";
 
 	const scheduleInput = document.getElementById('new-task-schedule');
 	if (scheduleInput) scheduleInput.value = "";
@@ -177,6 +205,7 @@ function openNewTaskModal() {
 	openModal();
 	urlInput.focus();
 }
+
 function openPendingPathModal(jobID, url, filename) {
 	document.getElementById('modal-job-id').value = jobID;
 	document.getElementById('modal-title').innerText = "Configure Save Path";
@@ -185,15 +214,17 @@ function openPendingPathModal(jobID, url, filename) {
 	urlInput.value = url;
 	urlInput.readOnly = true;
 	
-	const pathInput = document.querySelector('#new-task-modal input[name="save_path"]');
-	if (filename && filename !== "Calculating..." && filename !== "Pending path...") {
-		pathInput.value = "~/Downloads/" + filename;
-	} else {
-		pathInput.value = "~/Downloads/";
+	const pathInput = document.getElementById('new-task-save-path');
+	if (pathInput) {
+		if (filename && filename !== "Calculating..." && filename !== "Pending path...") {
+			pathInput.value = "~/Downloads/" + filename;
+		} else {
+			pathInput.value = "~/Downloads/";
+		}
 	}
 	
 	openModal();
-	pathInput.focus();
+	if (pathInput) pathInput.focus();
 }
 
 function switchTab(tab) {
@@ -545,7 +576,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var3 string
 				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.ID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 712, Col: 20}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 753, Col: 20}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 				if templ_7745c5c3_Err != nil {
@@ -558,7 +589,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var4 string
 				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.FileName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 713, Col: 32}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 754, Col: 32}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 				if templ_7745c5c3_Err != nil {
@@ -571,7 +602,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var5 string
 				templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.SavePath)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 714, Col: 32}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 755, Col: 32}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 				if templ_7745c5c3_Err != nil {
@@ -584,7 +615,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var6 string
 				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.URL)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 715, Col: 22}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 756, Col: 22}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 				if templ_7745c5c3_Err != nil {
@@ -597,7 +628,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var7 string
 				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.Status)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 716, Col: 28}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 757, Col: 28}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
 				if templ_7745c5c3_Err != nil {
@@ -610,7 +641,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var8 string
 				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.ResolveAttributeValue(etaDisplay)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 717, Col: 25}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 758, Col: 25}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var8)
 				if templ_7745c5c3_Err != nil {
@@ -623,7 +654,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue(chunksJSON)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 718, Col: 28}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 759, Col: 28}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
 				if templ_7745c5c3_Err != nil {
@@ -636,7 +667,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var10 string
 				templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.FileName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 723, Col: 76}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 764, Col: 76}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var10)
 				if templ_7745c5c3_Err != nil {
@@ -649,7 +680,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var11 string
 				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(job.FileName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 723, Col: 93}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 764, Col: 93}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 				if templ_7745c5c3_Err != nil {
@@ -662,7 +693,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var12 string
 				templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.URL)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 724, Col: 86}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 765, Col: 86}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var12)
 				if templ_7745c5c3_Err != nil {
@@ -675,7 +706,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var13 string
 				templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(job.URL)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 724, Col: 98}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 765, Col: 98}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 				if templ_7745c5c3_Err != nil {
@@ -688,7 +719,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var14 string
 				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(job.Downloaded)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 729, Col: 27}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 770, Col: 27}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 				if templ_7745c5c3_Err != nil {
@@ -701,7 +732,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var15 string
 				templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(job.TotalSize)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 729, Col: 83}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 770, Col: 83}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 				if templ_7745c5c3_Err != nil {
@@ -742,7 +773,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var18 string
 				templ_7745c5c3_Var18, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(fmt.Sprintf("width: %.1f%%", job.Progress))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 744, Col: 58}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 785, Col: 58}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 				if templ_7745c5c3_Err != nil {
@@ -755,7 +786,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var19 string
 				templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%.1f%%", job.Progress))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 747, Col: 122}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 788, Col: 122}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 				if templ_7745c5c3_Err != nil {
@@ -791,7 +822,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 					var templ_7745c5c3_Var22 string
 					templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(job.Speed)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 754, Col: 17}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 795, Col: 17}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 					if templ_7745c5c3_Err != nil {
@@ -833,7 +864,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 					var templ_7745c5c3_Var25 string
 					templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(etaDisplay)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 763, Col: 18}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 804, Col: 18}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 					if templ_7745c5c3_Err != nil {
@@ -1015,7 +1046,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var41 string
 				templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.ID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 804, Col: 34}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 845, Col: 34}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var41)
 				if templ_7745c5c3_Err != nil {
@@ -1028,7 +1059,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var42 string
 				templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.URL)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 804, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 845, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var42)
 				if templ_7745c5c3_Err != nil {
@@ -1041,7 +1072,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var43 string
 				templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.FileName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 804, Col: 86}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 845, Col: 86}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var43)
 				if templ_7745c5c3_Err != nil {
@@ -1076,7 +1107,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var46 string
 				templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("/api/download/pause?id=%s", job.ID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 807, Col: 72}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 848, Col: 72}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var46)
 				if templ_7745c5c3_Err != nil {
@@ -1111,7 +1142,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var49 string
 				templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("/api/download/resume?id=%s", job.ID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 810, Col: 73}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 851, Col: 73}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var49)
 				if templ_7745c5c3_Err != nil {
@@ -1137,7 +1168,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var51 string
 				templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("/api/download/delete?id=%s", job.ID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 813, Col: 73}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 854, Col: 73}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var51)
 				if templ_7745c5c3_Err != nil {

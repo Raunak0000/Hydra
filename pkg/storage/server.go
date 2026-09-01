@@ -81,6 +81,7 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 	s.Router.HandleFunc("/api/download/resume", sameOriginOnly(s.handleResumeJob))
 	s.Router.HandleFunc("/api/download/delete", sameOriginOnly(s.handleDeleteJob))
 	s.Router.HandleFunc("/api/settings", sameOriginOnly(s.handleSettings))
+	s.Router.HandleFunc("/api/browse-directory", sameOriginOnly(s.handleBrowseDirectory))
 	// Server-Sent Events real-time push endpoint
 	s.Router.HandleFunc("/api/events", s.handleEventsStream)
 
@@ -89,6 +90,38 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 
 func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 	GetBroker().ServeHTTP(w, r)
+}
+
+func (s *Server) handleBrowseDirectory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var payload struct {
+		CurrentPath string `json:"current_path"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&payload)
+
+	defaultPath := payload.CurrentPath
+	if defaultPath == "" || defaultPath == "PENDING" || defaultPath == "DEFAULT" {
+		defaultPath = GetDefaultDownloadsDir()
+	}
+
+	selectedDir, err := ChooseFolderDialog(defaultPath)
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"success": true,
+		"path":    selectedDir,
+	})
 }
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {

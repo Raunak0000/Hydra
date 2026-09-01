@@ -192,7 +192,12 @@ templ Dashboard(jobs []models.UIJob) {
 						</div>
 						<div>
 							<label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Save Path</label>
-							<input type="text" name="save_path" value="~/Downloads/" required class="w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono"/>
+							<div class="flex gap-2">
+								<input type="text" name="save_path" id="new-task-save-path" value="~/Downloads/" required class="flex-1 bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono"/>
+								<button type="button" onclick="browseFolder('new-task-save-path')" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-2 rounded text-xs font-bold transition shrink-0">
+									📁 Browse
+								</button>
+							</div>
 						</div>
 						<div>
 							<label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Schedule Download (Optional)</label>
@@ -226,7 +231,12 @@ templ Dashboard(jobs []models.UIJob) {
 						</div>
 						<div>
 							<label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Base Directory (Leave as DEFAULT to auto-categorize)</label>
-							<input type="text" id="batch-save-path" value="DEFAULT" required class="w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono"/>
+							<div class="flex gap-2">
+								<input type="text" id="batch-save-path" value="DEFAULT" required class="flex-1 bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono"/>
+								<button type="button" onclick="browseFolder('batch-save-path')" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-2 rounded text-xs font-bold transition shrink-0">
+									📁 Browse
+								</button>
+							</div>
 						</div>
 						<div>
 							<label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Schedule Batch (Optional)</label>
@@ -286,6 +296,34 @@ function updateGlobalSparkline(totalBytes) {
 
 	const speedTxt = document.getElementById('global-speed-text');
 	if (speedTxt) speedTxt.innerText = formatBytesToSpeed(totalBytes);
+}
+
+async function browseFolder(targetInputId) {
+	const inputEl = document.getElementById(targetInputId);
+	const currentVal = inputEl ? inputEl.value : "";
+
+	try {
+		const res = await fetch('/api/browse-directory', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ current_path: currentVal })
+		});
+		const data = await res.json();
+		if (data.success && data.path) {
+			if (inputEl) {
+				if (currentVal.endsWith('/') || targetInputId === 'batch-save-path') {
+					inputEl.value = data.path.endsWith('/') ? data.path : data.path + '/';
+				} else {
+					const filename = currentVal.split('/').pop();
+					inputEl.value = data.path.replace(/\\/$/, '') + '/' + filename;
+				}
+			}
+		} else if (data.error) {
+			console.warn("Folder picker dialog cancelled or unavailable:", data.error);
+		}
+	} catch (e) {
+		console.error("Failed to invoke native directory chooser:", e);
+	}
 }
 
 function openModal() {
@@ -354,8 +392,8 @@ function openNewTaskModal() {
 	urlInput.value = "";
 	urlInput.readOnly = false;
 	
-	const pathInput = document.querySelector('#new-task-modal input[name="save_path"]');
-	pathInput.value = "~/Downloads/";
+	const pathInput = document.getElementById('new-task-save-path');
+	if (pathInput) pathInput.value = "~/Downloads/";
 
 	const scheduleInput = document.getElementById('new-task-schedule');
 	if (scheduleInput) scheduleInput.value = "";
@@ -363,6 +401,7 @@ function openNewTaskModal() {
 	openModal();
 	urlInput.focus();
 }
+
 function openPendingPathModal(jobID, url, filename) {
 	document.getElementById('modal-job-id').value = jobID;
 	document.getElementById('modal-title').innerText = "Configure Save Path";
@@ -371,15 +410,17 @@ function openPendingPathModal(jobID, url, filename) {
 	urlInput.value = url;
 	urlInput.readOnly = true;
 	
-	const pathInput = document.querySelector('#new-task-modal input[name="save_path"]');
-	if (filename && filename !== "Calculating..." && filename !== "Pending path...") {
-		pathInput.value = "~/Downloads/" + filename;
-	} else {
-		pathInput.value = "~/Downloads/";
+	const pathInput = document.getElementById('new-task-save-path');
+	if (pathInput) {
+		if (filename && filename !== "Calculating..." && filename !== "Pending path...") {
+			pathInput.value = "~/Downloads/" + filename;
+		} else {
+			pathInput.value = "~/Downloads/";
+		}
 	}
 	
 	openModal();
-	pathInput.focus();
+	if (pathInput) pathInput.focus();
 }
 
 function switchTab(tab) {

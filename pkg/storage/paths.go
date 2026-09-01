@@ -5,6 +5,7 @@ package storage
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -91,4 +92,62 @@ func ResolvePath(rawPath string) (string, error) {
 	}
 
 	return TruncateFilename(cleaned, 120), nil
+}
+
+// TruncateFilename ensures path base filenames do not exceed system length limits
+func TruncateFilename(path string, maxLen int) string {
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+
+	if len(base) <= maxLen {
+		return path
+	}
+
+	ext := filepath.Ext(base)
+	if len(ext) > 10 {
+		ext = ""
+	}
+
+	nameLen := maxLen - len(ext)
+	if nameLen <= 0 {
+		nameLen = maxLen
+		ext = ""
+	}
+
+	truncatedBase := base[:nameLen] + ext
+	return filepath.Join(dir, truncatedBase)
+}
+
+// ChooseFolderDialog opens the native desktop directory picker (zenity / kdialog)
+func ChooseFolderDialog(initialPath string) (string, error) {
+	initial, _ := ResolvePath(initialPath)
+
+	// 1. Try zenity (GNOME / GTK / Standard Linux desktop environments)
+	if _, err := exec.LookPath("zenity"); err == nil {
+		cmd := exec.Command("zenity", "--file-selection", "--directory", "--title=Hydra: Choose Download Directory")
+		if initial != "" {
+			cmd.Args = append(cmd.Args, fmt.Sprintf("--filename=%s/", initial))
+		}
+		out, err := cmd.Output()
+		if err == nil {
+			selected := strings.TrimSpace(string(out))
+			if selected != "" {
+				return selected, nil
+			}
+		}
+	}
+
+	// 2. Try kdialog (KDE Plasma)
+	if _, err := exec.LookPath("kdialog"); err == nil {
+		cmd := exec.Command("kdialog", "--getexistingdirectory", initial, "--title", "Hydra: Choose Download Directory")
+		out, err := cmd.Output()
+		if err == nil {
+			selected := strings.TrimSpace(string(out))
+			if selected != "" {
+				return selected, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no native file dialog utility found (install 'zenity' or 'kdialog')")
 }
