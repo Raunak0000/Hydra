@@ -21,9 +21,10 @@ var (
 )
 
 type BatchDownloadPayload struct {
-	URLs     []string          `json:"urls"`
-	SavePath string            `json:"save_path"`
-	Headers  map[string]string `json:"headers"`
+	URLs        []string          `json:"urls"`
+	SavePath    string            `json:"save_path"`
+	ScheduledAt string            `json:"scheduled_at,omitempty"`
+	Headers     map[string]string `json:"headers"`
 }
 
 type Server struct {
@@ -106,6 +107,16 @@ func (s *Server) handleBrowseDirectory(w http.ResponseWriter, r *http.Request) {
 	defaultPath := payload.CurrentPath
 	if defaultPath == "" || defaultPath == "PENDING" || defaultPath == "DEFAULT" {
 		defaultPath = GetDefaultDownloadsDir()
+	} else {
+		// If current path points to a file, browse starting from its parent directory
+		resolved, err := ResolvePath(defaultPath)
+		if err == nil {
+			if stat, err := os.Stat(resolved); err == nil && !stat.IsDir() {
+				defaultPath = filepath.Dir(resolved)
+			} else if filepath.Ext(resolved) != "" {
+				defaultPath = filepath.Dir(resolved)
+			}
+		}
 	}
 
 	selectedDir, err := ChooseFolderDialog(defaultPath)
@@ -181,11 +192,12 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var payload struct {
-		JobID    string            `json:"job_id"`
-		URL      string            `json:"url"`
-		SavePath string            `json:"save_path"`
-		Filename string            `json:"filename"`
-		Headers  map[string]string `json:"headers"`
+		JobID       string            `json:"job_id"`
+		URL         string            `json:"url"`
+		SavePath    string            `json:"save_path"`
+		Filename    string            `json:"filename"`
+		ScheduledAt string            `json:"scheduled_at"`
+		Headers     map[string]string `json:"headers"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -193,9 +205,19 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if payload.URL == "" || payload.SavePath == "" {
+	if payload.SavePath == "" || (payload.JobID == "" && payload.URL == "") {
 		http.Error(w, "Missing url or save_path", http.StatusUnprocessableEntity)
 		return
+	}
+
+	// Parse optional schedule timestamp
+	var parsedScheduledAt *time.Time
+	if payload.ScheduledAt != "" {
+		if t, err := time.Parse(time.RFC3339, payload.ScheduledAt); err == nil {
+			parsedScheduledAt = &t
+		} else if t, err := time.Parse("2006-01-02T15:04", payload.ScheduledAt); err == nil {
+			parsedScheduledAt = &t
+		}
 	}
 
 	// 1. User submitted path for a pending job
@@ -213,7 +235,11 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		}
 
 		job.SavePath = securedPath
-		if GetQueueManager() != nil && GetQueueManager().ShouldQueue() {
+		if parsedScheduledAt != nil && parsedScheduledAt.After(time.Now()) {
+			job.Status = "SCHEDULED"
+			job.ScheduledAt = parsedScheduledAt
+			_ = s.db.SaveJob(&job)
+		} else if GetQueueManager() != nil && GetQueueManager().ShouldQueue() {
 			job.Status = "QUEUED"
 			_ = s.db.SaveJob(&job)
 		} else {
@@ -255,23 +281,28 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 	// Generate collision-safe unique job ID using monotonic timestamp
 	jobID := fmt.Sprintf("job_%d", time.Now().UnixNano())
 
-	// Determine if job should run immediately or queue
-	if status == "DOWNLOADING" && GetQueueManager().ShouldQueue() {
-		status = "QUEUED"
+	// Determine if job is scheduled, queued, or running immediately
+	if status == "DOWNLOADING" {
+		if parsedScheduledAt != nil && parsedScheduledAt.After(time.Now()) {
+			status = "SCHEDULED"
+		} else if GetQueueManager().ShouldQueue() {
+			status = "QUEUED"
+		}
 	}
 
 	newJob := models.UIJob{
-		ID:         jobID,
-		FileName:   filename,
-		URL:        payload.URL,
-		SavePath:   securedPath,
-		Progress:   0.0,
-		TotalSize:  "Calculating...",
-		Downloaded: "0.00 MB",
-		Speed:      "0.00 KB/s",
-		ETA:        "--",
-		Status:     status,
-		Headers:    payload.Headers,
+		ID:          jobID,
+		FileName:    filename,
+		URL:         payload.URL,
+		SavePath:    securedPath,
+		Progress:    0.0,
+		TotalSize:   "Calculating...",
+		Downloaded:  "0.00 MB",
+		Speed:       "0.00 KB/s",
+		ETA:         "--",
+		Status:      status,
+		ScheduledAt: parsedScheduledAt,
+		Headers:     payload.Headers,
 	}
 
 	_ = s.db.SaveJob(&newJob)
@@ -317,6 +348,16 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Parse optional batch schedule timestamp
+	var parsedScheduledAt *time.Time
+	if payload.ScheduledAt != "" {
+		if t, err := time.Parse(time.RFC3339, payload.ScheduledAt); err == nil {
+			parsedScheduledAt = &t
+		} else if t, err := time.Parse("2006-01-02T15:04", payload.ScheduledAt); err == nil {
+			parsedScheduledAt = &t
+		}
+	}
+
 	baseDir := payload.SavePath
 	if baseDir == "" || baseDir == "PENDING" || baseDir == "DEFAULT" {
 		baseDir = GetDefaultDownloadsDir()
@@ -328,6 +369,7 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	batchID := fmt.Sprintf("batch_%d", time.Now().UnixNano())
 	dispatchedJobIDs := make([]string, 0, len(payload.URLs))
 
 	for _, rawURL := range payload.URLs {
@@ -356,22 +398,26 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 		jobID := fmt.Sprintf("job_%d", time.Now().UnixNano())
 
 		status := "DOWNLOADING"
-		if GetQueueManager().ShouldQueue() {
+		if parsedScheduledAt != nil && parsedScheduledAt.After(time.Now()) {
+			status = "SCHEDULED"
+		} else if GetQueueManager().ShouldQueue() {
 			status = "QUEUED"
 		}
 
 		newJob := models.UIJob{
-			ID:         jobID,
-			FileName:   urlFilename,
-			URL:        trimmedURL,
-			SavePath:   finalFilePath,
-			Progress:   0.0,
-			TotalSize:  "Calculating...",
-			Downloaded: "0.00 MB",
-			Speed:      "0.00 KB/s",
-			ETA:        "--",
-			Status:     status,
-			Headers:    payload.Headers,
+			ID:          jobID,
+			BatchID:     batchID,
+			FileName:    urlFilename,
+			URL:         trimmedURL,
+			SavePath:    finalFilePath,
+			Progress:    0.0,
+			TotalSize:   "Calculating...",
+			Downloaded:  "0.00 MB",
+			Speed:       "0.00 KB/s",
+			ETA:         "--",
+			Status:      status,
+			ScheduledAt: parsedScheduledAt,
+			Headers:     payload.Headers,
 		}
 
 		_ = s.db.SaveJob(&newJob)
@@ -388,6 +434,7 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status":          "accepted",
+		"batch_id":        batchID,
 		"total_queued":    len(dispatchedJobIDs),
 		"dispatched_jobs": dispatchedJobIDs,
 	})
