@@ -228,7 +228,23 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		securedPath, err := ResolvePath(payload.SavePath)
+		targetSavePath := payload.SavePath
+		// If path is a folder, retain existing filename
+		if strings.HasSuffix(targetSavePath, "/") || strings.HasSuffix(targetSavePath, string(filepath.Separator)) {
+			filename := job.FileName
+			if filename == "" || filename == "Calculating..." || filename == "Pending path..." {
+				parts := strings.Split(job.URL, "/")
+				if len(parts) > 0 {
+					filename = strings.Split(parts[len(parts)-1], "?")[0]
+				}
+			}
+			if filename == "" {
+				filename = "downloaded_file.bin"
+			}
+			targetSavePath = filepath.Join(targetSavePath, filename)
+		}
+
+		securedPath, err := ResolvePath(targetSavePath)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return
@@ -270,8 +286,27 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		}
 		NotifyPendingPath(filename)
 	} else {
+		targetSavePath := payload.SavePath
+		// If destination ends in directory slash, resolve filename automatically
+		if strings.HasSuffix(targetSavePath, "/") || strings.HasSuffix(targetSavePath, string(filepath.Separator)) {
+			inferredName := payload.Filename
+			if inferredName == "" || inferredName == "Calculating..." {
+				parts := strings.Split(payload.URL, "/")
+				if len(parts) > 0 {
+					inferredName = strings.Split(parts[len(parts)-1], "?")[0]
+				}
+			}
+			if inferredName == "" {
+				inferredName = "downloaded_file.bin"
+			}
+			filename = inferredName
+			targetSavePath = filepath.Join(targetSavePath, inferredName)
+		} else {
+			filename = filepath.Base(targetSavePath)
+		}
+
 		var err error
-		securedPath, err = ResolvePath(payload.SavePath)
+		securedPath, err = ResolvePath(targetSavePath)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return
@@ -447,7 +482,7 @@ func (s *Server) handleRenderDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	jobs := s.db.GetAllJobs()
-	if err := views.Dashboard(jobs, "yourStringValue").Render(r.Context(), w); err != nil {
+	if err := views.Dashboard(jobs, "hydra_secure_token_bf1f753e").Render(r.Context(), w); err != nil {
 		http.Error(w, "Failed to compile dashboard: "+err.Error(), http.StatusInternalServerError)
 	}
 }

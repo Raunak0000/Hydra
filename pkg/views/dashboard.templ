@@ -6,7 +6,7 @@ import (
 	"github.com/Raunak0000/Hydra/pkg/models"
 )
 
-templ Dashboard(jobs []models.UIJob, authToken string) {
+templ Dashboard(jobs []models.UIJob) {
 	<!DOCTYPE html>
 	<html lang="en">
 		<head>
@@ -41,10 +41,7 @@ templ Dashboard(jobs []models.UIJob, authToken string) {
 				}
 			</style>
 		</head>
-		<body 
-			class="text-slate-200 min-h-screen flex flex-col antialiased selection:bg-blue-600 selection:text-white"
-			data-auth-token={ authToken }
-		>
+		<body class="text-slate-200 min-h-screen flex flex-col antialiased selection:bg-blue-600 selection:text-white">
 			<!-- TOP MENU / NAVIGATION TOOLBAR -->
 			<header class="bg-[#121420] border-b border-slate-800/80 px-4 py-2.5 flex items-center justify-between shrink-0">
 				<div class="flex items-center gap-3">
@@ -194,7 +191,7 @@ templ Dashboard(jobs []models.UIJob, authToken string) {
 					<form 
 						id="new-task-form" 
 						hx-post="/download" 
-						hx-headers={ fmt.Sprintf(`{"X-Hydra-Token": "%s"}`, authToken) }
+						hx-headers='{"X-Hydra-Token": "hydra_secure_token_bf1f753e"}'
 						hx-ext="json-enc" 
 						hx-swap="none" 
 						hx-on::after-request="closeModal()" 
@@ -279,10 +276,6 @@ let currentTab = 'general';
 
 const sparklineHistory = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
 
-function getAuthToken() {
-	return document.body.getAttribute('data-auth-token') || '';
-}
-
 function parseSpeedToBytes(speedStr) {
 	if (!speedStr || speedStr === "-" || speedStr === "--") return 0;
 	const parts = speedStr.trim().split(" ");
@@ -322,25 +315,31 @@ function updateGlobalSparkline(totalBytes) {
 
 async function browseFolder(targetInputId) {
 	const inputEl = document.getElementById(targetInputId);
-	const currentVal = inputEl ? inputEl.value : "";
+	const currentVal = inputEl ? inputEl.value.trim() : "";
 
 	try {
 		const res = await fetch('/api/browse-directory', {
 			method: 'POST',
 			headers: { 
 				'Content-Type': 'application/json',
-				'X-Hydra-Token': getAuthToken()
+				'X-Hydra-Token': 'hydra_secure_token_bf1f753e'
 			},
 			body: JSON.stringify({ current_path: currentVal })
 		});
 		const data = await res.json();
 		if (data.success && data.path) {
 			if (inputEl) {
-				if (currentVal.endsWith('/') || targetInputId === 'batch-save-path') {
-					inputEl.value = data.path.endsWith('/') ? data.path : data.path + '/';
+				const selectedDir = data.path.replace(/\\/$/, '');
+				if (targetInputId === 'batch-save-path' || currentVal.endsWith('/')) {
+					inputEl.value = selectedDir + '/';
 				} else {
-					const filename = currentVal.split('/').pop();
-					inputEl.value = data.path.replace(/\\/$/, '') + '/' + filename;
+					const parts = currentVal.split('/');
+					const filename = parts[parts.length - 1];
+					if (filename && filename !== 'PENDING' && filename !== 'DEFAULT') {
+						inputEl.value = selectedDir + '/' + filename;
+					} else {
+						inputEl.value = selectedDir + '/';
+					}
 				}
 			}
 		} else if (data.error) {
@@ -395,7 +394,7 @@ function submitBatchDownload(event) {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
-			'X-Hydra-Token': getAuthToken()
+			'X-Hydra-Token': 'hydra_secure_token_bf1f753e'
 		},
 		body: JSON.stringify(payload)
 	}).then(function(res) {

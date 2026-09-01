@@ -8,6 +8,7 @@ ExecStart=/usr/bin/hydra-daemon
 Restart=on-failure
 RestartSec=3s
 Environment=XDG_RUNTIME_DIR=%t
+PassEnvironment=DISPLAY WAYLAND_DISPLAY XAUTHORITY DBUS_SESSION_BUS_ADDRESS
 
 [Install]
 WantedBy=default.target
