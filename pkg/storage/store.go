@@ -39,12 +39,10 @@ func (s *MemoryStore) UpdateProgress(jobID string, progress float64, downloaded 
 	defer s.mu.Unlock()
 
 	if job, exists := s.Jobs[jobID]; exists {
-		// Prevent overwriting final status with "DOWNLOADING"
 		if (job.Status == "COMPLETED" || job.Status == "FAILED") && status == "DOWNLOADING" {
 			return
 		}
 
-		// Mutate local frame copies
 		job.Progress = progress
 		job.Downloaded = downloaded
 		job.Speed = speed
@@ -54,10 +52,10 @@ func (s *MemoryStore) UpdateProgress(jobID string, progress float64, downloaded 
 			job.FileName = filename
 		}
 
-		// Write the updated flat layout back down into the thread-safe map index registry
 		s.Jobs[jobID] = job
 	}
 }
+
 func (s *MemoryStore) UpdateTotalSize(id string, totalSize string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -102,19 +100,16 @@ func (s *MemoryStore) GetJob(id string) (models.UIJob, bool) {
 	return models.UIJob{}, false
 }
 
-// pkg/storage/store.go
-
 func (s *MemoryStore) GetAllJobs() []models.UIJob {
 	s.mu.RLock()
-	defer s.mu.RUnlock() // Clean execution unlock wrapper fallback context
+	defer s.mu.RUnlock()
 
 	var list []models.UIJob
-	for _, job := range s.Jobs { // cite: 218
+	for _, job := range s.Jobs {
 		if job == nil {
 			continue
 		}
 
-		// ── DEEP STRUCT FIELD CLONING INSIDE READ MUTEX SCOPE ──
 		list = append(list, models.UIJob{
 			ID:         job.ID,
 			FileName:   job.FileName,
@@ -129,29 +124,19 @@ func (s *MemoryStore) GetAllJobs() []models.UIJob {
 		})
 	}
 
-	sort.Slice(list, func(i, j int) bool { // cite: 218
-		valI := strings.TrimPrefix(list[i].ID, "job_") // cite: 218
-		valJ := strings.TrimPrefix(list[j].ID, "job_") // cite: 218
-		numI, _ := strconv.Atoi(valI)                  // cite: 218
-		numJ, _ := strconv.Atoi(valJ)                  // cite: 218
-		return numI < numJ                             // cite: 218
-	}) // cite: 218
+	sort.Slice(list, func(i, j int) bool {
+		valI := strings.TrimPrefix(list[i].ID, "job_")
+		valJ := strings.TrimPrefix(list[j].ID, "job_")
+		numI, _ := strconv.Atoi(valI)
+		numJ, _ := strconv.Atoi(valJ)
+		return numI < numJ
+	})
 
-	return list // cite: 218
+	return list
 }
 
-// pkg/storage/store.go
-
-// DeleteJob expels a download task index structural footprint entirely out of registry memory maps
 func (s *MemoryStore) DeleteJob(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.Jobs, id)
 }
-
-// pkg/storage/store.go
-
-func SanitizeDownloadPath(unsafePath string) (string, error) {
-	return ResolvePath(unsafePath)
-}
-

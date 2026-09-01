@@ -213,14 +213,19 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		}
 
 		job.SavePath = securedPath
-		job.Status = "DOWNLOADING"
-		_ = s.db.SaveJob(&job)
-
-		go s.ExecuteDownloadJob(job.URL, securedPath, payload.JobID, job.Headers)
+		if GetQueueManager() != nil && GetQueueManager().ShouldQueue() {
+			job.Status = "QUEUED"
+			_ = s.db.SaveJob(&job)
+		} else {
+			job.Status = "DOWNLOADING"
+			_ = s.db.SaveJob(&job)
+			go s.ExecuteDownloadJob(job.URL, securedPath, payload.JobID, job.Headers)
+		}
+		GetBroker().BroadcastQueueState(s.db.GetAllJobs())
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "started", "job_id": payload.JobID})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": job.Status, "job_id": payload.JobID})
 		return
 	}
 
@@ -483,7 +488,9 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	GetBroker().BroadcastQueueState(s.db.GetAllJobs())
 
 	// Free slot for next queued job
-	GetQueueManager().ProcessNext()
+	if qm := GetQueueManager(); qm != nil {
+		qm.ProcessNext()
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
