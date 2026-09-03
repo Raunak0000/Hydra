@@ -1,0 +1,12 @@
+{
+    "$schema": "https://wails.io/schemas/v2/config.json",
+    "name": "Hydra",
+    "outputfilename": "hydra",
+    "frontend:install": "",
+    "frontend:build": "",
+    "frontend:dev:serverUrl": "",
+    "author": {
+        "name": "Raunak",
+        "email": ""
+    }
+}
