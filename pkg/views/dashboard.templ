@@ -206,7 +206,7 @@ templ Dashboard(jobs []models.UIJob) {
 							<label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Save Path</label>
 							<div class="flex gap-2">
 								<input type="text" name="save_path" id="new-task-save-path" value="~/Downloads/" required class="flex-1 bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono"/>
-								<button type="button" onclick="browseFolder('new-task-save-path')" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-2 rounded text-xs font-bold transition shrink-0">
+								<button type="button" onclick="openFolderPicker('new-task-save-path')" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-2 rounded text-xs font-bold transition shrink-0">
 									📁 Browse
 								</button>
 							</div>
@@ -220,6 +220,60 @@ templ Dashboard(jobs []models.UIJob) {
 							<button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold transition">Download</button>
 						</div>
 					</form>
+				</div>
+			</div>
+
+			<!-- IN-BROWSER FOLDER PICKER MODAL -->
+			<div id="folder-picker-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm select-none">
+				<div class="w-[600px] max-h-[520px] bg-[#121420] border border-slate-800 rounded-xl shadow-2xl flex flex-col overflow-hidden">
+					<!-- Header -->
+					<div class="flex justify-between items-center px-5 py-3 border-b border-slate-800 shrink-0">
+						<div class="flex items-center gap-2.5">
+							<div class="h-7 w-7 rounded bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
+								<svg class="h-4 w-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"></path>
+								</svg>
+							</div>
+							<div>
+								<h3 class="text-sm font-bold text-slate-100 uppercase tracking-wider">Choose Folder</h3>
+								<p class="text-[9px] text-slate-500 font-semibold">Select a directory to save your download</p>
+							</div>
+						</div>
+						<button onclick="closeFolderPicker()" class="text-slate-400 hover:text-slate-200 transition">
+							<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path>
+							</svg>
+						</button>
+					</div>
+					<!-- Path Bar -->
+					<div class="flex items-center gap-2 px-4 py-2 bg-[#0b0c10] border-b border-slate-800/60 shrink-0">
+						<button onclick="folderPickerGoUp()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] font-bold transition shrink-0" title="Go up">
+							<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5"></path>
+							</svg>
+						</button>
+						<div id="folder-picker-breadcrumb" class="flex-1 bg-[#121420] border border-slate-800 rounded px-3 py-1.5 text-xs text-slate-300 font-mono truncate">
+							~/
+						</div>
+						<button onclick="folderPickerGoHome()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-2.5 py-1 rounded text-[10px] font-bold transition shrink-0" title="Home">
+							🏠
+						</button>
+					</div>
+					<!-- Folder Listing -->
+					<div id="folder-picker-listing" class="flex-1 overflow-y-auto min-h-0 px-2 py-2">
+						<div class="flex items-center justify-center h-full text-slate-500 text-xs">Loading...</div>
+					</div>
+					<!-- Footer -->
+					<div class="flex items-center justify-between px-4 py-3 border-t border-slate-800 bg-[#0f111a] shrink-0">
+						<div class="flex items-center gap-2">
+							<span class="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Selected:</span>
+							<span id="folder-picker-selected" class="text-xs text-blue-400 font-mono truncate max-w-[300px]">~/</span>
+						</div>
+						<div class="flex gap-2">
+							<button type="button" onclick="closeFolderPicker()" class="px-4 py-2 bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 rounded text-xs font-bold transition">Cancel</button>
+							<button type="button" onclick="confirmFolderSelection()" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold transition">Select Folder</button>
+						</div>
+					</div>
 				</div>
 			</div>
 
@@ -246,7 +300,7 @@ templ Dashboard(jobs []models.UIJob) {
 							<label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Base Directory (Leave as DEFAULT to auto-categorize)</label>
 							<div class="flex gap-2">
 								<input type="text" id="batch-save-path" value="DEFAULT" required class="flex-1 bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono"/>
-								<button type="button" onclick="browseFolder('batch-save-path')" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-2 rounded text-xs font-bold transition shrink-0">
+								<button type="button" onclick="openFolderPicker('batch-save-path')" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-2 rounded text-xs font-bold transition shrink-0">
 									📁 Browse
 								</button>
 							</div>
@@ -273,6 +327,7 @@ const dashboardClientScript = `
 let selectedJobId = null;
 let activeFilter = 'ALL';
 let currentTab = 'general';
+let _pendingJobToOpen = null;
 
 const sparklineHistory = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
 
@@ -313,41 +368,108 @@ function updateGlobalSparkline(totalBytes) {
 	if (speedTxt) speedTxt.innerText = formatBytesToSpeed(totalBytes);
 }
 
-async function browseFolder(targetInputId) {
-	const inputEl = document.getElementById(targetInputId);
-	const currentVal = inputEl ? inputEl.value.trim() : "";
+// ── In-Browser Folder Picker State ──
+let _fpTargetInputId = null;
+let _fpCurrentPath = '';
+let _fpParentPath = '';
 
+function openFolderPicker(targetInputId) {
+	_fpTargetInputId = targetInputId;
+	const inputEl = document.getElementById(targetInputId);
+	let startPath = inputEl ? inputEl.value.trim() : '~';
+	if (!startPath || startPath === 'PENDING' || startPath === 'DEFAULT') startPath = '~';
+	document.getElementById('folder-picker-modal').classList.remove('hidden');
+	loadFolderListing(startPath);
+}
+
+function closeFolderPicker() {
+	document.getElementById('folder-picker-modal').classList.add('hidden');
+	_fpTargetInputId = null;
+}
+
+function confirmFolderSelection() {
+	if (!_fpTargetInputId || !_fpCurrentPath) { closeFolderPicker(); return; }
+	const inputEl = document.getElementById(_fpTargetInputId);
+	if (inputEl) {
+		const currentVal = inputEl.value.trim();
+		const selectedDir = _fpCurrentPath.replace(/\\/$/,  '');
+		// Preserve filename if path had one
+		if (currentVal && !currentVal.endsWith('/')) {
+			const parts = currentVal.split('/');
+			const fn = parts[parts.length - 1];
+			if (fn && fn !== 'PENDING' && fn !== 'DEFAULT' && fn.indexOf('.') > 0) {
+				inputEl.value = selectedDir + '/' + fn;
+			} else {
+				inputEl.value = selectedDir + '/';
+			}
+		} else {
+			inputEl.value = selectedDir + '/';
+		}
+	}
+	closeFolderPicker();
+}
+
+function folderPickerGoUp() {
+	if (_fpParentPath) loadFolderListing(_fpParentPath);
+}
+
+function folderPickerGoHome() {
+	loadFolderListing('~');
+}
+
+async function loadFolderListing(path) {
+	const listing = document.getElementById('folder-picker-listing');
+	listing.innerHTML = '<div class="flex items-center justify-center h-32 text-slate-500 text-xs">Loading...</div>';
 	try {
-		const res = await fetch('/api/browse-directory', {
+		const res = await fetch('/api/list-directory', {
 			method: 'POST',
-			headers: { 
-				'Content-Type': 'application/json',
-				'X-Hydra-Token': 'hydra_secure_token_bf1f753e'
-			},
-			body: JSON.stringify({ current_path: currentVal })
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ path: path })
 		});
 		const data = await res.json();
-		if (data.success && data.path) {
-			if (inputEl) {
-				const selectedDir = data.path.replace(/\\/$/, '');
-				if (targetInputId === 'batch-save-path' || currentVal.endsWith('/')) {
-					inputEl.value = selectedDir + '/';
-				} else {
-					const parts = currentVal.split('/');
-					const filename = parts[parts.length - 1];
-					if (filename && filename !== 'PENDING' && filename !== 'DEFAULT') {
-						inputEl.value = selectedDir + '/' + filename;
-					} else {
-						inputEl.value = selectedDir + '/';
-					}
-				}
-			}
-		} else if (data.error) {
-			console.warn("Folder picker dialog cancelled or unavailable:", data.error);
+		if (!data.success) {
+			listing.innerHTML = '<div class="flex items-center justify-center h-32 text-rose-400 text-xs">' + (data.error || 'Failed to read directory') + '</div>';
+			return;
 		}
+		_fpCurrentPath = data.current;
+		_fpParentPath = data.parent || '';
+		document.getElementById('folder-picker-breadcrumb').innerText = data.current;
+		document.getElementById('folder-picker-selected').innerText = data.current;
+		renderFolderEntries(data.directories || [], data.files || []);
 	} catch (e) {
-		console.error("Failed to invoke native directory chooser:", e);
+		listing.innerHTML = '<div class="flex items-center justify-center h-32 text-rose-400 text-xs">Network error</div>';
 	}
+}
+
+function renderFolderEntries(dirs, files) {
+	const listing = document.getElementById('folder-picker-listing');
+	if (dirs.length === 0 && files.length === 0) {
+		listing.innerHTML = '<div class="flex items-center justify-center h-32 text-slate-500 text-xs italic">Empty directory</div>';
+		return;
+	}
+	let html = '';
+	dirs.forEach(function(d) {
+		html += '<div class="flex items-center gap-2.5 px-3 py-1.5 rounded hover:bg-blue-600/10 cursor-pointer group transition" ondblclick="loadFolderListing(\\'' + d.path.replace(/'/g, "\\\\'") + '\\')" onclick="selectFolderEntry(this, \\'' + d.path.replace(/'/g, "\\\\'") + '\\')">';
+		html += '<svg class="h-4 w-4 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"/></svg>';
+		html += '<span class="text-xs text-slate-200 font-medium truncate group-hover:text-blue-300">' + d.name + '</span>';
+		html += '</div>';
+	});
+	files.forEach(function(f) {
+		const sizeStr = f.size > 1048576 ? (f.size / 1048576).toFixed(1) + ' MB' : f.size > 1024 ? (f.size / 1024).toFixed(0) + ' KB' : f.size + ' B';
+		html += '<div class="flex items-center gap-2.5 px-3 py-1.5 rounded opacity-40 cursor-default">';
+		html += '<svg class="h-4 w-4 text-slate-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>';
+		html += '<span class="text-xs text-slate-500 truncate flex-1">' + f.name + '</span>';
+		html += '<span class="text-[10px] text-slate-600 font-mono shrink-0">' + sizeStr + '</span>';
+		html += '</div>';
+	});
+	listing.innerHTML = html;
+}
+
+function selectFolderEntry(el, path) {
+	document.querySelectorAll('#folder-picker-listing > div').forEach(function(d) { d.classList.remove('bg-blue-600/15', 'ring-1', 'ring-blue-500/30'); });
+	el.classList.add('bg-blue-600/15', 'ring-1', 'ring-blue-500/30');
+	_fpCurrentPath = path;
+	document.getElementById('folder-picker-selected').innerText = path;
 }
 
 function openModal() {
@@ -603,15 +725,15 @@ function updateUIState() {
 	document.getElementById('count-paused').innerText = paused;
 	document.getElementById('count-completed').innerText = completed;
 
-	const params = new URLSearchParams(window.location.search);
-	const pendingJobId = params.get('pending_job');
-	if (pendingJobId) {
-		const row = document.querySelector('.download-row[data-id="' + pendingJobId + '"]');
+	if (_pendingJobToOpen) {
+		const row = document.querySelector('.download-row[data-id="' + _pendingJobToOpen + '"]');
 		if (row) {
 			const url = row.getAttribute('data-url');
 			const filename = row.getAttribute('data-filename');
-			openPendingPathModal(pendingJobId, url, filename);
+			const pendingId = _pendingJobToOpen;
+			_pendingJobToOpen = null;
 			window.history.replaceState({}, document.title, window.location.pathname);
+			openPendingPathModal(pendingId, url, filename);
 		}
 	}
 }
@@ -760,6 +882,11 @@ function setupEventStream() {
 }
 
 window.addEventListener('DOMContentLoaded', function() {
+	// Extract pending_job param once and store persistently
+	const params = new URLSearchParams(window.location.search);
+	const pj = params.get('pending_job');
+	if (pj) _pendingJobToOpen = pj;
+
 	updateUIState();
 	setupEventStream();
 

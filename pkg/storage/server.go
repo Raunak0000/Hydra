@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Raunak0000/Hydra/pkg/models"
@@ -83,6 +84,8 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 	s.Router.HandleFunc("/api/download/delete", sameOriginOnly(s.handleDeleteJob))
 	s.Router.HandleFunc("/api/settings", sameOriginOnly(s.handleSettings))
 	s.Router.HandleFunc("/api/browse-directory", sameOriginOnly(s.handleBrowseDirectory))
+	s.Router.HandleFunc("/api/list-directory", sameOriginOnly(s.handleListDirectory))
+	s.Router.HandleFunc("/api/disk-space", sameOriginOnly(s.handleDiskSpace))
 	// Server-Sent Events real-time push endpoint
 	s.Router.HandleFunc("/api/events", s.handleEventsStream)
 
@@ -398,7 +401,7 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 		baseDir = GetDefaultDownloadsDir()
 	}
 
-	resolvedBase, err := ResolvePath(baseDir)
+	resolvedBase, err := ResolvePath(baseDir + "/")
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Invalid destination directory: %v", err), http.StatusBadRequest)
 		return
@@ -426,7 +429,7 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 		categoryDir := ResolveCategoryPath(urlFilename)
 		targetDir := resolvedBase
 		if payload.SavePath == "DEFAULT" || payload.SavePath == "" {
-			targetDir, _ = ResolvePath(categoryDir)
+			targetDir, _ = ResolvePath(categoryDir + "/")
 		}
 
 		finalFilePath := filepath.Join(targetDir, urlFilename)
@@ -482,7 +485,7 @@ func (s *Server) handleRenderDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	jobs := s.db.GetAllJobs()
-	if err := views.Dashboard(jobs, "hydra_secure_token_bf1f753e").Render(r.Context(), w); err != nil {
+	if err := views.Dashboard(jobs).Render(r.Context(), w); err != nil {
 		http.Error(w, "Failed to compile dashboard: "+err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -580,4 +583,139 @@ func (s *Server) handleGetQueueJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	jobs := s.db.GetAllJobs()
 	_ = json.NewEncoder(w).Encode(jobs)
+}
+
+// handleListDirectory returns the contents of a directory as JSON for the in-browser folder picker
+func (s *Server) handleListDirectory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var payload struct {
+		Path string `json:"path"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&payload)
+
+	targetPath := payload.Path
+	if targetPath == "" || targetPath == "~" || targetPath == "DEFAULT" || targetPath == "PENDING" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			http.Error(w, "Cannot resolve home directory", http.StatusInternalServerError)
+			return
+		}
+		targetPath = home
+	}
+
+	resolved, err := ResolvePath(targetPath)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// If targetPath is a file, navigate to its parent directory
+	if stat, statErr := os.Stat(resolved); statErr == nil && !stat.IsDir() {
+		resolved = filepath.Dir(resolved)
+	}
+
+	entries, err := os.ReadDir(resolved)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": false,
+			"error":   fmt.Sprintf("Cannot read directory: %v", err),
+		})
+		return
+	}
+
+	type DirEntry struct {
+		Name  string `json:"name"`
+		Path  string `json:"path"`
+		IsDir bool   `json:"is_dir"`
+		Size  int64  `json:"size,omitempty"`
+	}
+
+	dirs := make([]DirEntry, 0)
+	files := make([]DirEntry, 0)
+
+	for _, entry := range entries {
+		// Skip hidden files/directories
+		if strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+
+		fullPath := filepath.Join(resolved, entry.Name())
+		de := DirEntry{
+			Name:  entry.Name(),
+			Path:  fullPath,
+			IsDir: entry.IsDir(),
+		}
+
+		if !entry.IsDir() {
+			if info, err := entry.Info(); err == nil {
+				de.Size = info.Size()
+			}
+		}
+
+		if entry.IsDir() {
+			dirs = append(dirs, de)
+		} else {
+			files = append(files, de)
+		}
+	}
+
+	// Compute parent directory
+	parentPath := filepath.Dir(resolved)
+	if parentPath == resolved {
+		parentPath = "" // At filesystem root
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"success":     true,
+		"current":     resolved,
+		"parent":      parentPath,
+		"directories": dirs,
+		"files":       files,
+	})
+}
+
+
+// handleDiskSpace returns free disk space for a given directory path
+func (s *Server) handleDiskSpace(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var payload struct {
+		Path string `json:"path"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&payload)
+
+	targetPath := payload.Path
+	if targetPath == "" {
+		targetPath = GetDefaultDownloadsDir()
+	}
+
+	resolved, err := ResolvePath(targetPath + "/")
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"free_gb": "Unknown"})
+		return
+	}
+
+	var stat syscall.Statfs_t
+	freeGB := "Unknown"
+	if syscall.Statfs(resolved, &stat) == nil {
+		freeBytes := stat.Bavail * uint64(stat.Bsize)
+		freeGB = fmt.Sprintf("%.2f GB", float64(freeBytes)/(1024*1024*1024))
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"free_gb": freeGB})
 }

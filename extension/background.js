@@ -81,7 +81,7 @@ async function dispatchToHydra(url, suggestedFilename, initiator) {
 
         const payload = {
             url: url,
-            save_path: "PENDING",
+            save_path: "DEFAULT",
             filename: decodeURIComponent(suggestedFilename || "downloaded_file.bin"),
             headers: {
                 "Cookie": cookieString,
@@ -101,7 +101,7 @@ async function dispatchToHydra(url, suggestedFilename, initiator) {
 
         const data = await res.json();
         if (data.job_id) {
-            chrome.tabs.create({ url: "http://127.0.0.1:9000/?pending_job=" + data.job_id });
+            chrome.tabs.create({ url: "http://127.0.0.1:9000" });
         }
     } catch (err) {
         console.error("[Hydra Sniffer] Dispatch error:", err);

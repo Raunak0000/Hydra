@@ -88,6 +88,8 @@ func ResolvePath(rawPath string) (string, error) {
 	targetDir := cleaned
 	if strings.HasSuffix(rawPath, "/") || strings.HasSuffix(rawPath, string(filepath.Separator)) {
 		targetDir = cleaned
+	} else if stat, err := os.Stat(cleaned); err == nil && stat.IsDir() {
+		targetDir = cleaned
 	} else {
 		targetDir = filepath.Dir(cleaned)
 	}

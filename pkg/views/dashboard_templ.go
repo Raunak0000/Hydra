@@ -14,7 +14,7 @@ import (
 	"github.com/Raunak0000/Hydra/pkg/models"
 )
 
-func Dashboard(jobs []models.UIJob, authToken string) templ.Component {
+func Dashboard(jobs []models.UIJob) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -35,20 +35,7 @@ func Dashboard(jobs []models.UIJob, authToken string) templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<!doctype html><html lang=\"en\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><title>Hydra Download Manager</title><script src=\"https://unpkg.com/htmx.org@1.9.10\"></script><script src=\"https://unpkg.com/htmx.org/dist/ext/json-enc.js\"></script><script src=\"https://cdn.tailwindcss.com\"></script><style>\n\t\t\t\tbody {\n\t\t\t\t\tfont-family: system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;\n\t\t\t\t\tbackground-color: #0b0c10;\n\t\t\t\t}\n\t\t\t\t::-webkit-scrollbar {\n\t\t\t\t\twidth: 6px;\n\t\t\t\t\theight: 6px;\n\t\t\t\t}\n\t\t\t\t::-webkit-scrollbar-track {\n\t\t\t\t\tbackground: #0f111a;\n\t\t\t\t}\n\t\t\t\t::-webkit-scrollbar-thumb {\n\t\t\t\t\tbackground: #272a3d;\n\t\t\t\t\tborder-radius: 3px;\n\t\t\t\t}\n\t\t\t\t::-webkit-scrollbar-thumb:hover {\n\t\t\t\t\tbackground: #3f4463;\n\t\t\t\t}\n\t\t\t\t.selected-row {\n\t\t\t\t\tbackground-color: rgba(37, 99, 235, 0.15) !important;\n\t\t\t\t\tborder-left: 3px solid #2563eb;\n\t\t\t\t}\n\t\t\t</style></head><body class=\"text-slate-200 min-h-screen flex flex-col antialiased selection:bg-blue-600 selection:text-white\" data-auth-token=\"")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		var templ_7745c5c3_Var2 string
-		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.ResolveAttributeValue(authToken)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 46, Col: 30}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var2)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\"><!-- TOP MENU / NAVIGATION TOOLBAR --><header class=\"bg-[#121420] border-b border-slate-800/80 px-4 py-2.5 flex items-center justify-between shrink-0\"><div class=\"flex items-center gap-3\"><div class=\"h-7 w-7 rounded bg-blue-600 flex items-center justify-center text-white font-black text-sm tracking-tighter\">H</div><div><h1 class=\"text-sm font-bold tracking-wide text-slate-100\">HYDRA DOWNLOADER</h1><p class=\"text-[9px] text-slate-500 font-semibold tracking-wider uppercase -mt-0.5\">Linux Core Daemon</p></div></div><div class=\"flex items-center gap-2\"><!-- Global Rolling Bandwidth Sparkline --><div class=\"hidden sm:flex items-center gap-2 bg-slate-900/90 border border-slate-800 px-2.5 py-1 rounded\"><span class=\"text-[9px] font-bold text-slate-500 uppercase tracking-wider\">Total Speed</span> <svg id=\"global-sparkline\" class=\"w-20 h-4 overflow-visible\" viewBox=\"0 0 100 20\"><polyline id=\"sparkline-poly\" fill=\"none\" stroke=\"#3b82f6\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" points=\"0,20 100,20\"></polyline></svg> <span id=\"global-speed-text\" class=\"text-[11px] font-mono font-bold text-blue-400 w-16 text-right\">0.00 KB/s</span></div><button onclick=\"openNewTaskModal()\" class=\"bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs px-3 py-1.5 rounded flex items-center gap-1.5 transition duration-150\"><svg class=\"h-3.5 w-3.5\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\" stroke-width=\"2.5\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M12 4.5v15m7.5-7.5h-15\"></path></svg> New Task</button> <button onclick=\"openBatchTaskModal()\" class=\"bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs px-3 py-1.5 rounded flex items-center gap-1.5 transition duration-150\"><svg class=\"h-3.5 w-3.5 text-blue-400\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\" stroke-width=\"2.5\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z\"></path></svg> Batch Import</button><div class=\"h-4 w-[1px] bg-slate-800 mx-1\"></div><div class=\"flex items-center gap-1.5 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded\"><span id=\"daemon-status-dot\" class=\"h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse\"></span> <span id=\"daemon-status-text\" class=\"text-[10px] font-bold text-slate-400 uppercase tracking-wider\">Connected</span></div></div></header><!-- MAIN PANELS WRAPPER --><div class=\"flex flex-1 min-h-0 overflow-hidden\"><!-- LEFT SIDEBAR FILTER LIST --><aside class=\"w-52 bg-[#0f111a] border-r border-slate-800/60 p-3 flex flex-col gap-1 shrink-0 select-none\"><span class=\"text-[9px] font-bold text-slate-500 uppercase tracking-widest px-2 mb-2\">Category Filters</span> <button onclick=\"filterQueue('ALL')\" id=\"filter-all\" class=\"w-full text-left text-xs font-semibold px-3 py-2 rounded bg-slate-800/60 text-slate-200 flex items-center justify-between group transition\"><span class=\"flex items-center gap-2\">📁 All Tasks</span> <span class=\"text-[10px] text-slate-500 group-hover:text-slate-400\" id=\"count-all\">0</span></button> <button onclick=\"filterQueue('DOWNLOADING')\" id=\"filter-downloading\" class=\"w-full text-left text-xs font-semibold px-3 py-2 rounded text-slate-400 hover:bg-slate-850 hover:text-slate-200 flex items-center justify-between group transition\"><span class=\"flex items-center gap-2 text-blue-400\">⚡ Active</span> <span class=\"text-[10px] text-slate-500\" id=\"count-downloading\">0</span></button> <button onclick=\"filterQueue('SCHEDULED')\" id=\"filter-scheduled\" class=\"w-full text-left text-xs font-semibold px-3 py-2 rounded text-slate-400 hover:bg-slate-850 hover:text-slate-200 flex items-center justify-between group transition\"><span class=\"flex items-center gap-2 text-purple-400\">⏰ Scheduled</span> <span class=\"text-[10px] text-slate-500\" id=\"count-scheduled\">0</span></button> <button onclick=\"filterQueue('PAUSED')\" id=\"filter-paused\" class=\"w-full text-left text-xs font-semibold px-3 py-2 rounded text-slate-400 hover:bg-slate-850 hover:text-slate-200 flex items-center justify-between group transition\"><span class=\"flex items-center gap-2 text-amber-500\">⏸ Paused</span> <span class=\"text-[10px] text-slate-500\" id=\"count-paused\">0</span></button> <button onclick=\"filterQueue('COMPLETED')\" id=\"filter-completed\" class=\"w-full text-left text-xs font-semibold px-3 py-2 rounded text-slate-400 hover:bg-slate-850 hover:text-slate-200 flex items-center justify-between group transition\"><span class=\"flex items-center gap-2 text-emerald-500\">✅ Completed</span> <span class=\"text-[10px] text-slate-500\" id=\"count-completed\">0</span></button></aside><!-- RIGHT MAIN CONTENT WORKSPACE --><div class=\"flex-1 flex flex-col min-w-0 overflow-hidden\"><!-- TASK LIST SCROLLABLE VIEW --><div class=\"flex-1 overflow-auto bg-[#0c0d12]\"><table class=\"w-full border-collapse text-left text-xs\"><thead><tr class=\"bg-[#121420]/80 border-b border-slate-800/80 sticky top-0 text-slate-400 font-bold select-none z-10\"><th class=\"px-4 py-2.5 font-bold w-1/3\">File Name</th><th class=\"px-4 py-2.5 font-bold w-1/6\">Size / Downloaded</th><th class=\"px-4 py-2.5 font-bold w-[20%]\">Progress</th><th class=\"px-4 py-2.5 font-bold w-[11%]\">Speed</th><th class=\"px-4 py-2.5 font-bold w-[10%]\">ETA</th><th class=\"px-4 py-2.5 font-bold w-1/12\">Status</th><th class=\"px-4 py-2.5 font-bold w-1/12 text-right\">Actions</th></tr></thead> <tbody id=\"download-queue\" class=\"divide-y divide-slate-800/40\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<!doctype html><html lang=\"en\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><title>Hydra Download Manager</title><script src=\"https://unpkg.com/htmx.org@1.9.10\"></script><script src=\"https://unpkg.com/htmx.org/dist/ext/json-enc.js\"></script><script src=\"https://cdn.tailwindcss.com\"></script><style>\n\t\t\t\tbody {\n\t\t\t\t\tfont-family: system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;\n\t\t\t\t\tbackground-color: #0b0c10;\n\t\t\t\t}\n\t\t\t\t::-webkit-scrollbar {\n\t\t\t\t\twidth: 6px;\n\t\t\t\t\theight: 6px;\n\t\t\t\t}\n\t\t\t\t::-webkit-scrollbar-track {\n\t\t\t\t\tbackground: #0f111a;\n\t\t\t\t}\n\t\t\t\t::-webkit-scrollbar-thumb {\n\t\t\t\t\tbackground: #272a3d;\n\t\t\t\t\tborder-radius: 3px;\n\t\t\t\t}\n\t\t\t\t::-webkit-scrollbar-thumb:hover {\n\t\t\t\t\tbackground: #3f4463;\n\t\t\t\t}\n\t\t\t\t.selected-row {\n\t\t\t\t\tbackground-color: rgba(37, 99, 235, 0.15) !important;\n\t\t\t\t\tborder-left: 3px solid #2563eb;\n\t\t\t\t}\n\t\t\t</style></head><body class=\"text-slate-200 min-h-screen flex flex-col antialiased selection:bg-blue-600 selection:text-white\"><!-- TOP MENU / NAVIGATION TOOLBAR --><header class=\"bg-[#121420] border-b border-slate-800/80 px-4 py-2.5 flex items-center justify-between shrink-0\"><div class=\"flex items-center gap-3\"><div class=\"h-7 w-7 rounded bg-blue-600 flex items-center justify-center text-white font-black text-sm tracking-tighter\">H</div><div><h1 class=\"text-sm font-bold tracking-wide text-slate-100\">HYDRA DOWNLOADER</h1><p class=\"text-[9px] text-slate-500 font-semibold tracking-wider uppercase -mt-0.5\">Linux Core Daemon</p></div></div><div class=\"flex items-center gap-2\"><!-- Global Rolling Bandwidth Sparkline --><div class=\"hidden sm:flex items-center gap-2 bg-slate-900/90 border border-slate-800 px-2.5 py-1 rounded\"><span class=\"text-[9px] font-bold text-slate-500 uppercase tracking-wider\">Total Speed</span> <svg id=\"global-sparkline\" class=\"w-20 h-4 overflow-visible\" viewBox=\"0 0 100 20\"><polyline id=\"sparkline-poly\" fill=\"none\" stroke=\"#3b82f6\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" points=\"0,20 100,20\"></polyline></svg> <span id=\"global-speed-text\" class=\"text-[11px] font-mono font-bold text-blue-400 w-16 text-right\">0.00 KB/s</span></div><button onclick=\"openNewTaskModal()\" class=\"bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs px-3 py-1.5 rounded flex items-center gap-1.5 transition duration-150\"><svg class=\"h-3.5 w-3.5\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\" stroke-width=\"2.5\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M12 4.5v15m7.5-7.5h-15\"></path></svg> New Task</button> <button onclick=\"openBatchTaskModal()\" class=\"bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs px-3 py-1.5 rounded flex items-center gap-1.5 transition duration-150\"><svg class=\"h-3.5 w-3.5 text-blue-400\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\" stroke-width=\"2.5\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z\"></path></svg> Batch Import</button><div class=\"h-4 w-[1px] bg-slate-800 mx-1\"></div><div class=\"flex items-center gap-1.5 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded\"><span id=\"daemon-status-dot\" class=\"h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse\"></span> <span id=\"daemon-status-text\" class=\"text-[10px] font-bold text-slate-400 uppercase tracking-wider\">Connected</span></div></div></header><!-- MAIN PANELS WRAPPER --><div class=\"flex flex-1 min-h-0 overflow-hidden\"><!-- LEFT SIDEBAR FILTER LIST --><aside class=\"w-52 bg-[#0f111a] border-r border-slate-800/60 p-3 flex flex-col gap-1 shrink-0 select-none\"><span class=\"text-[9px] font-bold text-slate-500 uppercase tracking-widest px-2 mb-2\">Category Filters</span> <button onclick=\"filterQueue('ALL')\" id=\"filter-all\" class=\"w-full text-left text-xs font-semibold px-3 py-2 rounded bg-slate-800/60 text-slate-200 flex items-center justify-between group transition\"><span class=\"flex items-center gap-2\">📁 All Tasks</span> <span class=\"text-[10px] text-slate-500 group-hover:text-slate-400\" id=\"count-all\">0</span></button> <button onclick=\"filterQueue('DOWNLOADING')\" id=\"filter-downloading\" class=\"w-full text-left text-xs font-semibold px-3 py-2 rounded text-slate-400 hover:bg-slate-850 hover:text-slate-200 flex items-center justify-between group transition\"><span class=\"flex items-center gap-2 text-blue-400\">⚡ Active</span> <span class=\"text-[10px] text-slate-500\" id=\"count-downloading\">0</span></button> <button onclick=\"filterQueue('SCHEDULED')\" id=\"filter-scheduled\" class=\"w-full text-left text-xs font-semibold px-3 py-2 rounded text-slate-400 hover:bg-slate-850 hover:text-slate-200 flex items-center justify-between group transition\"><span class=\"flex items-center gap-2 text-purple-400\">⏰ Scheduled</span> <span class=\"text-[10px] text-slate-500\" id=\"count-scheduled\">0</span></button> <button onclick=\"filterQueue('PAUSED')\" id=\"filter-paused\" class=\"w-full text-left text-xs font-semibold px-3 py-2 rounded text-slate-400 hover:bg-slate-850 hover:text-slate-200 flex items-center justify-between group transition\"><span class=\"flex items-center gap-2 text-amber-500\">⏸ Paused</span> <span class=\"text-[10px] text-slate-500\" id=\"count-paused\">0</span></button> <button onclick=\"filterQueue('COMPLETED')\" id=\"filter-completed\" class=\"w-full text-left text-xs font-semibold px-3 py-2 rounded text-slate-400 hover:bg-slate-850 hover:text-slate-200 flex items-center justify-between group transition\"><span class=\"flex items-center gap-2 text-emerald-500\">✅ Completed</span> <span class=\"text-[10px] text-slate-500\" id=\"count-completed\">0</span></button></aside><!-- RIGHT MAIN CONTENT WORKSPACE --><div class=\"flex-1 flex flex-col min-w-0 overflow-hidden\"><!-- TASK LIST SCROLLABLE VIEW --><div class=\"flex-1 overflow-auto bg-[#0c0d12]\"><table class=\"w-full border-collapse text-left text-xs\"><thead><tr class=\"bg-[#121420]/80 border-b border-slate-800/80 sticky top-0 text-slate-400 font-bold select-none z-10\"><th class=\"px-4 py-2.5 font-bold w-1/3\">File Name</th><th class=\"px-4 py-2.5 font-bold w-1/6\">Size / Downloaded</th><th class=\"px-4 py-2.5 font-bold w-[20%]\">Progress</th><th class=\"px-4 py-2.5 font-bold w-[11%]\">Speed</th><th class=\"px-4 py-2.5 font-bold w-[10%]\">ETA</th><th class=\"px-4 py-2.5 font-bold w-1/12\">Status</th><th class=\"px-4 py-2.5 font-bold w-1/12 text-right\">Actions</th></tr></thead> <tbody id=\"download-queue\" class=\"divide-y divide-slate-800/40\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -56,20 +43,7 @@ func Dashboard(jobs []models.UIJob, authToken string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</tbody></table></div><!-- DETAILED INFORMATION BOTTOM TAB PANEL --><div class=\"h-64 bg-[#0f111a] border-t border-slate-800/80 flex flex-col shrink-0\"><div class=\"bg-[#121420] border-b border-slate-800/60 px-4 py-1.5 flex items-center gap-4 shrink-0 select-none\"><span class=\"text-[10px] font-bold text-slate-400 uppercase tracking-wider\">Task Inspector</span><div class=\"h-4 w-[1px] bg-slate-800\"></div><button onclick=\"switchTab('general')\" id=\"tab-btn-general\" class=\"text-xs font-bold text-blue-500 border-b-2 border-blue-500 px-1 py-1\">General</button> <button onclick=\"switchTab('workers')\" id=\"tab-btn-workers\" class=\"text-xs font-semibold text-slate-500 hover:text-slate-350 px-1 py-1\">Worker Threads</button></div><!-- Tab Contents --><div class=\"flex-1 p-4 overflow-auto text-xs\"><div id=\"inspector-idle\" class=\"h-full flex items-center justify-center text-slate-500 font-medium\">Select a task from the list above to view details</div><div id=\"inspector-active\" class=\"hidden h-full flex flex-col gap-3\"><!-- General Tab Content --><div id=\"tab-content-general\" class=\"grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-2.5\"><div><span class=\"text-slate-500 block font-semibold text-[10px] uppercase\">File Name</span> <span id=\"inspect-filename\" class=\"text-slate-200 font-bold\">N/A</span></div><div><span class=\"text-slate-500 block font-semibold text-[10px] uppercase\">Storage Destination</span> <span id=\"inspect-savepath\" class=\"text-slate-300 font-mono\">N/A</span></div><div><span class=\"text-slate-500 block font-semibold text-[10px] uppercase\">Est. Time Remaining</span> <span id=\"inspect-eta\" class=\"text-blue-400 font-mono font-bold\">--</span></div><div class=\"col-span-2 md:col-span-3\"><span class=\"text-slate-500 block font-semibold text-[10px] uppercase\">Source URL</span> <a id=\"inspect-url\" href=\"#\" target=\"_blank\" class=\"text-blue-400 font-mono truncate block hover:underline\">N/A</a></div></div><!-- Workers Tab Content --><div id=\"tab-content-workers\" class=\"hidden\"><div class=\"flex justify-between items-center mb-2\"><span class=\"text-[10px] font-bold text-slate-500 uppercase tracking-wider\">Parallel Chunk Offsets</span></div><div id=\"inspect-workers-grid\" class=\"grid grid-cols-2 md:grid-cols-4 gap-2.5\"></div></div></div></div></div></div></div><!-- ADD TASK MODAL OVERLAY --><div id=\"new-task-modal\" class=\"hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm select-none\"><div class=\"w-[500px] bg-[#121420] border border-slate-800 rounded-xl p-5 shadow-2xl\"><div class=\"flex justify-between items-center pb-3 border-b border-slate-800 mb-4\"><h3 id=\"modal-title\" class=\"text-sm font-bold text-slate-100 uppercase tracking-wider\">Create New Download Task</h3><button onclick=\"closeModal()\" class=\"text-slate-400 hover:text-slate-200\"><svg class=\"h-4 w-4\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\" stroke-width=\"2.5\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M6 18L18 6M6 6l12 12\"></path></svg></button></div><form id=\"new-task-form\" hx-post=\"/download\" hx-headers=\"")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		var templ_7745c5c3_Var3 string
-		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf(`{"X-Hydra-Token": "%s"}`, authToken))
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 197, Col: 68}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\" hx-ext=\"json-enc\" hx-swap=\"none\" hx-on::after-request=\"closeModal()\" class=\"space-y-4\"><input type=\"hidden\" name=\"job_id\" id=\"modal-job-id\" value=\"\"><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Source URL</label> <input type=\"url\" name=\"url\" placeholder=\"https://...\" required class=\"w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono\"></div><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Save Path</label><div class=\"flex gap-2\"><input type=\"text\" name=\"save_path\" id=\"new-task-save-path\" value=\"~/Downloads/\" required class=\"flex-1 bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono\"> <button type=\"button\" onclick=\"browseFolder('new-task-save-path')\" class=\"bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-2 rounded text-xs font-bold transition shrink-0\">📁 Browse</button></div></div><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Schedule Download (Optional)</label> <input type=\"datetime-local\" name=\"scheduled_at\" id=\"new-task-schedule\" class=\"w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono\"></div><div class=\"flex justify-end gap-2 pt-2 border-t border-slate-800\"><button type=\"button\" onclick=\"closeModal()\" class=\"px-4 py-2 bg-slate-900 border border-slate-800 hover:bg-slate-850 text-slate-300 rounded text-xs font-bold transition\">Cancel</button> <button type=\"submit\" class=\"px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold transition\">Download</button></div></form></div></div><!-- BATCH ADD TASK MODAL OVERLAY --><div id=\"batch-task-modal\" class=\"hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm select-none\"><div class=\"w-[560px] bg-[#121420] border border-slate-800 rounded-xl p-5 shadow-2xl\"><div class=\"flex justify-between items-center pb-3 border-b border-slate-800 mb-4\"><div><h3 class=\"text-sm font-bold text-slate-100 uppercase tracking-wider\">Batch URL Ingestion</h3><p class=\"text-[10px] text-slate-500 mt-0.5\">Paste multiple URLs (one per line) for parallel queuing</p></div><button onclick=\"closeBatchModal()\" class=\"text-slate-400 hover:text-slate-200\"><svg class=\"h-4 w-4\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\" stroke-width=\"2.5\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M6 18L18 6M6 6l12 12\"></path></svg></button></div><form id=\"batch-task-form\" onsubmit=\"submitBatchDownload(event)\" class=\"space-y-4\"><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Download URLs (One per line)</label> <textarea id=\"batch-urls-input\" rows=\"5\" placeholder=\"https://example.com/file1.iso&#10;https://example.com/file2.zip&#10;https://example.com/file3.mp4\" required class=\"w-full bg-[#0b0c10] border border-slate-800 rounded p-3 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono resize-none\"></textarea></div><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Base Directory (Leave as DEFAULT to auto-categorize)</label><div class=\"flex gap-2\"><input type=\"text\" id=\"batch-save-path\" value=\"DEFAULT\" required class=\"flex-1 bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono\"> <button type=\"button\" onclick=\"browseFolder('batch-save-path')\" class=\"bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-2 rounded text-xs font-bold transition shrink-0\">📁 Browse</button></div></div><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Schedule Batch (Optional)</label> <input type=\"datetime-local\" id=\"batch-schedule\" class=\"w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono\"></div><div class=\"flex justify-end gap-2 pt-2 border-t border-slate-800\"><button type=\"button\" onclick=\"closeBatchModal()\" class=\"px-4 py-2 bg-slate-900 border border-slate-800 hover:bg-slate-850 text-slate-300 rounded text-xs font-bold transition\">Cancel</button> <button type=\"submit\" class=\"px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold transition\">Start Batch Ingestion</button></div></form></div></div><!-- INJECT SAFE RAW JAVASCRIPT BODY -->")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</tbody></table></div><!-- DETAILED INFORMATION BOTTOM TAB PANEL --><div class=\"h-64 bg-[#0f111a] border-t border-slate-800/80 flex flex-col shrink-0\"><div class=\"bg-[#121420] border-b border-slate-800/60 px-4 py-1.5 flex items-center gap-4 shrink-0 select-none\"><span class=\"text-[10px] font-bold text-slate-400 uppercase tracking-wider\">Task Inspector</span><div class=\"h-4 w-[1px] bg-slate-800\"></div><button onclick=\"switchTab('general')\" id=\"tab-btn-general\" class=\"text-xs font-bold text-blue-500 border-b-2 border-blue-500 px-1 py-1\">General</button> <button onclick=\"switchTab('workers')\" id=\"tab-btn-workers\" class=\"text-xs font-semibold text-slate-500 hover:text-slate-350 px-1 py-1\">Worker Threads</button></div><!-- Tab Contents --><div class=\"flex-1 p-4 overflow-auto text-xs\"><div id=\"inspector-idle\" class=\"h-full flex items-center justify-center text-slate-500 font-medium\">Select a task from the list above to view details</div><div id=\"inspector-active\" class=\"hidden h-full flex flex-col gap-3\"><!-- General Tab Content --><div id=\"tab-content-general\" class=\"grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-2.5\"><div><span class=\"text-slate-500 block font-semibold text-[10px] uppercase\">File Name</span> <span id=\"inspect-filename\" class=\"text-slate-200 font-bold\">N/A</span></div><div><span class=\"text-slate-500 block font-semibold text-[10px] uppercase\">Storage Destination</span> <span id=\"inspect-savepath\" class=\"text-slate-300 font-mono\">N/A</span></div><div><span class=\"text-slate-500 block font-semibold text-[10px] uppercase\">Est. Time Remaining</span> <span id=\"inspect-eta\" class=\"text-blue-400 font-mono font-bold\">--</span></div><div class=\"col-span-2 md:col-span-3\"><span class=\"text-slate-500 block font-semibold text-[10px] uppercase\">Source URL</span> <a id=\"inspect-url\" href=\"#\" target=\"_blank\" class=\"text-blue-400 font-mono truncate block hover:underline\">N/A</a></div></div><!-- Workers Tab Content --><div id=\"tab-content-workers\" class=\"hidden\"><div class=\"flex justify-between items-center mb-2\"><span class=\"text-[10px] font-bold text-slate-500 uppercase tracking-wider\">Parallel Chunk Offsets</span></div><div id=\"inspect-workers-grid\" class=\"grid grid-cols-2 md:grid-cols-4 gap-2.5\"></div></div></div></div></div></div></div><!-- ADD TASK MODAL OVERLAY --><div id=\"new-task-modal\" class=\"hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm select-none\"><div class=\"w-[500px] bg-[#121420] border border-slate-800 rounded-xl p-5 shadow-2xl\"><div class=\"flex justify-between items-center pb-3 border-b border-slate-800 mb-4\"><h3 id=\"modal-title\" class=\"text-sm font-bold text-slate-100 uppercase tracking-wider\">Create New Download Task</h3><button onclick=\"closeModal()\" class=\"text-slate-400 hover:text-slate-200\"><svg class=\"h-4 w-4\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\" stroke-width=\"2.5\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M6 18L18 6M6 6l12 12\"></path></svg></button></div><form id=\"new-task-form\" hx-post=\"/download\" hx-headers='{\"X-Hydra-Token\": \"hydra_secure_token_bf1f753e\"}' hx-ext=\"json-enc\" hx-swap=\"none\" hx-on::after-request=\"closeModal()\" class=\"space-y-4\"><input type=\"hidden\" name=\"job_id\" id=\"modal-job-id\" value=\"\"><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Source URL</label> <input type=\"url\" name=\"url\" placeholder=\"https://...\" required class=\"w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono\"></div><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Save Path</label><div class=\"flex gap-2\"><input type=\"text\" name=\"save_path\" id=\"new-task-save-path\" value=\"~/Downloads/\" required class=\"flex-1 bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono\"> <button type=\"button\" onclick=\"openFolderPicker('new-task-save-path')\" class=\"bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-2 rounded text-xs font-bold transition shrink-0\">📁 Browse</button></div></div><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Schedule Download (Optional)</label> <input type=\"datetime-local\" name=\"scheduled_at\" id=\"new-task-schedule\" class=\"w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono\"></div><div class=\"flex justify-end gap-2 pt-2 border-t border-slate-800\"><button type=\"button\" onclick=\"closeModal()\" class=\"px-4 py-2 bg-slate-900 border border-slate-800 hover:bg-slate-850 text-slate-300 rounded text-xs font-bold transition\">Cancel</button> <button type=\"submit\" class=\"px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold transition\">Download</button></div></form></div></div><!-- IN-BROWSER FOLDER PICKER MODAL --><div id=\"folder-picker-modal\" class=\"hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm select-none\"><div class=\"w-[600px] max-h-[520px] bg-[#121420] border border-slate-800 rounded-xl shadow-2xl flex flex-col overflow-hidden\"><!-- Header --><div class=\"flex justify-between items-center px-5 py-3 border-b border-slate-800 shrink-0\"><div class=\"flex items-center gap-2.5\"><div class=\"h-7 w-7 rounded bg-blue-600/20 border border-blue-500/30 flex items-center justify-center\"><svg class=\"h-4 w-4 text-blue-400\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\" stroke-width=\"2\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z\"></path></svg></div><div><h3 class=\"text-sm font-bold text-slate-100 uppercase tracking-wider\">Choose Folder</h3><p class=\"text-[9px] text-slate-500 font-semibold\">Select a directory to save your download</p></div></div><button onclick=\"closeFolderPicker()\" class=\"text-slate-400 hover:text-slate-200 transition\"><svg class=\"h-4 w-4\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\" stroke-width=\"2.5\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M6 18L18 6M6 6l12 12\"></path></svg></button></div><!-- Path Bar --><div class=\"flex items-center gap-2 px-4 py-2 bg-[#0b0c10] border-b border-slate-800/60 shrink-0\"><button onclick=\"folderPickerGoUp()\" class=\"bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] font-bold transition shrink-0\" title=\"Go up\"><svg class=\"h-3.5 w-3.5\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\" stroke-width=\"2.5\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M4.5 15.75l7.5-7.5 7.5 7.5\"></path></svg></button><div id=\"folder-picker-breadcrumb\" class=\"flex-1 bg-[#121420] border border-slate-800 rounded px-3 py-1.5 text-xs text-slate-300 font-mono truncate\">~/</div><button onclick=\"folderPickerGoHome()\" class=\"bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-2.5 py-1 rounded text-[10px] font-bold transition shrink-0\" title=\"Home\">🏠</button></div><!-- Folder Listing --><div id=\"folder-picker-listing\" class=\"flex-1 overflow-y-auto min-h-0 px-2 py-2\"><div class=\"flex items-center justify-center h-full text-slate-500 text-xs\">Loading...</div></div><!-- Footer --><div class=\"flex items-center justify-between px-4 py-3 border-t border-slate-800 bg-[#0f111a] shrink-0\"><div class=\"flex items-center gap-2\"><span class=\"text-[9px] font-bold text-slate-500 uppercase tracking-wider\">Selected:</span> <span id=\"folder-picker-selected\" class=\"text-xs text-blue-400 font-mono truncate max-w-[300px]\">~/</span></div><div class=\"flex gap-2\"><button type=\"button\" onclick=\"closeFolderPicker()\" class=\"px-4 py-2 bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 rounded text-xs font-bold transition\">Cancel</button> <button type=\"button\" onclick=\"confirmFolderSelection()\" class=\"px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold transition\">Select Folder</button></div></div></div></div><!-- BATCH ADD TASK MODAL OVERLAY --><div id=\"batch-task-modal\" class=\"hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm select-none\"><div class=\"w-[560px] bg-[#121420] border border-slate-800 rounded-xl p-5 shadow-2xl\"><div class=\"flex justify-between items-center pb-3 border-b border-slate-800 mb-4\"><div><h3 class=\"text-sm font-bold text-slate-100 uppercase tracking-wider\">Batch URL Ingestion</h3><p class=\"text-[10px] text-slate-500 mt-0.5\">Paste multiple URLs (one per line) for parallel queuing</p></div><button onclick=\"closeBatchModal()\" class=\"text-slate-400 hover:text-slate-200\"><svg class=\"h-4 w-4\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\" stroke-width=\"2.5\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M6 18L18 6M6 6l12 12\"></path></svg></button></div><form id=\"batch-task-form\" onsubmit=\"submitBatchDownload(event)\" class=\"space-y-4\"><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Download URLs (One per line)</label> <textarea id=\"batch-urls-input\" rows=\"5\" placeholder=\"https://example.com/file1.iso&#10;https://example.com/file2.zip&#10;https://example.com/file3.mp4\" required class=\"w-full bg-[#0b0c10] border border-slate-800 rounded p-3 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono resize-none\"></textarea></div><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Base Directory (Leave as DEFAULT to auto-categorize)</label><div class=\"flex gap-2\"><input type=\"text\" id=\"batch-save-path\" value=\"DEFAULT\" required class=\"flex-1 bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono\"> <button type=\"button\" onclick=\"openFolderPicker('batch-save-path')\" class=\"bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-2 rounded text-xs font-bold transition shrink-0\">📁 Browse</button></div></div><div><label class=\"block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1\">Schedule Batch (Optional)</label> <input type=\"datetime-local\" id=\"batch-schedule\" class=\"w-full bg-[#0b0c10] border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono\"></div><div class=\"flex justify-end gap-2 pt-2 border-t border-slate-800\"><button type=\"button\" onclick=\"closeBatchModal()\" class=\"px-4 py-2 bg-slate-900 border border-slate-800 hover:bg-slate-850 text-slate-300 rounded text-xs font-bold transition\">Cancel</button> <button type=\"submit\" class=\"px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold transition\">Start Batch Ingestion</button></div></form></div></div><!-- INJECT SAFE RAW JAVASCRIPT BODY -->")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -77,7 +51,7 @@ func Dashboard(jobs []models.UIJob, authToken string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -89,12 +63,9 @@ const dashboardClientScript = `
 let selectedJobId = null;
 let activeFilter = 'ALL';
 let currentTab = 'general';
+let _pendingJobToOpen = null;
 
 const sparklineHistory = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
-
-function getAuthToken() {
-	return document.body.getAttribute('data-auth-token') || '';
-}
 
 function parseSpeedToBytes(speedStr) {
 	if (!speedStr || speedStr === "-" || speedStr === "--") return 0;
@@ -133,35 +104,108 @@ function updateGlobalSparkline(totalBytes) {
 	if (speedTxt) speedTxt.innerText = formatBytesToSpeed(totalBytes);
 }
 
-async function browseFolder(targetInputId) {
-	const inputEl = document.getElementById(targetInputId);
-	const currentVal = inputEl ? inputEl.value : "";
+// ── In-Browser Folder Picker State ──
+let _fpTargetInputId = null;
+let _fpCurrentPath = '';
+let _fpParentPath = '';
 
+function openFolderPicker(targetInputId) {
+	_fpTargetInputId = targetInputId;
+	const inputEl = document.getElementById(targetInputId);
+	let startPath = inputEl ? inputEl.value.trim() : '~';
+	if (!startPath || startPath === 'PENDING' || startPath === 'DEFAULT') startPath = '~';
+	document.getElementById('folder-picker-modal').classList.remove('hidden');
+	loadFolderListing(startPath);
+}
+
+function closeFolderPicker() {
+	document.getElementById('folder-picker-modal').classList.add('hidden');
+	_fpTargetInputId = null;
+}
+
+function confirmFolderSelection() {
+	if (!_fpTargetInputId || !_fpCurrentPath) { closeFolderPicker(); return; }
+	const inputEl = document.getElementById(_fpTargetInputId);
+	if (inputEl) {
+		const currentVal = inputEl.value.trim();
+		const selectedDir = _fpCurrentPath.replace(/\\/$/,  '');
+		// Preserve filename if path had one
+		if (currentVal && !currentVal.endsWith('/')) {
+			const parts = currentVal.split('/');
+			const fn = parts[parts.length - 1];
+			if (fn && fn !== 'PENDING' && fn !== 'DEFAULT' && fn.indexOf('.') > 0) {
+				inputEl.value = selectedDir + '/' + fn;
+			} else {
+				inputEl.value = selectedDir + '/';
+			}
+		} else {
+			inputEl.value = selectedDir + '/';
+		}
+	}
+	closeFolderPicker();
+}
+
+function folderPickerGoUp() {
+	if (_fpParentPath) loadFolderListing(_fpParentPath);
+}
+
+function folderPickerGoHome() {
+	loadFolderListing('~');
+}
+
+async function loadFolderListing(path) {
+	const listing = document.getElementById('folder-picker-listing');
+	listing.innerHTML = '<div class="flex items-center justify-center h-32 text-slate-500 text-xs">Loading...</div>';
 	try {
-		const res = await fetch('/api/browse-directory', {
+		const res = await fetch('/api/list-directory', {
 			method: 'POST',
-			headers: { 
-				'Content-Type': 'application/json',
-				'X-Hydra-Token': getAuthToken()
-			},
-			body: JSON.stringify({ current_path: currentVal })
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ path: path })
 		});
 		const data = await res.json();
-		if (data.success && data.path) {
-			if (inputEl) {
-				if (currentVal.endsWith('/') || targetInputId === 'batch-save-path') {
-					inputEl.value = data.path.endsWith('/') ? data.path : data.path + '/';
-				} else {
-					const filename = currentVal.split('/').pop();
-					inputEl.value = data.path.replace(/\\/$/, '') + '/' + filename;
-				}
-			}
-		} else if (data.error) {
-			console.warn("Folder picker dialog cancelled or unavailable:", data.error);
+		if (!data.success) {
+			listing.innerHTML = '<div class="flex items-center justify-center h-32 text-rose-400 text-xs">' + (data.error || 'Failed to read directory') + '</div>';
+			return;
 		}
+		_fpCurrentPath = data.current;
+		_fpParentPath = data.parent || '';
+		document.getElementById('folder-picker-breadcrumb').innerText = data.current;
+		document.getElementById('folder-picker-selected').innerText = data.current;
+		renderFolderEntries(data.directories || [], data.files || []);
 	} catch (e) {
-		console.error("Failed to invoke native directory chooser:", e);
+		listing.innerHTML = '<div class="flex items-center justify-center h-32 text-rose-400 text-xs">Network error</div>';
 	}
+}
+
+function renderFolderEntries(dirs, files) {
+	const listing = document.getElementById('folder-picker-listing');
+	if (dirs.length === 0 && files.length === 0) {
+		listing.innerHTML = '<div class="flex items-center justify-center h-32 text-slate-500 text-xs italic">Empty directory</div>';
+		return;
+	}
+	let html = '';
+	dirs.forEach(function(d) {
+		html += '<div class="flex items-center gap-2.5 px-3 py-1.5 rounded hover:bg-blue-600/10 cursor-pointer group transition" ondblclick="loadFolderListing(\\'' + d.path.replace(/'/g, "\\\\'") + '\\')" onclick="selectFolderEntry(this, \\'' + d.path.replace(/'/g, "\\\\'") + '\\')">';
+		html += '<svg class="h-4 w-4 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"/></svg>';
+		html += '<span class="text-xs text-slate-200 font-medium truncate group-hover:text-blue-300">' + d.name + '</span>';
+		html += '</div>';
+	});
+	files.forEach(function(f) {
+		const sizeStr = f.size > 1048576 ? (f.size / 1048576).toFixed(1) + ' MB' : f.size > 1024 ? (f.size / 1024).toFixed(0) + ' KB' : f.size + ' B';
+		html += '<div class="flex items-center gap-2.5 px-3 py-1.5 rounded opacity-40 cursor-default">';
+		html += '<svg class="h-4 w-4 text-slate-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>';
+		html += '<span class="text-xs text-slate-500 truncate flex-1">' + f.name + '</span>';
+		html += '<span class="text-[10px] text-slate-600 font-mono shrink-0">' + sizeStr + '</span>';
+		html += '</div>';
+	});
+	listing.innerHTML = html;
+}
+
+function selectFolderEntry(el, path) {
+	document.querySelectorAll('#folder-picker-listing > div').forEach(function(d) { d.classList.remove('bg-blue-600/15', 'ring-1', 'ring-blue-500/30'); });
+	el.classList.add('bg-blue-600/15', 'ring-1', 'ring-blue-500/30');
+	_fpCurrentPath = path;
+	document.getElementById('folder-picker-selected').innerText = path;
 }
 
 function openModal() {
@@ -208,7 +252,7 @@ function submitBatchDownload(event) {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
-			'X-Hydra-Token': getAuthToken()
+			'X-Hydra-Token': 'hydra_secure_token_bf1f753e'
 		},
 		body: JSON.stringify(payload)
 	}).then(function(res) {
@@ -417,15 +461,15 @@ function updateUIState() {
 	document.getElementById('count-paused').innerText = paused;
 	document.getElementById('count-completed').innerText = completed;
 
-	const params = new URLSearchParams(window.location.search);
-	const pendingJobId = params.get('pending_job');
-	if (pendingJobId) {
-		const row = document.querySelector('.download-row[data-id="' + pendingJobId + '"]');
+	if (_pendingJobToOpen) {
+		const row = document.querySelector('.download-row[data-id="' + _pendingJobToOpen + '"]');
 		if (row) {
 			const url = row.getAttribute('data-url');
 			const filename = row.getAttribute('data-filename');
-			openPendingPathModal(pendingJobId, url, filename);
+			const pendingId = _pendingJobToOpen;
+			_pendingJobToOpen = null;
 			window.history.replaceState({}, document.title, window.location.pathname);
+			openPendingPathModal(pendingId, url, filename);
 		}
 	}
 }
@@ -574,6 +618,11 @@ function setupEventStream() {
 }
 
 window.addEventListener('DOMContentLoaded', function() {
+	// Extract pending_job param once and store persistently
+	const params = new URLSearchParams(window.location.search);
+	const pj = params.get('pending_job');
+	if (pj) _pendingJobToOpen = pj;
+
 	updateUIState();
 	setupEventStream();
 
@@ -606,13 +655,13 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var4 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var4 == nil {
-			templ_7745c5c3_Var4 = templ.NopComponent
+		templ_7745c5c3_Var2 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var2 == nil {
+			templ_7745c5c3_Var2 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		if len(jobs) == 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<tr><td colspan=\"7\" class=\"px-4 py-16 text-center text-slate-500 italic\">No tasks present in the pipeline. Click \"New Task\" or use the browser extension.</td></tr>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<tr><td colspan=\"7\" class=\"px-4 py-16 text-center text-slate-500 italic\">No tasks present in the pipeline. Click \"New Task\" or use the browser extension.</td></tr>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -628,105 +677,131 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				if etaDisplay == "" {
 					etaDisplay = "--"
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<tr class=\"download-row hover:bg-slate-800/35 transition cursor-pointer\" data-id=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<tr class=\"download-row hover:bg-slate-800/35 transition cursor-pointer\" data-id=\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var3 string
+				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.ID)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 929, Col: 20}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\" data-filename=\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var4 string
+				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.FileName)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 930, Col: 32}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "\" data-savepath=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var5 string
-				templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.ID)
+				templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.SavePath)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 803, Col: 20}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 931, Col: 32}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\" data-filename=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\" data-url=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var6 string
-				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.FileName)
+				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.URL)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 804, Col: 32}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 932, Col: 22}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\" data-savepath=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\" data-status=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var7 string
-				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.SavePath)
+				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.Status)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 805, Col: 32}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 933, Col: 28}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\" data-url=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\" data-eta=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var8 string
-				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.URL)
+				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.ResolveAttributeValue(etaDisplay)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 806, Col: 22}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 934, Col: 25}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var8)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "\" data-status=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "\" data-chunks=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var9 string
-				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.Status)
+				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue(chunksJSON)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 807, Col: 28}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 935, Col: 28}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "\" data-eta=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "\" onclick=\"selectJob(this)\"><!-- Filename & URL Column --><td class=\"px-4 py-2.5 max-w-[320px]\"><div class=\"font-semibold text-slate-200 truncate\" title=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var10 string
-				templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue(etaDisplay)
+				templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.FileName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 808, Col: 25}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 940, Col: 76}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var10)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "\" data-chunks=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var11 string
-				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.ResolveAttributeValue(chunksJSON)
+				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(job.FileName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 809, Col: 28}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 940, Col: 93}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var11)
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "\" onclick=\"selectJob(this)\"><!-- Filename & URL Column --><td class=\"px-4 py-2.5 max-w-[320px]\"><div class=\"font-semibold text-slate-200 truncate\" title=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</div><div class=\"text-[10px] text-slate-500 truncate font-mono mt-0.5\" title=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var12 string
-				templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.FileName)
+				templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.URL)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 814, Col: 76}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 941, Col: 86}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var12)
 				if templ_7745c5c3_Err != nil {
@@ -737,214 +812,210 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var13 string
-				templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(job.FileName)
+				templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(job.URL)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 814, Col: 93}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 941, Col: 98}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "</div><div class=\"text-[10px] text-slate-500 truncate font-mono mt-0.5\" title=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "</div></td><!-- Size Metrics Column --><td class=\"px-4 py-2.5 font-mono text-slate-400 select-none size-metrics\"><span>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var14 string
-				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.URL)
+				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(job.Downloaded)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 815, Col: 86}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 946, Col: 27}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var14)
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "</span> / <span class=\"text-slate-600\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var15 string
-				templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(job.URL)
+				templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(job.TotalSize)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 815, Col: 98}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 946, Col: 83}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "</div></td><!-- Size Metrics Column --><td class=\"px-4 py-2.5 font-mono text-slate-400 select-none size-metrics\"><span>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "</span></td><!-- Compact Progress Bar Column --><td class=\"px-4 py-2.5 select-none\"><div class=\"flex items-center gap-3\"><div class=\"flex-1 bg-slate-900 border border-slate-800/80 h-2.5 rounded overflow-hidden\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var16 string
-				templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(job.Downloaded)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 820, Col: 27}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "</span> / <span class=\"text-slate-600\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var17 string
-				templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(job.TotalSize)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 820, Col: 83}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "</span></td><!-- Compact Progress Bar Column --><td class=\"px-4 py-2.5 select-none\"><div class=\"flex items-center gap-3\"><div class=\"flex-1 bg-slate-900 border border-slate-800/80 h-2.5 rounded overflow-hidden\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var18 = []any{"h-full rounded transition-all duration-350 progress-bar",
+				var templ_7745c5c3_Var16 = []any{"h-full rounded transition-all duration-350 progress-bar",
 					templ.KV("bg-blue-600", job.Status == "DOWNLOADING"),
 					templ.KV("bg-indigo-500", job.Status == "QUEUED"),
 					templ.KV("bg-purple-500", job.Status == "SCHEDULED"),
 					templ.KV("bg-amber-500", job.Status == "PAUSED"),
 					templ.KV("bg-emerald-500", job.Status == "COMPLETED"),
 					templ.KV("bg-rose-500", job.Status != "DOWNLOADING" && job.Status != "QUEUED" && job.Status != "SCHEDULED" && job.Status != "PAUSED" && job.Status != "COMPLETED")}
-				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var18...)
+				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var16...)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<div class=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "<div class=\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var17 string
+				templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.ResolveAttributeValue(templ.CSSClasses(templ_7745c5c3_Var16).String())
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1, Col: 0}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "\" style=\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var18 string
+				templ_7745c5c3_Var18, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(fmt.Sprintf("width: %.1f%%", job.Progress))
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 961, Col: 58}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "\"></div></div><span class=\"w-10 text-right font-bold font-mono text-slate-300 progress-text\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var19 string
-				templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.ResolveAttributeValue(templ.CSSClasses(templ_7745c5c3_Var18).String())
+				templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%.1f%%", job.Progress))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1, Col: 0}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 964, Col: 122}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var19)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "\" style=\"")
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var20 string
-				templ_7745c5c3_Var20, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(fmt.Sprintf("width: %.1f%%", job.Progress))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 835, Col: 58}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "</span></div></td><!-- Speed Column -->")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "\"></div></div><span class=\"w-10 text-right font-bold font-mono text-slate-300 progress-text\">")
+				var templ_7745c5c3_Var20 = []any{"px-4 py-2.5 font-mono text-slate-400 select-none speed-cell", templ.KV("text-slate-600", job.Status != "DOWNLOADING")}
+				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var20...)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<td class=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var21 string
-				templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%.1f%%", job.Progress))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 838, Col: 122}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "</span></div></td><!-- Speed Column -->")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var22 = []any{"px-4 py-2.5 font-mono text-slate-400 select-none speed-cell", templ.KV("text-slate-600", job.Status != "DOWNLOADING")}
-				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var22...)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "<td class=\"")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var23 string
-				templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.ResolveAttributeValue(templ.CSSClasses(templ_7745c5c3_Var22).String())
+				templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.ResolveAttributeValue(templ.CSSClasses(templ_7745c5c3_Var20).String())
 				if templ_7745c5c3_Err != nil {
 					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1, Col: 0}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var23)
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var21)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if job.Status == "DOWNLOADING" {
-					var templ_7745c5c3_Var24 string
-					templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(job.Speed)
+					var templ_7745c5c3_Var22 string
+					templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(job.Speed)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 845, Col: 17}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 971, Col: 17}
 					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				} else {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "-")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "-")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "</td><!-- ETA Column -->")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "</td><!-- ETA Column -->")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var25 = []any{"px-4 py-2.5 font-mono text-slate-400 select-none eta-cell font-semibold", templ.KV("text-slate-600", job.Status != "DOWNLOADING")}
-				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var25...)
+				var templ_7745c5c3_Var23 = []any{"px-4 py-2.5 font-mono text-slate-400 select-none eta-cell font-semibold", templ.KV("text-slate-600", job.Status != "DOWNLOADING")}
+				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var23...)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<td class=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "<td class=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var26 string
-				templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.ResolveAttributeValue(templ.CSSClasses(templ_7745c5c3_Var25).String())
+				var templ_7745c5c3_Var24 string
+				templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.ResolveAttributeValue(templ.CSSClasses(templ_7745c5c3_Var23).String())
 				if templ_7745c5c3_Err != nil {
 					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1, Col: 0}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var26)
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var24)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if job.Status == "DOWNLOADING" {
-					var templ_7745c5c3_Var27 string
-					templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(etaDisplay)
+					var templ_7745c5c3_Var25 string
+					templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(etaDisplay)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 854, Col: 18}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 980, Col: 18}
 					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				} else {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "--")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "--")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "</td><!-- Compact Status Badge Column --><td class=\"px-4 py-2.5 select-none status-cell\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "</td><!-- Compact Status Badge Column --><td class=\"px-4 py-2.5 select-none status-cell\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var28 = []any{"text-blue-400 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status != "DOWNLOADING")}
+				var templ_7745c5c3_Var26 = []any{"text-blue-400 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status != "DOWNLOADING")}
+				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var26...)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<span data-badge-status=\"DOWNLOADING\" class=\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var27 string
+				templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.ResolveAttributeValue(templ.CSSClasses(templ_7745c5c3_Var26).String())
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1, Col: 0}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var27)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "\"><span class=\"h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse\"></span> Active</span> ")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var28 = []any{"text-indigo-400 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status != "QUEUED")}
 				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var28...)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<span data-badge-status=\"DOWNLOADING\" class=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<span data-badge-status=\"QUEUED\" class=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -957,16 +1028,16 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "\"><span class=\"h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse\"></span> Active</span> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "\"><span class=\"h-1.5 w-1.5 rounded-full bg-indigo-400\"></span> Queued</span> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var30 = []any{"text-indigo-400 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status != "QUEUED")}
+				var templ_7745c5c3_Var30 = []any{"text-purple-400 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status != "SCHEDULED")}
 				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var30...)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "<span data-badge-status=\"QUEUED\" class=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "<span data-badge-status=\"SCHEDULED\" class=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -979,16 +1050,16 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "\"><span class=\"h-1.5 w-1.5 rounded-full bg-indigo-400\"></span> Queued</span> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "\"><span class=\"h-1.5 w-1.5 rounded-full bg-purple-400\"></span> Scheduled</span> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var32 = []any{"text-purple-400 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status != "SCHEDULED")}
+				var templ_7745c5c3_Var32 = []any{"text-amber-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status != "PAUSED")}
 				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var32...)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "<span data-badge-status=\"SCHEDULED\" class=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "<span data-badge-status=\"PAUSED\" class=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1001,16 +1072,16 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "\"><span class=\"h-1.5 w-1.5 rounded-full bg-purple-400\"></span> Scheduled</span> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "\"><span class=\"h-1.5 w-1.5 rounded-full bg-amber-500\"></span> Paused</span> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var34 = []any{"text-amber-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status != "PAUSED")}
+				var templ_7745c5c3_Var34 = []any{"text-emerald-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status != "COMPLETED")}
 				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var34...)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "<span data-badge-status=\"PAUSED\" class=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "<span data-badge-status=\"COMPLETED\" class=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1023,16 +1094,16 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "\"><span class=\"h-1.5 w-1.5 rounded-full bg-amber-500\"></span> Paused</span> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "\"><span class=\"h-1.5 w-1.5 rounded-full bg-emerald-500\"></span> Finished</span> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var36 = []any{"text-emerald-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status != "COMPLETED")}
+				var templ_7745c5c3_Var36 = []any{"text-amber-400 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status != "PENDING_PATH")}
 				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var36...)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "<span data-badge-status=\"COMPLETED\" class=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "<span data-badge-status=\"PENDING_PATH\" class=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1045,16 +1116,16 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "\"><span class=\"h-1.5 w-1.5 rounded-full bg-emerald-500\"></span> Finished</span> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "\"><span class=\"h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse\"></span> Pending Path</span> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var38 = []any{"text-amber-400 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status != "PENDING_PATH")}
+				var templ_7745c5c3_Var38 = []any{"text-rose-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status != "FAILED")}
 				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var38...)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "<span data-badge-status=\"PENDING_PATH\" class=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "<span data-badge-status=\"FAILED\" class=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1067,173 +1138,151 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "\"><span class=\"h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse\"></span> Pending Path</span> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "\"><span class=\"h-1.5 w-1.5 rounded-full bg-rose-500\"></span> Error</span></td><!-- Action Buttons Column --><td class=\"px-4 py-2.5 text-right select-none\"><div class=\"inline-flex gap-1.5\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var40 = []any{"text-rose-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1.5 status-badge", templ.KV("hidden", job.Status != "FAILED")}
+				var templ_7745c5c3_Var40 = []any{"bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1 configure-btn", templ.KV("hidden", job.Status != "PENDING_PATH")}
 				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var40...)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "<span data-badge-status=\"FAILED\" class=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "<button data-job-id=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var41 string
-				templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.ResolveAttributeValue(templ.CSSClasses(templ_7745c5c3_Var40).String())
+				templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.ID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1, Col: 0}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1021, Col: 34}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var41)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "\"><span class=\"h-1.5 w-1.5 rounded-full bg-rose-500\"></span> Error</span></td><!-- Action Buttons Column --><td class=\"px-4 py-2.5 text-right select-none\"><div class=\"inline-flex gap-1.5\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "\" data-url=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var42 = []any{"bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1 configure-btn", templ.KV("hidden", job.Status != "PENDING_PATH")}
-				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var42...)
+				var templ_7745c5c3_Var42 string
+				templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.URL)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1021, Col: 55}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var42)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "<button data-job-id=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "\" data-filename=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var43 string
-				templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.ID)
+				templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.FileName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 895, Col: 34}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1021, Col: 86}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var43)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 48, "\" data-url=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 48, "\" class=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var44 string
-				templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.URL)
+				templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.ResolveAttributeValue(templ.CSSClasses(templ_7745c5c3_Var40).String())
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 895, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1, Col: 0}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var44)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "\" data-filename=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "\">⚙️ Set Path</button> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var45 string
-				templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.FileName)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 895, Col: 86}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var45)
+				var templ_7745c5c3_Var45 = []any{"bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:border-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1 pause-btn", templ.KV("hidden", job.Status != "DOWNLOADING")}
+				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var45...)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "\" class=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "<button hx-post=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var46 string
-				templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.ResolveAttributeValue(templ.CSSClasses(templ_7745c5c3_Var42).String())
+				templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("/api/download/pause?id=%s", job.ID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1, Col: 0}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1024, Col: 72}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var46)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "\">⚙️ Set Path</button> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "\" hx-swap=\"none\" class=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var47 = []any{"bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:border-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1 pause-btn", templ.KV("hidden", job.Status != "DOWNLOADING")}
-				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var47...)
+				var templ_7745c5c3_Var47 string
+				templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.ResolveAttributeValue(templ.CSSClasses(templ_7745c5c3_Var45).String())
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1, Col: 0}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var47)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "<button hx-post=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "\">⏸ Pause</button> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var48 string
-				templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("/api/download/pause?id=%s", job.ID))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 898, Col: 72}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var48)
+				var templ_7745c5c3_Var48 = []any{"bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:border-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1 resume-btn", templ.KV("hidden", job.Status != "PAUSED" && job.Status != "QUEUED" && job.Status != "SCHEDULED" && job.Status != "FAILED")}
+				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var48...)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "\" hx-swap=\"none\" class=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "<button hx-post=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var49 string
-				templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.ResolveAttributeValue(templ.CSSClasses(templ_7745c5c3_Var47).String())
+				templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("/api/download/resume?id=%s", job.ID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1, Col: 0}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1027, Col: 73}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var49)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 54, "\">⏸ Pause</button> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 54, "\" hx-swap=\"none\" class=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var50 = []any{"bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:border-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1 resume-btn", templ.KV("hidden", job.Status != "PAUSED" && job.Status != "QUEUED" && job.Status != "SCHEDULED" && job.Status != "FAILED")}
-				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var50...)
+				var templ_7745c5c3_Var50 string
+				templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.ResolveAttributeValue(templ.CSSClasses(templ_7745c5c3_Var48).String())
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1, Col: 0}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var50)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "<button hx-post=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "\">▶ Resume</button> <button hx-post=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var51 string
-				templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("/api/download/resume?id=%s", job.ID))
+				templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("/api/download/delete?id=%s", job.ID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 901, Col: 73}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1030, Col: 73}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var51)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "\" hx-swap=\"none\" class=\"")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var52 string
-				templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.ResolveAttributeValue(templ.CSSClasses(templ_7745c5c3_Var50).String())
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1, Col: 0}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var52)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 57, "\">▶ Resume</button> <button hx-post=\"")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var53 string
-				templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("/api/download/delete?id=%s", job.ID))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 904, Col: 73}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var53)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "\" hx-confirm=\"Are you sure you want to delete this task and its files?\" hx-swap=\"none\" class=\"bg-rose-950/40 border border-rose-900/60 hover:bg-rose-900/40 hover:border-rose-800 text-rose-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1\">🗑️ Delete</button></div></td></tr>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "\" hx-confirm=\"Are you sure you want to delete this task and its files?\" hx-swap=\"none\" class=\"bg-rose-950/40 border border-rose-900/60 hover:bg-rose-900/40 hover:border-rose-800 text-rose-300 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1\">🗑️ Delete</button></div></td></tr>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
