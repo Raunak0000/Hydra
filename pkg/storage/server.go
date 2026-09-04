@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/Raunak0000/Hydra/pkg/models"
-	"github.com/Raunak0000/Hydra/pkg/views"
 )
 
 var (
@@ -483,19 +482,12 @@ func (s *Server) handleRenderDashboard(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	jobs := s.db.GetAllJobs()
-	if err := views.Dashboard(jobs).Render(r.Context(), w); err != nil {
-		http.Error(w, "Failed to compile dashboard: "+err.Error(), http.StatusInternalServerError)
-	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "running", "app": "Hydra Download Manager"})
 }
 
 func (s *Server) handleGetQueueSnippet(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	jobs := s.db.GetAllJobs()
-	if err := views.QueueRows(jobs).Render(r.Context(), w); err != nil {
-		http.Error(w, "Failed to render queue: "+err.Error(), http.StatusInternalServerError)
-	}
+	s.handleGetQueueJSON(w, r)
 }
 
 func (s *Server) handlePauseJob(w http.ResponseWriter, r *http.Request) {
