@@ -98,11 +98,38 @@ let _fpTargetInputId = null;
 let _fpCurrentPath = '';
 let _fpParentPath = '';
 
-function openFolderPicker(targetInputId) {
+async function openFolderPicker(targetInputId) {
 	_fpTargetInputId = targetInputId;
 	const inputEl = document.getElementById(targetInputId);
 	let startPath = inputEl ? inputEl.value.trim() : '~';
 	if (!startPath || startPath === 'PENDING' || startPath === 'DEFAULT') startPath = '~';
+
+	// Try using native Wails v2 directory picker first if available
+	if (window.go && window.go.main && window.go.main.App && window.go.main.App.SelectDirectory) {
+		try {
+			const nativeDir = await window.go.main.App.SelectDirectory(startPath);
+			if (nativeDir) {
+				const selectedDir = nativeDir.replace(/\\$/, '');
+				const currentVal = inputEl ? inputEl.value.trim() : '';
+				if (currentVal && !currentVal.endsWith('/')) {
+					const parts = currentVal.split('/');
+					const fn = parts[parts.length - 1];
+					if (fn && fn !== 'PENDING' && fn !== 'DEFAULT' && fn.indexOf('.') > 0) {
+						inputEl.value = selectedDir + '/' + fn;
+					} else {
+						inputEl.value = selectedDir + '/';
+					}
+				} else if (inputEl) {
+					inputEl.value = selectedDir + '/';
+				}
+				return;
+			}
+		} catch (e) {
+			console.warn("Native directory picker fallback to in-browser list", e);
+		}
+	}
+
+	// Fallback to in-browser modal tree picker
 	document.getElementById('folder-picker-modal').classList.remove('hidden');
 	loadFolderListing(startPath);
 }
@@ -217,7 +244,7 @@ function submitBatchDownload(event) {
 	const urlsText = document.getElementById('batch-urls-input').value;
 	const savePath = document.getElementById('batch-save-path').value;
 	const scheduleVal = document.getElementById('batch-schedule').value;
-	const urls = urlsText.split('\\n').map(function(u) { return u.trim(); }).filter(function(u) { return u.length > 0 && u.indexOf('http') === 0; });
+	const urls = urlsText.split('\n').map(function(u) { return u.trim(); }).filter(function(u) { return u.length > 0 && u.indexOf('http') === 0; });
 
 	if (urls.length === 0) {
 		alert("Please enter at least one valid HTTP/HTTPS URL.");
@@ -671,7 +698,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var3 string
 				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.ID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 909, Col: 20}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 936, Col: 20}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 				if templ_7745c5c3_Err != nil {
@@ -684,7 +711,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var4 string
 				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.FileName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 910, Col: 32}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 937, Col: 32}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 				if templ_7745c5c3_Err != nil {
@@ -697,7 +724,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var5 string
 				templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.SavePath)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 911, Col: 32}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 938, Col: 32}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 				if templ_7745c5c3_Err != nil {
@@ -710,7 +737,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var6 string
 				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.URL)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 912, Col: 22}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 939, Col: 22}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 				if templ_7745c5c3_Err != nil {
@@ -723,7 +750,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var7 string
 				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.Status)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 913, Col: 28}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 940, Col: 28}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
 				if templ_7745c5c3_Err != nil {
@@ -736,7 +763,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var8 string
 				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.ResolveAttributeValue(etaDisplay)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 914, Col: 25}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 941, Col: 25}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var8)
 				if templ_7745c5c3_Err != nil {
@@ -749,7 +776,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue(chunksJSON)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 915, Col: 28}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 942, Col: 28}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
 				if templ_7745c5c3_Err != nil {
@@ -762,7 +789,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var10 string
 				templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.FileName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 920, Col: 73}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 947, Col: 73}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var10)
 				if templ_7745c5c3_Err != nil {
@@ -775,7 +802,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var11 string
 				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(job.FileName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 920, Col: 90}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 947, Col: 90}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 				if templ_7745c5c3_Err != nil {
@@ -788,7 +815,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var12 string
 				templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.URL)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 921, Col: 85}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 948, Col: 85}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var12)
 				if templ_7745c5c3_Err != nil {
@@ -801,7 +828,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var13 string
 				templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(job.URL)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 921, Col: 97}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 948, Col: 97}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 				if templ_7745c5c3_Err != nil {
@@ -814,7 +841,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var14 string
 				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(job.Downloaded)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 926, Col: 27}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 953, Col: 27}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 				if templ_7745c5c3_Err != nil {
@@ -827,7 +854,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var15 string
 				templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(job.TotalSize)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 926, Col: 82}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 953, Col: 82}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 				if templ_7745c5c3_Err != nil {
@@ -868,7 +895,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var18 string
 				templ_7745c5c3_Var18, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(fmt.Sprintf("width: %.1f%%", job.Progress))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 941, Col: 58}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 968, Col: 58}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 				if templ_7745c5c3_Err != nil {
@@ -881,7 +908,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var19 string
 				templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%.1f%%", job.Progress))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 944, Col: 111}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 971, Col: 111}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 				if templ_7745c5c3_Err != nil {
@@ -917,7 +944,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 					var templ_7745c5c3_Var22 string
 					templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(job.Speed)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 951, Col: 17}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 978, Col: 17}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 					if templ_7745c5c3_Err != nil {
@@ -959,7 +986,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 					var templ_7745c5c3_Var25 string
 					templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(etaDisplay)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 960, Col: 18}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 987, Col: 18}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 					if templ_7745c5c3_Err != nil {
@@ -1141,7 +1168,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var41 string
 				templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.ID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1001, Col: 34}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1028, Col: 34}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var41)
 				if templ_7745c5c3_Err != nil {
@@ -1154,7 +1181,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var42 string
 				templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.URL)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1001, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1028, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var42)
 				if templ_7745c5c3_Err != nil {
@@ -1167,7 +1194,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var43 string
 				templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.ResolveAttributeValue(job.FileName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1001, Col: 86}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1028, Col: 86}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var43)
 				if templ_7745c5c3_Err != nil {
@@ -1202,7 +1229,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var46 string
 				templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("/api/download/pause?id=%s", job.ID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1004, Col: 72}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1031, Col: 72}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var46)
 				if templ_7745c5c3_Err != nil {
@@ -1237,7 +1264,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var49 string
 				templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("/api/download/resume?id=%s", job.ID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1007, Col: 73}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1034, Col: 73}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var49)
 				if templ_7745c5c3_Err != nil {
@@ -1263,7 +1290,7 @@ func QueueRows(jobs []models.UIJob) templ.Component {
 				var templ_7745c5c3_Var51 string
 				templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("/api/download/delete?id=%s", job.ID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1010, Col: 73}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/dashboard.templ`, Line: 1037, Col: 73}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var51)
 				if templ_7745c5c3_Err != nil {

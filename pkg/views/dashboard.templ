@@ -355,11 +355,38 @@ let _fpTargetInputId = null;
 let _fpCurrentPath = '';
 let _fpParentPath = '';
 
-function openFolderPicker(targetInputId) {
+async function openFolderPicker(targetInputId) {
 	_fpTargetInputId = targetInputId;
 	const inputEl = document.getElementById(targetInputId);
 	let startPath = inputEl ? inputEl.value.trim() : '~';
 	if (!startPath || startPath === 'PENDING' || startPath === 'DEFAULT') startPath = '~';
+
+	// Try using native Wails v2 directory picker first if available
+	if (window.go && window.go.main && window.go.main.App && window.go.main.App.SelectDirectory) {
+		try {
+			const nativeDir = await window.go.main.App.SelectDirectory(startPath);
+			if (nativeDir) {
+				const selectedDir = nativeDir.replace(/\\$/, '');
+				const currentVal = inputEl ? inputEl.value.trim() : '';
+				if (currentVal && !currentVal.endsWith('/')) {
+					const parts = currentVal.split('/');
+					const fn = parts[parts.length - 1];
+					if (fn && fn !== 'PENDING' && fn !== 'DEFAULT' && fn.indexOf('.') > 0) {
+						inputEl.value = selectedDir + '/' + fn;
+					} else {
+						inputEl.value = selectedDir + '/';
+					}
+				} else if (inputEl) {
+					inputEl.value = selectedDir + '/';
+				}
+				return;
+			}
+		} catch (e) {
+			console.warn("Native directory picker fallback to in-browser list", e);
+		}
+	}
+
+	// Fallback to in-browser modal tree picker
 	document.getElementById('folder-picker-modal').classList.remove('hidden');
 	loadFolderListing(startPath);
 }
@@ -474,7 +501,7 @@ function submitBatchDownload(event) {
 	const urlsText = document.getElementById('batch-urls-input').value;
 	const savePath = document.getElementById('batch-save-path').value;
 	const scheduleVal = document.getElementById('batch-schedule').value;
-	const urls = urlsText.split('\\n').map(function(u) { return u.trim(); }).filter(function(u) { return u.length > 0 && u.indexOf('http') === 0; });
+	const urls = urlsText.split('\n').map(function(u) { return u.trim(); }).filter(function(u) { return u.length > 0 && u.indexOf('http') === 0; });
 
 	if (urls.length === 0) {
 		alert("Please enter at least one valid HTTP/HTTPS URL.");
