@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +20,8 @@ var (
 	GlobalCancelMap   map[string]context.CancelFunc
 	GlobalCancelMutex *sync.Mutex
 )
+
+const hydraAPIToken = "hydra_secure_token_bf1f753e"
 
 type BatchDownloadPayload struct {
 	URLs        []string          `json:"urls"`
@@ -81,6 +84,8 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 	s.Router.HandleFunc("/api/download/pause", sameOriginOnly(s.handlePauseJob))
 	s.Router.HandleFunc("/api/download/resume", sameOriginOnly(s.handleResumeJob))
 	s.Router.HandleFunc("/api/download/delete", sameOriginOnly(s.handleDeleteJob))
+	s.Router.HandleFunc("/api/jobs", s.handleJobsAPI)
+	s.Router.HandleFunc("/api/jobs/", s.handleJobAPI)
 	s.Router.HandleFunc("/api/settings", sameOriginOnly(s.handleSettings))
 	s.Router.HandleFunc("/api/browse-directory", sameOriginOnly(s.handleBrowseDirectory))
 	s.Router.HandleFunc("/api/list-directory", sameOriginOnly(s.handleListDirectory))
@@ -93,6 +98,85 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 
 func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 	GetBroker().ServeHTTP(w, r)
+}
+
+func writeJSONError(w http.ResponseWriter, status int, code string, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"code":    code,
+		"error":   message,
+		"message": message,
+	})
+}
+
+func requireAPIToken(w http.ResponseWriter, r *http.Request) bool {
+	if r.Header.Get("X-Hydra-Token") != hydraAPIToken {
+		writeJSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid Hydra API token")
+		return false
+	}
+	return true
+}
+
+// handleJobsAPI exposes the stable API used by the TUI and other local clients.
+func (s *Server) handleJobsAPI(w http.ResponseWriter, r *http.Request) {
+	if !requireAPIToken(w, r) {
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(s.db.GetAllJobs())
+	case http.MethodPost:
+		// Reuse the existing creation path so queueing, scheduling, headers,
+		// and pending-path behavior remain identical for every client.
+		s.handleDownloadTrigger(w, r)
+	default:
+		writeJSONError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+	}
+}
+
+// handleJobAPI maps REST-style job paths to the existing control handlers.
+func (s *Server) handleJobAPI(w http.ResponseWriter, r *http.Request) {
+	if !requireAPIToken(w, r) {
+		return
+	}
+
+	pathValue := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/jobs/"), "/")
+	if pathValue == "" {
+		writeJSONError(w, http.StatusBadRequest, "INVALID_JOB_ID", "missing or invalid job id")
+		return
+	}
+
+	jobID := pathValue
+	for _, suffix := range []string{"/pause", "/resume"} {
+		if strings.HasSuffix(pathValue, suffix) {
+			jobID = strings.TrimSuffix(pathValue, suffix)
+			break
+		}
+	}
+	if jobID == "" || strings.Contains(jobID, "/") {
+		writeJSONError(w, http.StatusBadRequest, "INVALID_JOB_ID", "missing or invalid job id")
+		return
+	}
+
+	if _, exists := s.db.GetJob(jobID); !exists {
+		writeJSONError(w, http.StatusNotFound, "JOB_NOT_FOUND", "job not found")
+		return
+	}
+
+	r.URL.RawQuery = "id=" + url.QueryEscape(jobID)
+	switch {
+	case r.Method == http.MethodPost && strings.HasSuffix(pathValue, "/pause"):
+		s.handlePauseJob(w, r)
+	case r.Method == http.MethodPost && strings.HasSuffix(pathValue, "/resume"):
+		s.handleResumeJob(w, r)
+	case r.Method == http.MethodDelete:
+		s.handleDeleteJob(w, r)
+	default:
+		writeJSONError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+	}
 }
 
 func (s *Server) handleBrowseDirectory(w http.ResponseWriter, r *http.Request) {
@@ -188,7 +272,7 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Header.Get("X-Hydra-Token") != "hydra_secure_token_bf1f753e" {
+	if r.Header.Get("X-Hydra-Token") != hydraAPIToken {
 		http.Error(w, "Unauthorized: Invalid security token", http.StatusUnauthorized)
 		return
 	}
@@ -369,7 +453,7 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if r.Header.Get("X-Hydra-Token") != "hydra_secure_token_bf1f753e" {
+	if r.Header.Get("X-Hydra-Token") != hydraAPIToken {
 		http.Error(w, "Unauthorized: Invalid security token", http.StatusUnauthorized)
 		return
 	}
@@ -511,7 +595,8 @@ func (s *Server) handlePauseJob(w http.ResponseWriter, r *http.Request) {
 	if GetQueueManager() != nil {
 		GetQueueManager().ProcessNext()
 	}
-	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "job paused"})
 }
 
 func (s *Server) handleResumeJob(w http.ResponseWriter, r *http.Request) {
@@ -535,7 +620,8 @@ func (s *Server) handleResumeJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	GetBroker().BroadcastQueueState(s.db.GetAllJobs())
-	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "job resumed"})
 }
 
 func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
@@ -568,7 +654,8 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	if qm := GetQueueManager(); qm != nil {
 		qm.ProcessNext()
 	}
-	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "job deleted"})
 }
 
 func (s *Server) handleGetQueueJSON(w http.ResponseWriter, r *http.Request) {
@@ -675,7 +762,6 @@ func (s *Server) handleListDirectory(w http.ResponseWriter, r *http.Request) {
 		"files":       files,
 	})
 }
-
 
 // handleDiskSpace returns free disk space for a given directory path
 func (s *Server) handleDiskSpace(w http.ResponseWriter, r *http.Request) {
