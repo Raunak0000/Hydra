@@ -4,20 +4,16 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 	"time"
 
-	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/theme"
-
 	"github.com/Raunak0000/Hydra/pkg/downloader"
 	"github.com/Raunak0000/Hydra/pkg/models"
 	"github.com/Raunak0000/Hydra/pkg/storage"
-	"github.com/Raunak0000/Hydra/pkg/ui"
 )
 
 func main() {
@@ -198,25 +194,27 @@ func main() {
 		executeDownloadJob(url, savePath, jobID, nil)
 	})
 
-	// Initialize Fyne window workspace
-	fyneApp := app.NewWithID("com.hydra.downloader")
-	fyneApp.Settings().SetTheme(theme.DarkTheme())
-	window := fyneApp.NewWindow("Hydra Download Manager")
-	window.Resize(fyne.NewSize(1280, 800))
-
-	uiApp := ui.NewUIApp(window)
-	window.SetContent(uiApp.BuildUI(executeDownloadJob))
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	// Start HTTP server on port 9000
+	server := storage.NewServer(executeDownloadJob)
+	httpServer := &http.Server{
+		Addr:    ":9000",
+		Handler: server.Router,
+	}
 	go func() {
-		<-sigChan
-		_ = os.Remove(storage.GetSocketPath())
-		fyneApp.Quit()
+		log.Printf("[Hydra-Daemon] Starting HTTP server on :9000")
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("[Hydra-Daemon] Server error: %v", err)
+		}
 	}()
 
-	window.ShowAndRun()
+	// Wait for interrupt signal
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	<-sigChan
+	
+	log.Println("[Hydra-Daemon] Shutting down...")
 	_ = os.Remove(storage.GetSocketPath())
+	os.Exit(0)
 }
 
 func filepathBase(path string) string {
