@@ -1,5 +1,31 @@
 const HYDRA_API_URL = "http://127.0.0.1:9000/download";
 
+console.log("[Hydra] background interceptor started");
+
+function isHydraLocalEndpoint(url) {
+    try {
+        const parsed = new URL(url);
+        return (parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost") && parsed.port === "9000";
+    } catch (e) {
+        return false;
+    }
+}
+
+function filenameFromURL(url) {
+    try {
+        const pathname = new URL(url).pathname;
+        return decodeURIComponent(pathname.split('/').pop() || "downloaded_file.bin");
+    } catch (e) {
+        return "downloaded_file.bin";
+    }
+}
+
+function hasKnownDownloadExtension(url) {
+    const filename = filenameFromURL(url).toLowerCase();
+    const extension = filename.includes('.') ? filename.split('.').pop() : "";
+    return SnatchExtensions.has(extension);
+}
+
 // ──────────────────────────────────────────────────────────────
 // File extensions Hydra should intercept (games, music, movies, software, archives)
 // ──────────────────────────────────────────────────────────────
@@ -45,6 +71,18 @@ const MIN_INTERCEPT_BYTES = 512 * 1024; // 512 KB
 // Track recently dispatched URLs to prevent duplicate jobs
 const recentDispatches = new Map();
 const DEDUP_WINDOW_MS = 5000;
+const requestHeadersByID = new Map();
+
+function captureRequestHeaders(details) {
+    const headers = {};
+    for (const header of details.requestHeaders || []) {
+        const name = header.name.toLowerCase();
+        if (["cookie", "referer", "user-agent", "authorization", "accept", "origin"].includes(name)) {
+            headers[header.name] = header.value || "";
+        }
+    }
+    requestHeadersByID.set(details.requestId, headers);
+}
 
 function isDuplicate(url) {
     const now = Date.now();
@@ -60,8 +98,8 @@ function isDuplicate(url) {
 // ──────────────────────────────────────────────────────────────
 // Dispatch intercepted URL to Hydra Core Daemon
 // ──────────────────────────────────────────────────────────────
-async function dispatchToHydra(url, suggestedFilename, initiator) {
-    if (!url || url.includes("127.0.0.1") || url.includes("localhost")) {
+async function dispatchToHydra(url, suggestedFilename, initiator, capturedHeaders = {}) {
+    if (!url || isHydraLocalEndpoint(url)) {
         return;
     }
 
@@ -71,23 +109,21 @@ async function dispatchToHydra(url, suggestedFilename, initiator) {
     }
 
     try {
-        let cookieString = "";
-        try {
-            const cookies = await chrome.cookies.getAll({ url: url });
-            cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-        } catch (e) {
-            // Cookie extraction may fail for cross-domain restrictions
+        let cookieString = capturedHeaders.Cookie || capturedHeaders.cookie || "";
+        if (!cookieString) {
+            try {
+                const cookies = await chrome.cookies.getAll({ url: url });
+                cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+            } catch (e) {
+                // Cookie extraction may fail for cross-domain restrictions
+            }
         }
 
         const payload = {
             url: url,
             save_path: "DEFAULT",
             filename: decodeURIComponent(suggestedFilename || "downloaded_file.bin"),
-            headers: {
-                "Cookie": cookieString,
-                "User-Agent": navigator.userAgent,
-                "Referer": initiator || url
-            }
+            headers: { ...capturedHeaders, "Cookie": cookieString, "Referer": capturedHeaders.Referer || initiator || url }
         };
 
         const res = await fetch(HYDRA_API_URL, {
@@ -112,8 +148,9 @@ async function dispatchToHydra(url, suggestedFilename, initiator) {
 // 1. Network Response Interceptor (catches DDL links by headers)
 // ──────────────────────────────────────────────────────────────
 chrome.webRequest.onHeadersReceived.addListener(
-    async (details) => {
-        if (details.url.includes("127.0.0.1") || details.url.includes("localhost")) {
+    (details) => {
+        console.log("[Hydra] headers received:", details.type, details.url);
+        if (isHydraLocalEndpoint(details.url)) {
             return;
         }
 
@@ -190,11 +227,29 @@ chrome.webRequest.onHeadersReceived.addListener(
             // Clean URL-encoded characters from filename
             try { filename = decodeURIComponent(filename); } catch (e) { }
 
-            await dispatchToHydra(details.url, filename, details.initiator || details.url);
+            console.log("[Hydra] Intercepting download:", filename, details.url);
+            // Cancel the browser response immediately, then let Hydra download it.
+            const requestHeaders = requestHeadersByID.get(details.requestId) || {};
+            requestHeadersByID.delete(details.requestId);
+            void dispatchToHydra(details.url, filename, details.initiator || details.url, requestHeaders);
+            return { cancel: true };
         }
+
+        return {};
     },
     { urls: ["<all_urls>"], types: ["main_frame", "sub_frame", "other"] },
-    ["responseHeaders"]
+    ["blocking", "responseHeaders"]
+);
+
+chrome.webRequest.onBeforeSendHeaders.addListener(
+    (details) => {
+        if (!isHydraLocalEndpoint(details.url)) {
+            captureRequestHeaders(details);
+        }
+        return {};
+    },
+    { urls: ["<all_urls>"], types: ["main_frame", "sub_frame", "other", "xmlhttprequest"] },
+    ["requestHeaders"]
 );
 
 // ──────────────────────────────────────────────────────────────
@@ -203,10 +258,10 @@ chrome.webRequest.onHeadersReceived.addListener(
 // ──────────────────────────────────────────────────────────────
 if (chrome.downloads && chrome.downloads.onCreated) {
     chrome.downloads.onCreated.addListener(async (downloadItem) => {
+        console.log("[Hydra] Browser download created:", downloadItem.url);
         if (!downloadItem.url ||
             downloadItem.url.startsWith("blob:") ||
-            downloadItem.url.includes("127.0.0.1") ||
-            downloadItem.url.includes("localhost")) {
+            isHydraLocalEndpoint(downloadItem.url)) {
             return;
         }
 

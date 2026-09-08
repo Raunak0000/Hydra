@@ -32,11 +32,11 @@ type BatchDownloadPayload struct {
 
 type Server struct {
 	Router             *http.ServeMux
-	ExecuteDownloadJob func(url string, savePath string, jobID string, headers map[string]string)
+	ExecuteDownloadJob func(url string, savePath string, jobID string, headers map[string]string) error
 	db                 *DBStore
 }
 
-func NewServer(executeJobFunc func(url string, savePath string, jobID string, headers map[string]string)) *Server {
+func NewServer(executeJobFunc func(url string, savePath string, jobID string, headers map[string]string) error) *Server {
 	dbStore, _ := GetDBStore()
 	s := &Server{
 		Router:             http.NewServeMux(),
@@ -129,8 +129,6 @@ func (s *Server) handleJobsAPI(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(s.db.GetAllJobs())
 	case http.MethodPost:
-		// Reuse the existing creation path so queueing, scheduling, headers,
-		// and pending-path behavior remain identical for every client.
 		s.handleDownloadTrigger(w, r)
 	default:
 		writeJSONError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
@@ -194,7 +192,6 @@ func (s *Server) handleBrowseDirectory(w http.ResponseWriter, r *http.Request) {
 	if defaultPath == "" || defaultPath == "PENDING" || defaultPath == "DEFAULT" {
 		defaultPath = GetDefaultDownloadsDir()
 	} else {
-		// If current path points to a file, browse starting from its parent directory
 		resolved, err := ResolvePath(defaultPath)
 		if err == nil {
 			if stat, err := os.Stat(resolved); err == nil && !stat.IsDir() {
@@ -241,7 +238,6 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Dynamically update runtime queue concurrency limit
 		if qm := GetQueueManager(); qm != nil && updated.MaxConcurrentDownloads > 0 {
 			qm.mu.Lock()
 			qm.maxConcurrent = updated.MaxConcurrentDownloads
@@ -296,7 +292,6 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse optional schedule timestamp
 	var parsedScheduledAt *time.Time
 	if payload.ScheduledAt != "" {
 		if t, err := time.Parse(time.RFC3339, payload.ScheduledAt); err == nil {
@@ -306,7 +301,6 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 1. User submitted path for a pending job
 	if payload.JobID != "" {
 		job, exists := s.db.GetJob(payload.JobID)
 		if !exists {
@@ -315,7 +309,6 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		}
 
 		targetSavePath := payload.SavePath
-		// If path is a folder, retain existing filename
 		if strings.HasSuffix(targetSavePath, "/") || strings.HasSuffix(targetSavePath, string(filepath.Separator)) {
 			filename := job.FileName
 			if filename == "" || filename == "Calculating..." || filename == "Pending path..." {
@@ -341,13 +334,12 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 			job.Status = "SCHEDULED"
 			job.ScheduledAt = parsedScheduledAt
 			_ = s.db.SaveJob(&job)
-		} else if GetQueueManager() != nil && GetQueueManager().ShouldQueue() {
+		} else {
 			job.Status = "QUEUED"
 			_ = s.db.SaveJob(&job)
-		} else {
-			job.Status = "DOWNLOADING"
-			_ = s.db.SaveJob(&job)
-			go s.ExecuteDownloadJob(job.URL, securedPath, payload.JobID, job.Headers)
+			if GetQueueManager() != nil {
+				GetQueueManager().ProcessNext()
+			}
 		}
 		GetBroker().BroadcastQueueState(s.db.GetAllJobs())
 
@@ -357,9 +349,8 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. New job creation
 	var securedPath string
-	var status = "DOWNLOADING"
+	var status = "QUEUED"
 	var filename = "Calculating..."
 
 	if payload.SavePath == "PENDING" {
@@ -373,8 +364,20 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		NotifyPendingPath(filename)
 	} else {
 		targetSavePath := payload.SavePath
-		// If destination ends in directory slash, resolve filename automatically
-		if strings.HasSuffix(targetSavePath, "/") || strings.HasSuffix(targetSavePath, string(filepath.Separator)) {
+		if targetSavePath == "DEFAULT" || targetSavePath == "" {
+			filename = payload.Filename
+			if filename == "" || filename == "Calculating..." {
+				parts := strings.Split(payload.URL, "/")
+				if len(parts) > 0 {
+					filename = strings.Split(parts[len(parts)-1], "?")[0]
+				}
+			}
+			if filename == "" {
+				filename = "downloaded_file.bin"
+			}
+			filename = filepath.Base(filename)
+			targetSavePath = filepath.Join(ResolveCategoryPath(filename), filename)
+		} else if strings.HasSuffix(targetSavePath, "/") || strings.HasSuffix(targetSavePath, string(filepath.Separator)) {
 			inferredName := payload.Filename
 			if inferredName == "" || inferredName == "Calculating..." {
 				parts := strings.Split(payload.URL, "/")
@@ -399,14 +402,12 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Generate collision-safe unique job ID using monotonic timestamp
 	jobID := fmt.Sprintf("job_%d", time.Now().UnixNano())
 
-	// Determine if job is scheduled, queued, or running immediately
-	if status == "DOWNLOADING" {
+	if status != "PENDING_PATH" {
 		if parsedScheduledAt != nil && parsedScheduledAt.After(time.Now()) {
 			status = "SCHEDULED"
-		} else if GetQueueManager().ShouldQueue() {
+		} else {
 			status = "QUEUED"
 		}
 	}
@@ -429,8 +430,8 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 	_ = s.db.SaveJob(&newJob)
 	GetBroker().BroadcastQueueState(s.db.GetAllJobs())
 
-	if status == "DOWNLOADING" {
-		go s.ExecuteDownloadJob(payload.URL, securedPath, jobID, payload.Headers)
+	if status == "QUEUED" && GetQueueManager() != nil {
+		GetQueueManager().ProcessNext()
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -469,7 +470,6 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Parse optional batch schedule timestamp
 	var parsedScheduledAt *time.Time
 	if payload.ScheduledAt != "" {
 		if t, err := time.Parse(time.RFC3339, payload.ScheduledAt); err == nil {
@@ -499,7 +499,6 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 			continue
 		}
 
-		// Extract suggested filename from URL path
 		urlFilename := "downloaded_file.bin"
 		parts := strings.Split(trimmedURL, "/")
 		if len(parts) > 0 {
@@ -518,11 +517,9 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 		finalFilePath := filepath.Join(targetDir, urlFilename)
 		jobID := fmt.Sprintf("job_%d", time.Now().UnixNano())
 
-		status := "DOWNLOADING"
+		status := "QUEUED"
 		if parsedScheduledAt != nil && parsedScheduledAt.After(time.Now()) {
 			status = "SCHEDULED"
-		} else if GetQueueManager().ShouldQueue() {
-			status = "QUEUED"
 		}
 
 		newJob := models.UIJob{
@@ -543,13 +540,13 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 
 		_ = s.db.SaveJob(&newJob)
 		dispatchedJobIDs = append(dispatchedJobIDs, jobID)
-
-		if status == "DOWNLOADING" {
-			go s.ExecuteDownloadJob(trimmedURL, finalFilePath, jobID, payload.Headers)
-		}
 	}
 
 	GetBroker().BroadcastQueueState(s.db.GetAllJobs())
+
+	if GetQueueManager() != nil {
+		GetQueueManager().ProcessNext()
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
@@ -606,20 +603,19 @@ func (s *Server) handleResumeJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job, exists := s.db.GetJob(jobID)
+	_, exists := s.db.GetJob(jobID)
 	if !exists {
 		http.Error(w, "Job profile not found", http.StatusNotFound)
 		return
 	}
 
-	if GetQueueManager() != nil && GetQueueManager().ShouldQueue() {
-		_ = s.db.UpdateStatus(jobID, "QUEUED")
-	} else {
-		_ = s.db.UpdateStatus(jobID, "DOWNLOADING")
-		go s.ExecuteDownloadJob(job.URL, job.SavePath, jobID, job.Headers)
+	_ = s.db.UpdateStatus(jobID, "QUEUED")
+	GetBroker().BroadcastQueueState(s.db.GetAllJobs())
+
+	if GetQueueManager() != nil {
+		GetQueueManager().ProcessNext()
 	}
 
-	GetBroker().BroadcastQueueState(s.db.GetAllJobs())
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "job resumed"})
 }
@@ -650,7 +646,6 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	_ = s.db.DeleteJob(jobID)
 	GetBroker().BroadcastQueueState(s.db.GetAllJobs())
 
-	// Free slot for next queued job
 	if qm := GetQueueManager(); qm != nil {
 		qm.ProcessNext()
 	}
@@ -664,7 +659,6 @@ func (s *Server) handleGetQueueJSON(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(jobs)
 }
 
-// handleListDirectory returns the contents of a directory as JSON for the in-browser folder picker
 func (s *Server) handleListDirectory(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
@@ -696,7 +690,6 @@ func (s *Server) handleListDirectory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If targetPath is a file, navigate to its parent directory
 	if stat, statErr := os.Stat(resolved); statErr == nil && !stat.IsDir() {
 		resolved = filepath.Dir(resolved)
 	}
@@ -722,7 +715,6 @@ func (s *Server) handleListDirectory(w http.ResponseWriter, r *http.Request) {
 	files := make([]DirEntry, 0)
 
 	for _, entry := range entries {
-		// Skip hidden files/directories
 		if strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
@@ -747,10 +739,9 @@ func (s *Server) handleListDirectory(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Compute parent directory
 	parentPath := filepath.Dir(resolved)
 	if parentPath == resolved {
-		parentPath = "" // At filesystem root
+		parentPath = ""
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -763,7 +754,6 @@ func (s *Server) handleListDirectory(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleDiskSpace returns free disk space for a given directory path
 func (s *Server) handleDiskSpace(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)

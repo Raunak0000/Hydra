@@ -1,21 +1,21 @@
 {
-    "manifest_version": 3,
+    "manifest_version": 2,
     "name": "Hydra Advanced Download Interceptor",
     "version": "4.0.0",
     "description": "Native download sniffer and session interceptor for Hydra Core Daemon.",
     "permissions": [
         "webRequest",
+        "webRequestBlocking",
         "cookies",
         "tabs",
-        "downloads"
-    ],
-    "host_permissions": [
+        "downloads",
         "<all_urls>"
     ],
     "background": {
         "scripts": [
             "background.js"
-        ]
+        ],
+        "persistent": true
     },
     "browser_specific_settings": {
         "gecko": {

@@ -26,7 +26,7 @@ func main() {
 	storage.GlobalCancelMap = make(map[string]context.CancelFunc)
 	storage.GlobalCancelMutex = &sync.Mutex{}
 
-	executeDownloadJob := func(url string, savePath string, jobID string, headers map[string]string) {
+	executeDownloadJob := func(url string, savePath string, jobID string, headers map[string]string) error {
 		ctx, cancel := context.WithCancel(context.Background())
 		storage.GlobalCancelMutex.Lock()
 		storage.GlobalCancelMap[jobID] = cancel
@@ -43,7 +43,7 @@ func main() {
 		if err != nil {
 			_ = dbStore.UpdateErrorMessage(jobID, err.Error())
 			storage.NotifyDownloadFailed(filepathBase(savePath), err.Error())
-			return
+			return err
 		}
 
 		totalSizeStr := fmt.Sprintf("%.2f MB", float64(meta.Size)/(1024*1024))
@@ -56,7 +56,7 @@ func main() {
 		if err != nil {
 			_ = dbStore.UpdateErrorMessage(jobID, err.Error())
 			storage.NotifyDownloadFailed(filepathBase(savePath), err.Error())
-			return
+			return err
 		}
 		defer file.Close()
 
@@ -174,18 +174,19 @@ func main() {
 				_ = dbStore.UpdateErrorMessage(jobID, err.Error())
 				_ = dbStore.UpdateStatus(jobID, "FAILED")
 				storage.NotifyDownloadFailed(filepathBase(savePath), err.Error())
-				return
+				return err
 			}
 		default:
 		}
 
 		if ctx.Err() != nil {
-			return
+			return ctx.Err()
 		}
 
 		_ = dbStore.UpdateProgress(jobID, 100.0, formatBytes(meta.Size), "0.00 KB/s", "0s", "", "COMPLETED")
 		storage.ClearJobState(savePath)
 		storage.NotifyDownloadComplete(filepathBase(savePath), savePath)
+		return nil
 	}
 
 	storage.InitQueueManager(2, executeDownloadJob)
@@ -211,7 +212,7 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
-	
+
 	log.Println("[Hydra-Daemon] Shutting down...")
 	_ = os.Remove(storage.GetSocketPath())
 	os.Exit(0)

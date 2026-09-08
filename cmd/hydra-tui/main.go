@@ -17,7 +17,11 @@ func main() {
 	flag.Parse()
 
 	client := tui.NewDaemonClient(*daemonURL, *daemonToken)
-	program := tea.NewProgram(tui.NewModel(client), tea.WithAltScreen())
+	program := tea.NewProgram(
+		tui.NewModel(client),
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
+	)
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "hydra-tui: %v\n", err)
 		os.Exit(1)
