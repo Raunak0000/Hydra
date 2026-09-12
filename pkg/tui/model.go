@@ -64,8 +64,8 @@ type Model struct {
 	directoryBrowser *DirectoryBrowser
 	showDirectory    bool
 
-	// The directory selected by the user.
-	// Phase 5 will use this value when creating a download.
+	// Selected directory.
+	// Phase 5 will use this when creating a download.
 	selectedDirectory string
 }
 
@@ -139,7 +139,7 @@ func runAction(client *DaemonClient, jobID, action string) tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// When the directory browser is active, all input is delegated to it.
+	// While the directory browser is active, delegate input to it.
 	if m.showDirectory {
 		return m.updateDirectoryBrowser(msg)
 	}
@@ -280,33 +280,6 @@ func (m Model) updateDirectoryBrowser(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		updatedBrowser, command := m.directoryBrowser.Update(msg)
-		m.directoryBrowser = &updatedBrowser
-
-		return m, command
-
-	case tea.MouseMsg:
-		updatedBrowser, command := m.directoryBrowser.Update(msg)
-		m.directoryBrowser = &updatedBrowser
-
-		return m, command
-
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-
-		updatedBrowser, command := m.directoryBrowser.Update(msg)
-		m.directoryBrowser = &updatedBrowser
-
-		return m, command
-
-	case directoryBrowserLoadedMsg:
-		updatedBrowser, command := m.directoryBrowser.Update(msg)
-		m.directoryBrowser = &updatedBrowser
-
-		return m, command
-
 	case directoryBrowserSelectedMsg:
 		m.selectedDirectory = filepath.Clean(msg.path)
 
@@ -330,16 +303,13 @@ func (m Model) updateDirectoryBrowser(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) startDirectoryBrowser() tea.Cmd {
-	// Start at the filesystem root instead of hardcoding a machine-specific
-	// path such as /media/raunak/DATA1.
-	//
-	// This makes Hydra portable across Linux machines with different
-	// usernames, drive names, and mount points.
-	startPath := string(filepath.Separator)
+	// Phase 4 starts in the configured/default download directory.
+	// Users can navigate upward to / and then into mounted drives
+	// such as /media/<user>/DATA1.
+	startPath := defaultDownloadDirectory()
 
 	browser := NewDirectoryBrowser(startPath)
 
-	// Pass the current terminal dimensions to the browser.
 	browser.width = m.width
 	browser.height = m.height
 
@@ -444,7 +414,6 @@ func (m Model) footerAction(x, y int) string {
 }
 
 func (m Model) View() string {
-	// Render the directory browser instead of the dashboard.
 	if m.showDirectory && m.directoryBrowser != nil {
 		return m.directoryBrowser.View()
 	}
@@ -595,11 +564,17 @@ func helpView() string {
 }
 
 func truncate(value string, width int) string {
-	if width < 4 || len(value) <= width {
+	if width < 4 {
 		return value
 	}
 
-	return value[:width-3] + "..."
+	runes := []rune(value)
+
+	if len(runes) <= width {
+		return value
+	}
+
+	return string(runes[:width-3]) + "..."
 }
 
 func max(a, b int) int {

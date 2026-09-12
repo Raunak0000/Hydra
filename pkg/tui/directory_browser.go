@@ -50,6 +50,7 @@ type directoryBrowserStyles struct {
 	errorStyle  lipgloss.Style
 	footer      lipgloss.Style
 	highlighted lipgloss.Style
+	button      lipgloss.Style
 }
 
 var directoryStyles = directoryBrowserStyles{
@@ -85,6 +86,10 @@ var directoryStyles = directoryBrowserStyles{
 
 	highlighted: lipgloss.NewStyle().
 		Background(lipgloss.Color("237")),
+
+	button: lipgloss.NewStyle().
+		Foreground(lipgloss.Color("39")).
+		Bold(true),
 }
 
 func NewDirectoryBrowser(startPath string) DirectoryBrowser {
@@ -138,7 +143,14 @@ func readDirectory(path string) ([]os.DirEntry, error) {
 		}
 
 		// Case-insensitive alphabetical ordering.
-		return strings.ToLower(left.Name()) < strings.ToLower(right.Name())
+		leftName := strings.ToLower(left.Name())
+		rightName := strings.ToLower(right.Name())
+
+		if leftName == rightName {
+			return left.Name() < right.Name()
+		}
+
+		return leftName < rightName
 	})
 
 	return entries, nil
@@ -240,9 +252,26 @@ func (b DirectoryBrowser) updateMouse(msg tea.MouseMsg) (DirectoryBrowser, tea.C
 		return b, nil
 	}
 
+	// Handle footer buttons first.
+	if action := b.footerAction(msg.X, msg.Y); action != "" {
+		switch action {
+		case "select":
+			return b.selectCurrentDirectory()
+
+		case "back":
+			return b.goToParent()
+
+		case "cancel":
+			return b, func() tea.Msg {
+				return directoryBrowserCancelledMsg{}
+			}
+		}
+	}
+
 	index := b.indexFromMouseY(msg.Y)
 
 	entries := b.visibleEntries()
+
 	if index < 0 || index >= len(entries) {
 		return b, nil
 	}
@@ -252,6 +281,7 @@ func (b DirectoryBrowser) updateMouse(msg tea.MouseMsg) (DirectoryBrowser, tea.C
 	// Double-click within 400 milliseconds.
 	if b.lastClickIndex == index &&
 		now.Sub(b.lastClickTime) <= 400*time.Millisecond {
+
 		b.selected = index
 		b.lastClickIndex = -1
 		b.lastClickTime = time.Time{}
@@ -262,6 +292,7 @@ func (b DirectoryBrowser) updateMouse(msg tea.MouseMsg) (DirectoryBrowser, tea.C
 	b.selected = index
 	b.lastClickIndex = index
 	b.lastClickTime = now
+
 	b.clampScroll()
 
 	return b, nil
@@ -276,7 +307,7 @@ func (b DirectoryBrowser) openSelected() (DirectoryBrowser, tea.Cmd) {
 
 	entry := entries[b.selected]
 
-	// The synthetic parent entry.
+	// Synthetic parent entry.
 	if entry.Name() == ".." {
 		return b.goToParent()
 	}
@@ -288,7 +319,7 @@ func (b DirectoryBrowser) openSelected() (DirectoryBrowser, tea.Cmd) {
 
 	nextPath := filepath.Join(b.currentPath, entry.Name())
 
-	// Use os.Stat to follow symlinks safely and verify the target.
+	// Validate the target and follow symlinks safely.
 	info, err := os.Stat(nextPath)
 	if err != nil {
 		b.err = fmt.Errorf("cannot open directory: %w", err)
@@ -300,7 +331,21 @@ func (b DirectoryBrowser) openSelected() (DirectoryBrowser, tea.Cmd) {
 		return b, nil
 	}
 
-	b.currentPath = filepath.Clean(nextPath)
+	// Canonicalize the resulting path. This also catches broken
+	// symlink chains and symlink loops.
+	resolvedPath, err := filepath.EvalSymlinks(nextPath)
+	if err != nil {
+		b.err = fmt.Errorf("cannot resolve directory: %w", err)
+		return b, nil
+	}
+
+	absolutePath, err := filepath.Abs(resolvedPath)
+	if err != nil {
+		b.err = fmt.Errorf("cannot resolve directory path: %w", err)
+		return b, nil
+	}
+
+	b.currentPath = filepath.Clean(absolutePath)
 	b.selected = 0
 	b.scroll = 0
 	b.err = nil
@@ -311,12 +356,12 @@ func (b DirectoryBrowser) openSelected() (DirectoryBrowser, tea.Cmd) {
 func (b DirectoryBrowser) goToParent() (DirectoryBrowser, tea.Cmd) {
 	parent := filepath.Dir(b.currentPath)
 
-	// Already at the filesystem root.
+	// Already at filesystem root.
 	if parent == b.currentPath {
 		return b, nil
 	}
 
-	b.currentPath = parent
+	b.currentPath = filepath.Clean(parent)
 	b.selected = 0
 	b.scroll = 0
 	b.err = nil
@@ -392,8 +437,9 @@ func (b *DirectoryBrowser) clampScroll() {
 }
 
 func (b DirectoryBrowser) visibleRows() int {
-	// Title + path + spacing + footer.
-	return max(1, b.height-7)
+	// Reserve space for:
+	// title, path, spacing, selected directory, buttons, footer.
+	return max(1, b.height-8)
 }
 
 func (b DirectoryBrowser) visibleEntries() []os.DirEntry {
@@ -431,23 +477,56 @@ func (b *DirectoryBrowser) refreshVisibleEntries() {
 	b.clampScroll()
 }
 
-func (b DirectoryBrowser) indexFromMouseY(y int) int {
-	// View layout:
-	//
-	// 0: title
-	// 1: blank
-	// 2: path
-	// 3: blank
-	// 4+: entries
-	//
-	// An error adds two extra lines before the entries.
-	firstEntryY := 4
+func (b DirectoryBrowser) entryStartY() int {
+	y := 4
 
 	if b.err != nil {
-		firstEntryY += 2
+		y += 2
 	}
 
-	index := y - firstEntryY + b.scroll
+	return y
+}
+
+func (b DirectoryBrowser) renderedEntryCount() int {
+	entries := b.visibleEntries()
+
+	if len(entries) == 0 {
+		return 1
+	}
+
+	return min(
+		len(entries),
+		b.scroll+b.visibleRows(),
+	) - b.scroll
+}
+
+func (b DirectoryBrowser) footerY() int {
+	return b.entryStartY() + b.renderedEntryCount() + 3
+}
+
+func (b DirectoryBrowser) footerAction(x, y int) string {
+	if y != b.footerY() {
+		return ""
+	}
+
+	// [Select]  [Back]  [Cancel]
+	switch {
+	case x >= 0 && x < 10:
+		return "select"
+
+	case x >= 11 && x < 18:
+		return "back"
+
+	case x >= 19 && x < 28:
+		return "cancel"
+
+	default:
+		return ""
+	}
+}
+
+func (b DirectoryBrowser) indexFromMouseY(y int) int {
+	index := y - b.entryStartY() + b.scroll
 
 	if index < 0 {
 		return -1
@@ -459,11 +538,21 @@ func (b DirectoryBrowser) indexFromMouseY(y int) int {
 func (b DirectoryBrowser) View() string {
 	var lines []string
 
+	width := b.width
+
+	if width <= 0 {
+		width = 80
+	}
+
+	contentWidth := max(1, width-2)
+
 	lines = append(
 		lines,
 		directoryStyles.title.Render("Select download directory"),
 		"",
-		directoryStyles.path.Render("Path: "+b.currentPath),
+		directoryStyles.path.Render(
+			truncate("Path: "+b.currentPath, contentWidth),
+		),
 		"",
 	)
 
@@ -471,7 +560,7 @@ func (b DirectoryBrowser) View() string {
 		lines = append(
 			lines,
 			directoryStyles.errorStyle.Render(
-				"Error: "+b.err.Error(),
+				truncate("Error: "+b.err.Error(), contentWidth),
 			),
 		)
 
@@ -486,13 +575,16 @@ func (b DirectoryBrowser) View() string {
 			directoryStyles.muted.Render("Directory is empty."),
 		)
 	} else {
-		end := min(len(entries), b.scroll+b.visibleRows())
+		end := min(
+			len(entries),
+			b.scroll+b.visibleRows(),
+		)
 
 		for index := b.scroll; index < end; index++ {
 			entry := entries[index]
 
 			name := entry.Name()
-			prefix := "      "
+			prefix := "[FILE]"
 
 			if name == ".." {
 				prefix = "  "
@@ -500,29 +592,31 @@ func (b DirectoryBrowser) View() string {
 			} else if entry.IsDir() {
 				prefix = "[DIR] "
 				name += "/"
-			} else {
-				prefix = "[FILE]"
 			}
 
 			line := prefix + " " + name
-			line = truncate(line, max(1, b.width-2))
+			line = truncate(line, contentWidth)
 
-			if index == b.selected {
+			switch {
+			case index == b.selected:
 				lines = append(
 					lines,
 					directoryStyles.selected.Render(line),
 				)
-			} else if entry.Name() == ".." {
+
+			case entry.Name() == "..":
 				lines = append(
 					lines,
 					directoryStyles.parent.Render(line),
 				)
-			} else if entry.IsDir() {
+
+			case entry.IsDir():
 				lines = append(
 					lines,
 					directoryStyles.directory.Render(line),
 				)
-			} else {
+
+			default:
 				lines = append(
 					lines,
 					directoryStyles.file.Render(line),
@@ -536,11 +630,31 @@ func (b DirectoryBrowser) View() string {
 	lines = append(
 		lines,
 		directoryStyles.muted.Render(
-			fmt.Sprintf("Selected directory: %s", b.currentPath),
+			truncate(
+				fmt.Sprintf("Selected directory: %s", b.currentPath),
+				contentWidth,
+			),
 		),
 		"",
+	)
+
+	// Mouse-clickable footer buttons.
+	buttons := "[Select]  [Back]  [Cancel]"
+
+	lines = append(
+		lines,
+		directoryStyles.button.Render(
+			truncate(buttons, contentWidth),
+		),
+	)
+
+	lines = append(
+		lines,
 		directoryStyles.footer.Render(
-			"↑/↓ select  Enter open  Backspace parent  . hidden  S select  Esc cancel",
+			truncate(
+				"↑/↓ select  Enter open  Backspace parent  . hidden  S select  Esc cancel",
+				contentWidth,
+			),
 		),
 	)
 
