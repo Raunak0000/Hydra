@@ -274,12 +274,16 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var payload struct {
-		JobID       string            `json:"job_id"`
-		URL         string            `json:"url"`
-		SavePath    string            `json:"save_path"`
-		Filename    string            `json:"filename"`
-		ScheduledAt string            `json:"scheduled_at"`
-		Headers     map[string]string `json:"headers"`
+		JobID            string            `json:"job_id"`
+		URL              string            `json:"url"`
+		SavePath         string            `json:"save_path"`
+		Filename         string            `json:"filename"`
+		ScheduledAt      string            `json:"scheduled_at"`
+		Headers          map[string]string `json:"headers"`
+		MaxSpeedBytes    int64             `json:"max_speed_bytes"`
+		ExpectedChecksum string            `json:"expected_checksum"`
+		ChecksumAlgo     string            `json:"checksum_algo"`
+		BatchID          string            `json:"batch_id"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -330,6 +334,12 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		}
 
 		job.SavePath = securedPath
+		job.ScheduledAt = parsedScheduledAt
+		job.Headers = payload.Headers
+		job.MaxSpeedBytes = payload.MaxSpeedBytes
+		job.ExpectedChecksum = payload.ExpectedChecksum
+		job.ChecksumAlgo = payload.ChecksumAlgo
+		job.BatchID = payload.BatchID
 		if parsedScheduledAt != nil && parsedScheduledAt.After(time.Now()) {
 			job.Status = "SCHEDULED"
 			job.ScheduledAt = parsedScheduledAt
@@ -413,18 +423,22 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newJob := models.UIJob{
-		ID:          jobID,
-		FileName:    filename,
-		URL:         payload.URL,
-		SavePath:    securedPath,
-		Progress:    0.0,
-		TotalSize:   "Calculating...",
-		Downloaded:  "0.00 MB",
-		Speed:       "0.00 KB/s",
-		ETA:         "--",
-		Status:      status,
-		ScheduledAt: parsedScheduledAt,
-		Headers:     payload.Headers,
+		ID:               jobID,
+		FileName:         filename,
+		URL:              payload.URL,
+		SavePath:         securedPath,
+		Progress:         0.0,
+		TotalSize:        "Calculating...",
+		Downloaded:       "0.00 MB",
+		Speed:            "0.00 KB/s",
+		ETA:              "--",
+		Status:           status,
+		ScheduledAt:      parsedScheduledAt,
+		Headers:          payload.Headers,
+		MaxSpeedBytes:    payload.MaxSpeedBytes,
+		ExpectedChecksum: payload.ExpectedChecksum,
+		ChecksumAlgo:     payload.ChecksumAlgo,
+		BatchID:          payload.BatchID,
 	}
 
 	_ = s.db.SaveJob(&newJob)

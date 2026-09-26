@@ -25,9 +25,15 @@ type actionResultMsg struct {
 	err    error
 }
 
+type downloadCreatedMsg struct {
+	jobID string
+	err   error
+}
+
 type keyMap struct {
 	up, down, pageUp, pageDown     key.Binding
 	refresh, pause, resume, delete key.Binding
+	newDownload                    key.Binding
 	confirm, cancel, quit, help    key.Binding
 	openDirectory                  key.Binding
 }
@@ -41,8 +47,9 @@ var keys = keyMap{
 	pause:         key.NewBinding(key.WithKeys("p")),
 	resume:        key.NewBinding(key.WithKeys("e")),
 	delete:        key.NewBinding(key.WithKeys("d")),
+	newDownload:   key.NewBinding(key.WithKeys("n")),
 	confirm:       key.NewBinding(key.WithKeys("y", "enter")),
-	cancel:        key.NewBinding(key.WithKeys("n", "esc")),
+	cancel:        key.NewBinding(key.WithKeys("esc")),
 	quit:          key.NewBinding(key.WithKeys("q", "ctrl+c")),
 	help:          key.NewBinding(key.WithKeys("?")),
 	openDirectory: key.NewBinding(key.WithKeys("b")),
@@ -64,9 +71,13 @@ type Model struct {
 	directoryBrowser *DirectoryBrowser
 	showDirectory    bool
 
-	// Selected directory.
-	// Phase 5 will use this when creating a download.
+	// Directory selected by the user.
 	selectedDirectory string
+
+	// Phase 5 new download form state.
+	downloadForm    *DownloadForm
+	showNewDownload bool
+	pendingJobID    string
 }
 
 func NewModel(client *DaemonClient) Model {
@@ -101,7 +112,7 @@ func fetchJobs(client *DaemonClient) tea.Cmd {
 }
 
 func scheduleRefresh() tea.Cmd {
-	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
 		return refreshMsg(t)
 	})
 }
@@ -138,19 +149,90 @@ func runAction(client *DaemonClient, jobID, action string) tea.Cmd {
 	}
 }
 
+// createDownload sends the Phase 5 download request to the daemon.
+func createDownload(client *DaemonClient, request CreateDownloadRequest) tea.Cmd {
+	return func() tea.Msg {
+		if client == nil {
+			return downloadCreatedMsg{
+				err: fmt.Errorf("daemon client is nil"),
+			}
+		}
+
+		jobID, err := client.CreateDownload(request)
+
+		return downloadCreatedMsg{
+			jobID: jobID,
+			err:   err,
+		}
+	}
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// While the directory browser is active, delegate input to it.
+
+	// Automatic refresh must be handled before the directory browser
+	// or download form so the dashboard continues updating in the
+	// background.
+	switch msg := msg.(type) {
+
+	case refreshMsg:
+		return m, tea.Batch(
+			fetchJobs(m.client),
+			scheduleRefresh(),
+		)
+
+	case jobsLoadedMsg:
+		m.loading = false
+		m.err = msg.err
+
+		if msg.err == nil {
+			oldSelectedID := ""
+
+			if m.hasSelection() {
+				oldSelectedID = m.jobs[m.selected].ID
+			}
+
+			m.jobs = msg.jobs
+			m.lastUpdated = time.Now()
+
+			// Try to keep the same job selected after refresh.
+			if oldSelectedID != "" {
+				for i, job := range m.jobs {
+					if job.ID == oldSelectedID {
+						m.selected = i
+						break
+					}
+				}
+			}
+
+			m.clampSelection()
+			m.clampScroll()
+		}
+
+		// Keep interactive screens open while the dashboard refreshes.
+		if m.showDirectory || m.showNewDownload {
+			return m, nil
+		}
+	}
+
+	// Directory browser is active.
 	if m.showDirectory {
 		return m.updateDirectoryBrowser(msg)
 	}
 
+	// New download form is active.
+	if m.showNewDownload {
+		return m.updateDownloadForm(msg)
+	}
+
 	switch msg := msg.(type) {
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		m.clampScroll()
 
 	case tea.KeyMsg:
+
 		if m.confirming {
 			if key.Matches(msg, keys.confirm) && m.hasSelection() {
 				m.confirming = false
@@ -171,8 +253,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch {
+
 		case key.Matches(msg, keys.quit):
 			return m, tea.Quit
+
+		case key.Matches(msg, keys.newDownload):
+			return m, m.startDownloadForm()
 
 		case key.Matches(msg, keys.refresh):
 			m.loading = true
@@ -209,6 +295,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.MouseMsg:
+
 		if msg.Button == tea.MouseButtonWheelUp {
 			m.moveSelection(-1)
 			return m, nil
@@ -224,6 +311,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			msg.Y >= m.tableTop() {
 
 			if action := m.footerAction(msg.X, msg.Y); action != "" {
+
 				if action == "delete" {
 					m.confirming = m.hasSelection()
 					return m, nil
@@ -243,18 +331,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case jobsLoadedMsg:
-		m.loading = false
-		m.err = msg.err
-
-		if msg.err == nil {
-			m.jobs = msg.jobs
-			m.lastUpdated = time.Now()
-
-			m.clampSelection()
-			m.clampScroll()
-		}
-
 	case actionResultMsg:
 		m.working = false
 		m.err = msg.err
@@ -262,15 +338,124 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			return m, fetchJobs(m.client)
 		}
-
-	case refreshMsg:
-		return m, tea.Batch(
-			fetchJobs(m.client),
-			scheduleRefresh(),
-		)
 	}
 
 	return m, nil
+}
+
+// startDownloadForm opens the Phase 5 new download form.
+func (m *Model) startDownloadForm() tea.Cmd {
+	directory := m.selectedDirectory
+
+	if directory == "" {
+		directory = defaultDownloadDirectory()
+	}
+
+	form := NewDownloadForm(directory)
+
+	m.downloadForm = &form
+	m.showNewDownload = true
+	m.err = nil
+	m.working = false
+
+	return nil
+}
+
+// updateDownloadForm handles Phase 5 form messages and input.
+func (m *Model) updateDownloadForm(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.downloadForm == nil {
+		m.showNewDownload = false
+		return m, nil
+	}
+
+	switch msg := msg.(type) {
+
+	case openDownloadDirectoryMsg:
+		return m, m.startDownloadDirectoryBrowser()
+
+	case downloadCancelledMsg:
+		m.showNewDownload = false
+		m.downloadForm = nil
+		m.pendingJobID = ""
+		m.err = nil
+
+		return m, nil
+
+	case submitDownloadMsg:
+		m.working = true
+		m.err = nil
+
+		return m, createDownload(m.client, msg.request)
+
+	case downloadCreatedMsg:
+		m.working = false
+
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+
+		m.pendingJobID = msg.jobID
+		m.showNewDownload = false
+		m.downloadForm = nil
+		m.err = nil
+
+		return m, fetchJobs(m.client)
+
+	case directoryBrowserSelectedMsg:
+		m.selectedDirectory = filepath.Clean(msg.path)
+
+		if m.downloadForm != nil {
+			m.downloadForm.SetDirectory(m.selectedDirectory)
+
+			// Return to the filename stage after selecting
+			// a directory.
+			m.downloadForm.stage = downloadStageFilename
+			m.downloadForm.focusFilename()
+		}
+
+		m.showDirectory = false
+		m.directoryBrowser = nil
+
+		return m, nil
+
+	case directoryBrowserCancelledMsg:
+		m.showDirectory = false
+		m.directoryBrowser = nil
+
+		return m, nil
+
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+
+		updatedForm, command := m.downloadForm.Update(msg)
+		m.downloadForm = &updatedForm
+
+		return m, command
+	}
+
+	updatedForm, command := m.downloadForm.Update(msg)
+	m.downloadForm = &updatedForm
+
+	return m, command
+}
+
+// startDownloadDirectoryBrowser opens the filesystem browser
+// from the root so drives/mounts such as /media/raunak/DATA1
+// can be selected without hardcoding them.
+func (m *Model) startDownloadDirectoryBrowser() tea.Cmd {
+	startPath := string(filepath.Separator)
+
+	browser := NewDirectoryBrowser(startPath)
+
+	browser.width = m.width
+	browser.height = m.height
+
+	m.directoryBrowser = &browser
+	m.showDirectory = true
+
+	return browser.Init()
 }
 
 func (m Model) updateDirectoryBrowser(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -280,6 +465,34 @@ func (m Model) updateDirectoryBrowser(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+
+	case tea.KeyMsg:
+		updatedBrowser, command := m.directoryBrowser.Update(msg)
+		m.directoryBrowser = &updatedBrowser
+
+		return m, command
+
+	case tea.MouseMsg:
+		updatedBrowser, command := m.directoryBrowser.Update(msg)
+		m.directoryBrowser = &updatedBrowser
+
+		return m, command
+
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+
+		updatedBrowser, command := m.directoryBrowser.Update(msg)
+		m.directoryBrowser = &updatedBrowser
+
+		return m, command
+
+	case directoryBrowserLoadedMsg:
+		updatedBrowser, command := m.directoryBrowser.Update(msg)
+		m.directoryBrowser = &updatedBrowser
+
+		return m, command
+
 	case directoryBrowserSelectedMsg:
 		m.selectedDirectory = filepath.Clean(msg.path)
 
@@ -287,11 +500,27 @@ func (m Model) updateDirectoryBrowser(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.directoryBrowser = nil
 		m.err = nil
 
+		// If the directory browser was opened from the Phase 5
+		// download form, return to the filename stage and update
+		// the form with the selected directory.
+		if m.downloadForm != nil && m.showNewDownload {
+			m.downloadForm.SetDirectory(m.selectedDirectory)
+			m.downloadForm.stage = downloadStageFilename
+
+			return m, m.downloadForm.focusFilename()
+		}
+
 		return m, nil
 
 	case directoryBrowserCancelledMsg:
 		m.showDirectory = false
 		m.directoryBrowser = nil
+
+		// Return to the download form if the browser was opened
+		// from the Phase 5 form.
+		if m.downloadForm != nil && m.showNewDownload {
+			return m, m.downloadForm.focusFilename()
+		}
 
 		return m, nil
 	}
@@ -303,10 +532,7 @@ func (m Model) updateDirectoryBrowser(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) startDirectoryBrowser() tea.Cmd {
-	// Phase 4 starts in the configured/default download directory.
-	// Users can navigate upward to / and then into mounted drives
-	// such as /media/<user>/DATA1.
-	startPath := defaultDownloadDirectory()
+	startPath := string(filepath.Separator)
 
 	browser := NewDirectoryBrowser(startPath)
 
@@ -414,8 +640,14 @@ func (m Model) footerAction(x, y int) string {
 }
 
 func (m Model) View() string {
+	// Render the directory browser first.
 	if m.showDirectory && m.directoryBrowser != nil {
 		return m.directoryBrowser.View()
+	}
+
+	// Render the Phase 5 new download form.
+	if m.showNewDownload && m.downloadForm != nil {
+		return m.downloadForm.View()
 	}
 
 	header := lipgloss.JoinHorizontal(
@@ -439,6 +671,7 @@ func (m Model) View() string {
 	body := ""
 
 	switch {
+
 	case m.loading && len(m.jobs) == 0:
 		body = mutedStyle.Render(
 			"Connecting to Hydra daemon...",
@@ -458,10 +691,10 @@ func (m Model) View() string {
 		body = m.jobsView()
 	}
 
-	footer := "↑/↓ select  [P] pause  [E] resume  [D] delete  [B] browse  [R] refresh  [?] help  [Q] quit"
+	footer := "↑/↓ select  [N] new  [P] pause  [E] resume  [D] delete  [B] browse  [R] refresh  [?] help  [Q] quit"
 
 	if m.confirming {
-		footer = "Delete selected job?  [Y/Enter] confirm  [N/Esc] cancel"
+		footer = "Delete selected job?  [Y/Enter] confirm  [Esc] cancel"
 	} else if m.working {
 		footer = "Working..."
 	} else if !m.lastUpdated.IsZero() {
@@ -551,6 +784,7 @@ func helpView() string {
 			"PageUp/PageDown Scroll",
 			"Mouse wheel    Scroll and select",
 			"Mouse click    Select a row",
+			"n               Create a new download",
 			"p               Pause selected job",
 			"e               Resume selected job",
 			"d               Delete selected job",
@@ -564,17 +798,11 @@ func helpView() string {
 }
 
 func truncate(value string, width int) string {
-	if width < 4 {
+	if width < 4 || len(value) <= width {
 		return value
 	}
 
-	runes := []rune(value)
-
-	if len(runes) <= width {
-		return value
-	}
-
-	return string(runes[:width-3]) + "..."
+	return value[:width-3] + "..."
 }
 
 func max(a, b int) int {

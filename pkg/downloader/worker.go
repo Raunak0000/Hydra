@@ -38,7 +38,7 @@ var SharedHTTPClient = &http.Client{
 		DisableCompression:  true, // Raw binary payload; avoids CPU decompression overhead
 		WriteBufferSize:     BufferSize,
 		ReadBufferSize:      BufferSize,
-		ForceAttemptHTTP2:   true,
+		ForceAttemptHTTP2:   false,
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
