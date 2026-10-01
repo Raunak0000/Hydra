@@ -19,7 +19,7 @@ func newMetadataClient() *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 
 	// Be more compatible with public file servers.
-	transport.ForceAttemptHTTP2 = false
+	transport.ForceAttemptHTTP2 = true
 	transport.DisableCompression = true
 
 	return &http.Client{
