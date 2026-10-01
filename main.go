@@ -84,18 +84,26 @@ func main() {
 			numThreads = 1
 		}
 
-		chunks := downloader.CalculateChunks(meta.Size, numThreads)
+		var chunks []downloader.Chunk
+
+		if len(job.Chunks) > 0 {
+			// Resuming an existing download: use the persisted chunk configuration.
+			chunks = make([]downloader.Chunk, len(job.Chunks))
+			for i, sc := range job.Chunks {
+				chunks[i] = downloader.Chunk{
+					Index: sc.Index,
+					Start: sc.Start,
+					End:   sc.End,
+				}
+			}
+			numThreads = len(chunks)
+		} else {
+			// Fresh download: calculate initial chunks.
+			chunks = downloader.CalculateChunks(meta.Size, numThreads)
+		}
 
 		trackers := make([]*downloader.AdaptiveTracker, len(chunks))
 		chunkStates := make([]models.ChunkState, len(chunks))
-
-		// ----------------------------------------------------------
-		// Restore persisted chunk state when resuming.
-		// A fresh download has no chunk state yet.
-		// ----------------------------------------------------------
-		if len(job.Chunks) == len(chunks) {
-			copy(chunkStates, job.Chunks)
-		}
 
 		// Build trackers from persisted state when available.
 		for i, ch := range chunks {
@@ -107,27 +115,19 @@ func main() {
 				Completed:     false,
 			}
 
-			if len(job.Chunks) == len(chunks) {
+			if len(job.Chunks) > 0 && i < len(job.Chunks) {
 				state = job.Chunks[i]
 
-				// Validate persisted state before using it.
-				if state.Start < 0 || state.End < state.Start {
-					state.Start = ch.Start
-					state.End = ch.End
-					state.CurrentOffset = ch.Start
-					state.Completed = false
-				}
-
-				if state.CurrentOffset < state.Start ||
-					state.CurrentOffset > state.End+1 {
-					state.CurrentOffset = state.Start
-					state.Completed = false
-				}
-
-				// Completed chunks resume at the byte immediately
-				// after their inclusive end boundary.
 				if state.Completed {
 					state.CurrentOffset = state.End + 1
+				} else {
+					if state.CurrentOffset < state.Start {
+						state.CurrentOffset = state.Start
+					}
+					if state.End > 0 && state.CurrentOffset > state.End+1 {
+						state.CurrentOffset = state.End + 1
+						state.Completed = true
+					}
 				}
 			}
 
@@ -142,8 +142,7 @@ func main() {
 		}
 
 		// Persist initial state only for a brand-new download.
-		// NEVER overwrite an existing resume checkpoint.
-		if len(job.Chunks) != len(chunks) {
+		if len(job.Chunks) == 0 {
 			_ = dbStore.UpdateJobChunks(jobID, chunkStates)
 		}
 
@@ -152,7 +151,27 @@ func main() {
 		progressChan := make(chan int64, 1024)
 		stateChan := make(chan downloader.Chunk, 1024)
 
+		// ----------------------------------------------------------
+		// Restore aggregate download progress from persisted chunks.
+		// ----------------------------------------------------------
 		var downloadedBytes int64
+
+		for _, state := range chunkStates {
+			current := state.CurrentOffset
+
+			if state.End > 0 && current > state.End+1 {
+				current = state.End + 1
+			}
+
+			if current > state.Start {
+				downloadedBytes += current - state.Start
+			}
+		}
+
+		// Never allow restored progress to exceed the actual file size.
+		if meta.Size > 0 && downloadedBytes > meta.Size {
+			downloadedBytes = meta.Size
+		}
 
 		// Prefer the per-job speed limit.
 		// Fall back to the global Hydra configuration if no
@@ -193,7 +212,7 @@ func main() {
 			ticker := time.NewTicker(250 * time.Millisecond)
 			defer ticker.Stop()
 
-			lastDownloaded := int64(0)
+			lastDownloaded := downloadedBytes
 			lastTime := time.Now()
 
 			for {
@@ -208,13 +227,24 @@ func main() {
 					if st.Index >= 0 && st.Index < len(chunkStates) {
 						chunkStates[st.Index].CurrentOffset = st.Start
 
-						if st.End > 0 && st.Start >= st.End {
+						if st.End > 0 && st.Start > st.End {
 							chunkStates[st.Index].Completed = true
 						}
 					}
 
 				case <-ticker.C:
 					now := time.Now()
+
+					// Synchronize chunk positions directly from atomic trackers
+					for i, tr := range trackers {
+						cur := tr.GetCurrent()
+						end := tr.GetEnd()
+						chunkStates[i].CurrentOffset = cur
+						if end > 0 && cur > end {
+							chunkStates[i].Completed = true
+							chunkStates[i].CurrentOffset = end + 1
+						}
+					}
 
 					duration := now.Sub(lastTime).Seconds()
 					if duration <= 0 {
@@ -273,6 +303,44 @@ func main() {
 		close(progressChan)
 		close(stateChan)
 
+		// Sync final chunk offsets directly from trackers and persist to SQLite
+		var finalDownloaded int64
+		for i, tr := range trackers {
+			cur := tr.GetCurrent()
+			end := tr.GetEnd()
+			start := tr.GetStart()
+
+			chunkStates[i].CurrentOffset = cur
+			chunkStates[i].End = end
+			chunkStates[i].Start = start
+			if end > 0 && cur > end {
+				chunkStates[i].Completed = true
+				chunkStates[i].CurrentOffset = end + 1
+			}
+
+			if cur > start {
+				chunkBytes := cur - start
+				if end > 0 && cur > end+1 {
+					chunkBytes = end + 1 - start
+				}
+				finalDownloaded += chunkBytes
+			}
+		}
+
+		_ = dbStore.UpdateJobChunks(jobID, chunkStates)
+
+		if meta.Size > 0 && finalDownloaded > meta.Size {
+			finalDownloaded = meta.Size
+		}
+
+		finalProgressPct := 0.0
+		if meta.Size > 0 {
+			finalProgressPct = (float64(finalDownloaded) / float64(meta.Size)) * 100.0
+			if finalProgressPct > 100.0 {
+				finalProgressPct = 100.0
+			}
+		}
+
 		select {
 		case err := <-errChan:
 			if err != nil && ctx.Err() == nil {
@@ -291,6 +359,16 @@ func main() {
 		}
 
 		if ctx.Err() != nil {
+			_ = dbStore.UpdateProgress(
+				jobID,
+				finalProgressPct,
+				formatBytes(finalDownloaded),
+				"0.00 KB/s",
+				"--",
+				"",
+				"PAUSED",
+			)
+			storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
 			return ctx.Err()
 		}
 

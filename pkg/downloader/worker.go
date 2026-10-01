@@ -74,22 +74,9 @@ func DownloadChunkParallel(
 		endBoundary := atomic.LoadInt64(&me.EndBoundary)
 
 		// Dynamic workload stealing applies to bounded chunks.
-		if endBoundary > 0 && writeOffset >= endBoundary {
-			newStart, newEnd, stolenFrom := StealWork(
-				trackers,
-				DynamicMinChunkSize,
-			)
-
-			if stolenFrom == nil {
-				return
-			}
-
-			atomic.StoreInt64(&me.StartByte, newStart)
-			atomic.StoreInt64(&me.CurrentPtr, newStart)
-			atomic.StoreInt64(&me.EndBoundary, newEnd)
-
-			writeOffset = newStart
-			endBoundary = newEnd
+		// If this chunk has already completed, exit cleanly without corrupting boundaries.
+		if endBoundary > 0 && writeOffset > endBoundary {
+			return
 		}
 
 		var resp *http.Response
@@ -423,10 +410,9 @@ func DownloadChunkParallel(
 		}
 
 		// Bounded chunk completed cleanly.
-		// Check whether more work can be stolen.
 		if !streamAborted &&
-			writeOffset >= atomic.LoadInt64(&me.EndBoundary) {
-			continue
+			writeOffset > atomic.LoadInt64(&me.EndBoundary) {
+			return
 		}
 	}
 }
