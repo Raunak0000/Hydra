@@ -202,6 +202,7 @@ func (qm *QueueManager) processJobWithRetry(job models.UIJob) {
 			job.Status = "COMPLETED"
 			now := time.Now()
 			job.CompletedAt = &now
+
 			_ = dbStore.UpdateStatus(job.ID, "COMPLETED")
 			GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
 			qm.broadcast <- job
@@ -209,7 +210,23 @@ func (qm *QueueManager) processJobWithRetry(job models.UIJob) {
 			return
 		}
 
-		log.Printf("[QueueWarning] Job %s failed attempt %d/%d: %v. Retrying in %v...", job.ID, attempt, maxRetries, downloadErr, backoff)
+		// PAUSE IS NOT A FAILURE.
+		// The download context is intentionally cancelled by the pause command.
+		currentJob, exists := dbStore.GetJob(job.ID)
+		if exists && currentJob.Status == "PAUSED" {
+			log.Printf("[Queue] Job %s paused; stopping retry loop.", job.ID)
+			return
+		}
+
+		log.Printf(
+			"[QueueWarning] Job %s failed attempt %d/%d: %v. Retrying in %v...",
+			job.ID,
+			attempt,
+			maxRetries,
+			downloadErr,
+			backoff,
+		)
+
 		time.Sleep(backoff)
 		backoff *= 2
 	}

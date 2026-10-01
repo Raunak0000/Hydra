@@ -85,27 +85,67 @@ func main() {
 		}
 
 		chunks := downloader.CalculateChunks(meta.Size, numThreads)
+
 		trackers := make([]*downloader.AdaptiveTracker, len(chunks))
 		chunkStates := make([]models.ChunkState, len(chunks))
 
-		for i, ch := range chunks {
-			trackers[i] = &downloader.AdaptiveTracker{
-				Index:       i,
-				StartByte:   ch.Start,
-				CurrentPtr:  ch.Start,
-				EndBoundary: ch.End,
-			}
+		// ----------------------------------------------------------
+		// Restore persisted chunk state when resuming.
+		// A fresh download has no chunk state yet.
+		// ----------------------------------------------------------
+		if len(job.Chunks) == len(chunks) {
+			copy(chunkStates, job.Chunks)
+		}
 
-			chunkStates[i] = models.ChunkState{
+		// Build trackers from persisted state when available.
+		for i, ch := range chunks {
+			state := models.ChunkState{
 				Index:         i,
 				Start:         ch.Start,
 				CurrentOffset: ch.Start,
 				End:           ch.End,
 				Completed:     false,
 			}
+
+			if len(job.Chunks) == len(chunks) {
+				state = job.Chunks[i]
+
+				// Validate persisted state before using it.
+				if state.Start < 0 || state.End < state.Start {
+					state.Start = ch.Start
+					state.End = ch.End
+					state.CurrentOffset = ch.Start
+					state.Completed = false
+				}
+
+				if state.CurrentOffset < state.Start ||
+					state.CurrentOffset > state.End+1 {
+					state.CurrentOffset = state.Start
+					state.Completed = false
+				}
+
+				// Completed chunks resume at the byte immediately
+				// after their inclusive end boundary.
+				if state.Completed {
+					state.CurrentOffset = state.End + 1
+				}
+			}
+
+			chunkStates[i] = state
+
+			trackers[i] = &downloader.AdaptiveTracker{
+				Index:       state.Index,
+				StartByte:   state.Start,
+				CurrentPtr:  state.CurrentOffset,
+				EndBoundary: state.End,
+			}
 		}
 
-		_ = dbStore.UpdateJobChunks(jobID, chunkStates)
+		// Persist initial state only for a brand-new download.
+		// NEVER overwrite an existing resume checkpoint.
+		if len(job.Chunks) != len(chunks) {
+			_ = dbStore.UpdateJobChunks(jobID, chunkStates)
+		}
 
 		var wg sync.WaitGroup
 		errChan := make(chan error, numThreads)
