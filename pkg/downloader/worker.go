@@ -15,16 +15,16 @@ import (
 )
 
 const (
-	BufferSize          = 256 * 1024      // 256 KB read buffer per worker
-	DynamicMinChunkSize = 2 * 1024 * 1024 // 2 MB floor for work-stealing
-	MaxStreamRetries    = 8               // Max connection attempts per reconnect cycle
+	BufferSize          = 256 * 1024
+	DynamicMinChunkSize = 2 * 1024 * 1024
 
-	// If a stream produces no data for this long, the stream is
-	// considered stalled and is automatically reconnected.
-	StreamStallTimeout = 15 * time.Second
+	MaxStreamRetries = 8
+
+	// If an active HTTP stream produces no data for this long,
+	// cancel the request and reconnect from the latest file offset.
+	StreamIdleTimeout = 10 * time.Second
 )
 
-// bufferPool recycles 256 KB byte slices across workers.
 var bufferPool = sync.Pool{
 	New: func() any {
 		b := make([]byte, BufferSize)
@@ -35,15 +35,15 @@ var bufferPool = sync.Pool{
 // SharedHTTPClient is tuned for high-speed multi-threaded downloads.
 var SharedHTTPClient = &http.Client{
 	Transport: &http.Transport{
-		MaxIdleConns:        200,
-		MaxIdleConnsPerHost: 64,
-		IdleConnTimeout:     120 * time.Second,
-		TLSHandshakeTimeout: 10 * time.Second,
-		DisableCompression:  true,
-		WriteBufferSize:     BufferSize,
-		ReadBufferSize:      BufferSize,
-		ForceAttemptHTTP2:   true,
-
+		MaxIdleConns:          200,
+		MaxIdleConnsPerHost:   64,
+		IdleConnTimeout:       120 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		DisableCompression:    true,
+		WriteBufferSize:       BufferSize,
+		ReadBufferSize:        BufferSize,
+		ForceAttemptHTTP2:     true,
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
@@ -51,15 +51,6 @@ var SharedHTTPClient = &http.Client{
 	},
 }
 
-// DownloadChunkParallel downloads data for a single adaptive worker.
-//
-// Important behavior:
-//   - Resumes from CurrentPtr after reconnects.
-//   - Detects stalled HTTP streams.
-//   - Automatically reconnects after a stall.
-//   - Validates HTTP Range responses.
-//   - Never writes beyond the assigned chunk boundary.
-//   - Preserves pause/cancel behavior through ctx.
 func DownloadChunkParallel(
 	ctx context.Context,
 	url string,
@@ -90,19 +81,22 @@ func DownloadChunkParallel(
 		writeOffset := atomic.LoadInt64(&me.CurrentPtr)
 		endBoundary := atomic.LoadInt64(&me.EndBoundary)
 
-		// Assigned bounded chunk has already been completely downloaded.
 		if endBoundary > 0 && writeOffset > endBoundary {
 			return
 		}
 
 		var resp *http.Response
 		var streamErr error
+		connected := false
 
-		// ------------------------------------------------------------
-		// Establish HTTP connection
-		// ------------------------------------------------------------
+		/*
+			Connection establishment.
 
-		for attempt := 1; attempt <= MaxStreamRetries; attempt++ {
+			We keep trying while the parent context is alive.
+			This is important for network interruptions that last
+			longer than MaxStreamRetries attempts.
+		*/
+		for attempt := 1; ; attempt++ {
 			if ctx.Err() != nil {
 				return
 			}
@@ -123,9 +117,12 @@ func DownloadChunkParallel(
 				return
 			}
 
+			// Reload the latest offset before EVERY reconnect.
+			writeOffset = atomic.LoadInt64(&me.CurrentPtr)
+			endBoundary = atomic.LoadInt64(&me.EndBoundary)
+
 			hasRange := false
 
-			// Bounded chunk.
 			if endBoundary > 0 {
 				req.Header.Set(
 					"Range",
@@ -135,19 +132,12 @@ func DownloadChunkParallel(
 						endBoundary,
 					),
 				)
-
 				hasRange = true
-
-				// Unbounded resume.
 			} else if writeOffset > 0 {
 				req.Header.Set(
 					"Range",
-					fmt.Sprintf(
-						"bytes=%d-",
-						writeOffset,
-					),
+					fmt.Sprintf("bytes=%d-", writeOffset),
 				)
-
 				hasRange = true
 			}
 
@@ -167,15 +157,8 @@ func DownloadChunkParallel(
 
 			resp, streamErr = SharedHTTPClient.Do(req)
 
-			// --------------------------------------------------------
-			// Connection failed
-			// --------------------------------------------------------
-
 			if streamErr != nil {
 				sleepDuration := time.Duration(attempt*150) * time.Millisecond
-
-				// Stagger workers slightly.
-				sleepDuration += time.Duration(myIndex*20) * time.Millisecond
 
 				if sleepDuration > time.Second {
 					sleepDuration = time.Second
@@ -191,16 +174,17 @@ func DownloadChunkParallel(
 				continue
 			}
 
-			// --------------------------------------------------------
-			// HTTP 429
-			// --------------------------------------------------------
+			/*
+				HTTP 429.
 
+				Retry without treating it as a successful connection.
+			*/
 			if resp.StatusCode == http.StatusTooManyRequests {
-				retryAfterSecs := 2
+				retryAfter := 2 * time.Second
 
 				if retryHeader := resp.Header.Get("Retry-After"); retryHeader != "" {
-					if parsed, err := strconv.Atoi(retryHeader); err == nil && parsed > 0 {
-						retryAfterSecs = parsed
+					if seconds, err := strconv.Atoi(retryHeader); err == nil && seconds > 0 {
+						retryAfter = time.Duration(seconds) * time.Second
 					}
 				}
 
@@ -210,28 +194,20 @@ func DownloadChunkParallel(
 				case <-ctx.Done():
 					return
 
-				case <-time.After(
-					time.Duration(retryAfterSecs) * time.Second,
-				):
+				case <-time.After(retryAfter):
 				}
 
 				continue
 			}
 
-			// --------------------------------------------------------
-			// HTTP 5xx
-			// --------------------------------------------------------
-
+			/*
+				Transient server errors.
+			*/
 			if resp.StatusCode >= 500 {
 				resp.Body.Close()
 
-				streamErr = fmt.Errorf(
-					"remote server error HTTP %d",
-					resp.StatusCode,
-				)
-
 				sleepDuration :=
-					time.Duration(1<<attempt) *
+					time.Duration(1<<min(attempt, 5)) *
 						150 *
 						time.Millisecond
 
@@ -249,19 +225,18 @@ func DownloadChunkParallel(
 				continue
 			}
 
-			// --------------------------------------------------------
-			// Range response validation
-			// --------------------------------------------------------
-
+			/*
+				Validate ranged responses.
+			*/
 			if hasRange {
-				// A ranged request must return 206.
 				if resp.StatusCode != http.StatusPartialContent {
+					status := resp.StatusCode
 					resp.Body.Close()
 
 					errChan <- fmt.Errorf(
 						"worker %d expected HTTP 206 for ranged request, got HTTP %d",
 						myIndex,
-						resp.StatusCode,
+						status,
 					)
 
 					return
@@ -279,14 +254,6 @@ func DownloadChunkParallel(
 
 					return
 				}
-
-				// Expected:
-				//
-				// bytes START-END/TOTAL
-				//
-				// Example:
-				//
-				// bytes 1048576-2097151/10485760
 
 				var rangeStart int64
 
@@ -318,127 +285,112 @@ func DownloadChunkParallel(
 
 					return
 				}
-
 			} else {
-				// Initial non-ranged request.
 				if resp.StatusCode != http.StatusOK &&
 					resp.StatusCode != http.StatusPartialContent {
 
+					status := resp.StatusCode
 					resp.Body.Close()
 
 					errChan <- fmt.Errorf(
 						"worker %d received invalid HTTP %d",
 						myIndex,
-						resp.StatusCode,
+						status,
 					)
 
 					return
 				}
 			}
 
+			connected = true
 			streamErr = nil
 			break
 		}
 
-		// ------------------------------------------------------------
-		// All connection attempts failed.
-		// ------------------------------------------------------------
-
-		if streamErr != nil {
-			errChan <- fmt.Errorf(
-				"worker %d exhausted %d retries: %w",
-				myIndex,
-				MaxStreamRetries,
-				streamErr,
-			)
-
+		if !connected {
 			return
 		}
 
-		// ------------------------------------------------------------
-		// Stream watchdog
-		// ------------------------------------------------------------
+		/*
+			Active stream.
 
-		// The normal HTTP client timeout does NOT protect us from a
-		// connection that remains open but stops producing data.
-		//
-		// Therefore we track the timestamp of the last successful read.
+			The child context allows us to cancel ONLY this HTTP
+			request when the connection becomes idle.
+
+			The parent ctx remains alive, allowing the worker to
+			reconnect.
+		*/
 		streamCtx, cancelStream := context.WithCancel(ctx)
 
-		// Rebuild the request using the stream-specific context.
-		//
-		// The existing response is already tied to the original request,
-		// so cancellation of the original context is not enough here.
-		//
-		// Instead, the watchdog below directly closes the response body
-		// when a stall is detected.
-		_ = streamCtx
+		/*
+			Idle watchdog.
 
-		var lastReadAt int64
-		atomic.StoreInt64(&lastReadAt, time.Now().UnixNano())
-
-		watchdogDone := make(chan struct{})
+			If no data arrives for StreamIdleTimeout, cancelStream()
+			forces the blocked Body.Read() to return.
+		*/
+		idleTimer := time.NewTimer(StreamIdleTimeout)
+		idleReset := make(chan struct{}, 1)
+		streamDone := make(chan struct{})
 
 		go func() {
-			ticker := time.NewTicker(1 * time.Second)
-			defer ticker.Stop()
+			defer close(streamDone)
 
 			for {
 				select {
-				case <-ticker.C:
-					lastRead := atomic.LoadInt64(&lastReadAt)
-
-					if time.Since(time.Unix(0, lastRead)) >= StreamStallTimeout {
-						// Closing the body forcibly unblocks Read().
-						//
-						// The read loop will detect the resulting error
-						// and reconnect from CurrentPtr.
-						_ = resp.Body.Close()
-						return
-					}
-
-				case <-watchdogDone:
+				case <-idleTimer.C:
+					cancelStream()
 					return
 
+				case <-idleReset:
+					if !idleTimer.Stop() {
+						select {
+						case <-idleTimer.C:
+						default:
+						}
+					}
+
+					idleTimer.Reset(StreamIdleTimeout)
+
 				case <-ctx.Done():
+					if !idleTimer.Stop() {
+						select {
+						case <-idleTimer.C:
+						default:
+						}
+					}
+
 					return
 				}
 			}
 		}()
 
-		// ------------------------------------------------------------
-		// Read/write loop
-		// ------------------------------------------------------------
-
 		streamAborted := false
+		streamCompleted := false
 
 		for {
 			if ctx.Err() != nil {
-				close(watchdogDone)
 				cancelStream()
 				resp.Body.Close()
+				<-streamDone
 				return
 			}
 
 			bytesRead, readErr := resp.Body.Read(buffer)
 
 			if bytesRead > 0 {
-				// Reset the stall timer whenever data is successfully
-				// received.
-				atomic.StoreInt64(
-					&lastReadAt,
-					time.Now().UnixNano(),
-				)
-
-				// ----------------------------------------------------
-				// Bandwidth limiter
-				// ----------------------------------------------------
+				/*
+					We received data, so reset the idle watchdog.
+				*/
+				select {
+				case idleReset <- struct{}{}:
+				default:
+				}
 
 				if limiter != nil {
 					if err := limiter.WaitN(ctx, bytesRead); err != nil {
-						close(watchdogDone)
 						cancelStream()
 						resp.Body.Close()
+						<-streamDone
 						return
 					}
 				}
@@ -447,7 +399,9 @@ func DownloadChunkParallel(
 
 				effectiveBytes := bytesRead
 
-				// Never write past assigned chunk boundary.
+				/*
+					Never write beyond the chunk boundary.
+				*/
 				if currentEnd > 0 &&
 					writeOffset+int64(effectiveBytes) > currentEnd+1 {
 
@@ -456,13 +410,10 @@ func DownloadChunkParallel(
 					)
 
 					if effectiveBytes <= 0 {
+						streamCompleted = true
 						break
 					}
 				}
-
-				// ----------------------------------------------------
-				// Direct offset write
-				// ----------------------------------------------------
 
 				_, writeErr := finalFile.WriteAt(
 					buffer[:effectiveBytes],
@@ -470,9 +421,9 @@ func DownloadChunkParallel(
 				)
 
 				if writeErr != nil {
-					close(watchdogDone)
 					cancelStream()
 					resp.Body.Close()
+					<-streamDone
 
 					errChan <- fmt.Errorf(
 						"worker %d write failed at offset %d: %w",
@@ -491,10 +442,6 @@ func DownloadChunkParallel(
 					writeOffset,
 				)
 
-				// ----------------------------------------------------
-				// State checkpoint
-				// ----------------------------------------------------
-
 				select {
 				case stateUpdateChan <- Chunk{
 					Index: myIndex,
@@ -504,69 +451,90 @@ func DownloadChunkParallel(
 				default:
 				}
 
-				// ----------------------------------------------------
-				// Progress telemetry
-				// ----------------------------------------------------
+				select {
+				case progressChan <- int64(effectiveBytes):
+				case <-ctx.Done():
+					cancelStream()
+					resp.Body.Close()
+					<-streamDone
+					return
+				}
 
-				progressChan <- int64(effectiveBytes)
-
-				// Assigned bounded chunk finished.
 				if currentEnd > 0 &&
 					writeOffset > currentEnd {
 
+					streamCompleted = true
 					break
 				}
 			}
 
 			if readErr != nil {
+				/*
+					Normal EOF.
+				*/
 				if errors.Is(readErr, io.EOF) {
-					// Clean server-side completion.
-					streamAborted = false
+					streamCompleted = true
 				} else {
-					// Network disconnect OR watchdog-triggered
-					// stalled stream.
-					streamAborted = true
+					/*
+						The request was cancelled by the idle watchdog,
+						or the underlying network connection died.
+
+						Do NOT report this as a fatal error.
+						Reconnect from CurrentPtr.
+					*/
+					if streamCtx.Err() != nil && ctx.Err() == nil {
+						streamAborted = true
+					} else {
+						streamAborted = true
+					}
 				}
 
 				break
 			}
 		}
 
-		close(watchdogDone)
 		cancelStream()
+
+		if !idleTimer.Stop() {
+			select {
+			case <-idleTimer.C:
+			default:
+			}
+		}
+
 		resp.Body.Close()
+		<-streamDone
 
-		// ------------------------------------------------------------
-		// Completion handling
-		// ------------------------------------------------------------
+		/*
+			Completed download.
+		*/
+		if streamCompleted {
+			if endBoundary <= 0 {
+				return
+			}
 
-		// For an unbounded stream, EOF means the download is complete.
-		if endBoundary <= 0 && !streamAborted {
-			return
+			if writeOffset > atomic.LoadInt64(&me.EndBoundary) {
+				return
+			}
 		}
 
-		// Bounded chunk completed.
-		if !streamAborted &&
-			writeOffset > atomic.LoadInt64(&me.EndBoundary) {
+		/*
+			Network interruption.
 
-			return
+			Loop back to connection establishment.
+
+			CurrentPtr already contains the last successfully
+			written byte, so the next request resumes from there.
+		*/
+		if streamAborted {
+			continue
 		}
-
-		// ------------------------------------------------------------
-		// Automatic reconnect
-		// ------------------------------------------------------------
-		//
-		// If we arrive here because:
-		//
-		//   - network disappeared
-		//   - HTTP connection died
-		//   - stream stalled for 15 seconds
-		//
-		// CurrentPtr already contains the last successfully written
-		// byte, so the next iteration sends a Range request starting
-		// exactly there.
-		//
-		// No pause/resume action is required from the user.
-		continue
 	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
