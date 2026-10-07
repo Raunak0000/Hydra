@@ -71,6 +71,30 @@ func main() {
 		}
 		_ = dbStore.UpdateTotalSize(jobID, totalSizeStr)
 
+		// Validate available disk space before creating the destination file.
+		if meta.Size > 0 {
+			diskInfo, err := storage.GetDiskSpace(savePath, meta.Size)
+			if err != nil {
+				errMsg := fmt.Sprintf("disk space check failed: %v", err)
+				_ = dbStore.UpdateErrorMessage(jobID, errMsg)
+				storage.NotifyDownloadFailed(filepathBase(savePath), errMsg)
+				return fmt.Errorf("%s", errMsg)
+			}
+
+			if !diskInfo.EnoughSpace {
+				errMsg := fmt.Sprintf(
+					"insufficient disk space: required %.2f GB, available %.2f GB",
+					float64(meta.Size)/(1024*1024*1024),
+					float64(diskInfo.AvailableBytes)/(1024*1024*1024),
+				)
+
+				_ = dbStore.UpdateErrorMessage(jobID, errMsg)
+				storage.NotifyDownloadFailed(filepathBase(savePath), errMsg)
+
+				return fmt.Errorf("%s", errMsg)
+			}
+		}
+
 		file, err := storage.PreallocateSpace(savePath, meta.Size)
 		if err != nil {
 			_ = dbStore.UpdateErrorMessage(jobID, err.Error())

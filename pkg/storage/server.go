@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/Raunak0000/Hydra/pkg/models"
@@ -770,34 +769,58 @@ func (s *Server) handleListDirectory(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDiskSpace(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		writeJSONError(
+			w,
+			http.StatusMethodNotAllowed,
+			"METHOD_NOT_ALLOWED",
+			"method not allowed",
+		)
 		return
 	}
 
 	var payload struct {
-		Path string `json:"path"`
+		Path          string `json:"path"`
+		RequiredBytes int64  `json:"required_bytes"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&payload)
+
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeJSONError(
+			w,
+			http.StatusBadRequest,
+			"INVALID_JSON",
+			"malformed JSON payload",
+		)
+		return
+	}
 
 	targetPath := payload.Path
+
 	if targetPath == "" {
 		targetPath = GetDefaultDownloadsDir()
 	}
 
-	resolved, err := ResolvePath(targetPath + "/")
+	info, err := GetDiskSpace(
+		targetPath,
+		payload.RequiredBytes,
+	)
+
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"free_gb": "Unknown"})
+		writeJSONError(
+			w,
+			http.StatusBadRequest,
+			"DISK_SPACE_CHECK_FAILED",
+			err.Error(),
+		)
 		return
 	}
 
-	var stat syscall.Statfs_t
-	freeGB := "Unknown"
-	if syscall.Statfs(resolved, &stat) == nil {
-		freeBytes := stat.Bavail * uint64(stat.Bsize)
-		freeGB = fmt.Sprintf("%.2f GB", float64(freeBytes)/(1024*1024*1024))
+	w.Header().Set("Content-Type", "application/json")
+
+	if payload.RequiredBytes > 0 && !info.EnoughSpace {
+		w.WriteHeader(http.StatusInsufficientStorage)
+	} else {
+		w.WriteHeader(http.StatusOK)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"free_gb": freeGB})
+	_ = json.NewEncoder(w).Encode(info)
 }
