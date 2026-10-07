@@ -20,8 +20,8 @@ const (
 
 	MaxStreamRetries = 8
 
-	// If an active HTTP stream produces no data for this long,
-	// cancel the request and reconnect from the latest file offset.
+	// Maximum time an active HTTP stream can produce no data
+	// before it is considered stalled and reconnected.
 	StreamIdleTimeout = 10 * time.Second
 )
 
@@ -81,48 +81,78 @@ func DownloadChunkParallel(
 		writeOffset := atomic.LoadInt64(&me.CurrentPtr)
 		endBoundary := atomic.LoadInt64(&me.EndBoundary)
 
+		// Chunk is already complete.
 		if endBoundary > 0 && writeOffset > endBoundary {
 			return
 		}
 
-		var resp *http.Response
-		var streamErr error
-		connected := false
-
 		/*
-			Connection establishment.
+			========================================================
+			CONNECTION LOOP
+			========================================================
 
-			We keep trying while the parent context is alive.
-			This is important for network interruptions that last
-			longer than MaxStreamRetries attempts.
+			This loop intentionally has no fixed retry limit.
+
+			If the network disappears, the worker waits and keeps
+			trying until the parent context is cancelled.
 		*/
+
 		for attempt := 1; ; attempt++ {
 			if ctx.Err() != nil {
 				return
 			}
 
+			/*
+				Always reload the latest offset before reconnecting.
+
+				This is what allows:
+
+				    network dies
+				    ↓
+				    current bytes remain on disk
+				    ↓
+				    connection retries
+				    ↓
+				    Range starts at CurrentPtr
+			*/
+			writeOffset = atomic.LoadInt64(&me.CurrentPtr)
+			endBoundary = atomic.LoadInt64(&me.EndBoundary)
+
+			/*
+				Create a context specifically for this HTTP stream.
+
+				The watchdog can cancel this stream without killing
+				the entire download worker.
+			*/
+			streamCtx, cancelStream := context.WithCancel(ctx)
+
 			req, err := http.NewRequestWithContext(
-				ctx,
+				streamCtx,
 				http.MethodGet,
 				url,
 				nil,
 			)
 
 			if err != nil {
-				errChan <- fmt.Errorf(
+				cancelStream()
+
+				select {
+				case errChan <- fmt.Errorf(
 					"worker %d request build failed: %w",
 					myIndex,
 					err,
-				)
+				):
+				case <-ctx.Done():
+				}
+
 				return
 			}
 
-			// Reload the latest offset before EVERY reconnect.
-			writeOffset = atomic.LoadInt64(&me.CurrentPtr)
-			endBoundary = atomic.LoadInt64(&me.EndBoundary)
-
 			hasRange := false
 
+			/*
+				Set the correct Range header.
+			*/
 			if endBoundary > 0 {
 				req.Header.Set(
 					"Range",
@@ -132,15 +162,23 @@ func DownloadChunkParallel(
 						endBoundary,
 					),
 				)
+
 				hasRange = true
 			} else if writeOffset > 0 {
 				req.Header.Set(
 					"Range",
-					fmt.Sprintf("bytes=%d-", writeOffset),
+					fmt.Sprintf(
+						"bytes=%d-",
+						writeOffset,
+					),
 				)
+
 				hasRange = true
 			}
 
+			/*
+				Apply caller-provided headers.
+			*/
 			for key, value := range headers {
 				req.Header.Set(key, value)
 			}
@@ -155,9 +193,16 @@ func DownloadChunkParallel(
 				)
 			}
 
-			resp, streamErr = SharedHTTPClient.Do(req)
+			/*
+				IMPORTANT:
+				resp is declared here, in the same scope where it
+				will be used by the validation logic below.
+			*/
+			resp, err := SharedHTTPClient.Do(req)
 
-			if streamErr != nil {
+			if err != nil {
+				cancelStream()
+
 				sleepDuration := time.Duration(attempt*150) * time.Millisecond
 
 				if sleepDuration > time.Second {
@@ -175,9 +220,9 @@ func DownloadChunkParallel(
 			}
 
 			/*
-				HTTP 429.
-
-				Retry without treating it as a successful connection.
+				====================================================
+				HTTP 429
+				====================================================
 			*/
 			if resp.StatusCode == http.StatusTooManyRequests {
 				retryAfter := 2 * time.Second
@@ -189,6 +234,7 @@ func DownloadChunkParallel(
 				}
 
 				resp.Body.Close()
+				cancelStream()
 
 				select {
 				case <-ctx.Done():
@@ -201,43 +247,56 @@ func DownloadChunkParallel(
 			}
 
 			/*
-				Transient server errors.
+				====================================================
+				HTTP 5xx
+				====================================================
 			*/
 			if resp.StatusCode >= 500 {
 				resp.Body.Close()
+				cancelStream()
 
-				sleepDuration :=
-					time.Duration(1<<min(attempt, 5)) *
-						150 *
-						time.Millisecond
+				backoff := time.Duration(1<<min(attempt, 5)) *
+					150 *
+					time.Millisecond
 
-				if sleepDuration > 4*time.Second {
-					sleepDuration = 4 * time.Second
+				if backoff > 4*time.Second {
+					backoff = 4 * time.Second
 				}
 
 				select {
 				case <-ctx.Done():
 					return
 
-				case <-time.After(sleepDuration):
+				case <-time.After(backoff):
 				}
 
 				continue
 			}
 
 			/*
-				Validate ranged responses.
+				====================================================
+				RANGE VALIDATION
+				====================================================
 			*/
 			if hasRange {
+				/*
+					When requesting a range, the server MUST return
+					206 Partial Content.
+				*/
 				if resp.StatusCode != http.StatusPartialContent {
 					status := resp.StatusCode
-					resp.Body.Close()
 
-					errChan <- fmt.Errorf(
+					resp.Body.Close()
+					cancelStream()
+
+					select {
+					case errChan <- fmt.Errorf(
 						"worker %d expected HTTP 206 for ranged request, got HTTP %d",
 						myIndex,
 						status,
-					)
+					):
+					case <-ctx.Done():
+					}
 
 					return
 				}
@@ -246,11 +305,15 @@ func DownloadChunkParallel(
 
 				if contentRange == "" {
 					resp.Body.Close()
+					cancelStream()
 
-					errChan <- fmt.Errorf(
+					select {
+					case errChan <- fmt.Errorf(
 						"worker %d received HTTP 206 without Content-Range",
 						myIndex,
-					)
+					):
+					case <-ctx.Done():
+					}
 
 					return
 				}
@@ -263,271 +326,346 @@ func DownloadChunkParallel(
 					&rangeStart,
 				); err != nil {
 					resp.Body.Close()
+					cancelStream()
 
-					errChan <- fmt.Errorf(
+					select {
+					case errChan <- fmt.Errorf(
 						"worker %d received malformed Content-Range %q",
 						myIndex,
 						contentRange,
-					)
+					):
+					case <-ctx.Done():
+					}
 
 					return
 				}
 
+				/*
+					Prevent duplicate/corrupt writes after reconnect.
+				*/
 				if rangeStart != writeOffset {
 					resp.Body.Close()
+					cancelStream()
 
-					errChan <- fmt.Errorf(
+					select {
+					case errChan <- fmt.Errorf(
 						"worker %d received incorrect Content-Range start: expected %d, got %d",
 						myIndex,
 						writeOffset,
 						rangeStart,
-					)
+					):
+					case <-ctx.Done():
+					}
 
 					return
 				}
 			} else {
+				/*
+					Initial request without a Range header.
+				*/
 				if resp.StatusCode != http.StatusOK &&
 					resp.StatusCode != http.StatusPartialContent {
 
 					status := resp.StatusCode
-					resp.Body.Close()
 
-					errChan <- fmt.Errorf(
+					resp.Body.Close()
+					cancelStream()
+
+					select {
+					case errChan <- fmt.Errorf(
 						"worker %d received invalid HTTP %d",
 						myIndex,
 						status,
-					)
-
-					return
-				}
-			}
-
-			connected = true
-			streamErr = nil
-			break
-		}
-
-		if !connected {
-			return
-		}
-
-		/*
-			Active stream.
-
-			The child context allows us to cancel ONLY this HTTP
-			request when the connection becomes idle.
-
-			The parent ctx remains alive, allowing the worker to
-			reconnect.
-		*/
-		streamCtx, cancelStream := context.WithCancel(ctx)
-
-		/*
-			Idle watchdog.
-
-			If no data arrives for StreamIdleTimeout, cancelStream()
-			forces the blocked Body.Read() to return.
-		*/
-		idleTimer := time.NewTimer(StreamIdleTimeout)
-		idleReset := make(chan struct{}, 1)
-		streamDone := make(chan struct{})
-
-		go func() {
-			defer close(streamDone)
-
-			for {
-				select {
-				case <-idleTimer.C:
-					cancelStream()
-					return
-
-				case <-idleReset:
-					if !idleTimer.Stop() {
-						select {
-						case <-idleTimer.C:
-						default:
-						}
-					}
-
-					idleTimer.Reset(StreamIdleTimeout)
-
-				case <-ctx.Done():
-					if !idleTimer.Stop() {
-						select {
-						case <-idleTimer.C:
-						default:
-						}
+					):
+					case <-ctx.Done():
 					}
 
 					return
 				}
 			}
-		}()
 
-		streamAborted := false
-		streamCompleted := false
+			/*
+				====================================================
+				STREAM WATCHDOG
+				====================================================
+			*/
 
-		for {
-			if ctx.Err() != nil {
-				cancelStream()
-				resp.Body.Close()
-				<-streamDone
-				return
-			}
+			idleTimer := time.NewTimer(StreamIdleTimeout)
 
-			bytesRead, readErr := resp.Body.Read(buffer)
+			/*
+				The reader sends activity whenever bytes arrive.
+				The watchdog owns the timer, avoiding concurrent
+				timer Reset/Stop races.
+			*/
+			activityChan := make(chan struct{}, 1)
 
-			if bytesRead > 0 {
-				/*
-					We received data, so reset the idle watchdog.
-				*/
-				select {
-				case idleReset <- struct{}{}:
-				default:
-				}
+			watchdogDone := make(chan struct{})
 
-				if limiter != nil {
-					if err := limiter.WaitN(ctx, bytesRead); err != nil {
+			go func() {
+				defer close(watchdogDone)
+
+				for {
+					select {
+					case <-idleTimer.C:
+						/*
+							The stream has stopped producing data.
+
+							Close the response body so a blocked
+							Read() is guaranteed to wake up.
+						*/
 						cancelStream()
 						resp.Body.Close()
-						<-streamDone
+
+						return
+
+					case <-activityChan:
+						if !idleTimer.Stop() {
+							select {
+							case <-idleTimer.C:
+							default:
+							}
+						}
+
+						idleTimer.Reset(StreamIdleTimeout)
+
+					case <-streamCtx.Done():
 						return
 					}
 				}
+			}()
 
-				currentEnd := atomic.LoadInt64(&me.EndBoundary)
+			streamCompleted := false
+			streamAborted := false
 
-				effectiveBytes := bytesRead
+			/*
+				====================================================
+				READ LOOP
+				====================================================
+			*/
+			for {
+				if ctx.Err() != nil {
+					cancelStream()
+					resp.Body.Close()
 
-				/*
-					Never write beyond the chunk boundary.
-				*/
-				if currentEnd > 0 &&
-					writeOffset+int64(effectiveBytes) > currentEnd+1 {
+					<-watchdogDone
 
-					effectiveBytes = int(
-						currentEnd + 1 - writeOffset,
+					if !idleTimer.Stop() {
+						select {
+						case <-idleTimer.C:
+						default:
+						}
+					}
+
+					return
+				}
+
+				bytesRead, readErr := resp.Body.Read(buffer)
+
+				if bytesRead > 0 {
+					/*
+						Tell watchdog that data arrived.
+					*/
+					select {
+					case activityChan <- struct{}{}:
+					default:
+					}
+
+					/*
+						Rate limiting.
+					*/
+					if limiter != nil {
+						if err := limiter.WaitN(ctx, bytesRead); err != nil {
+							cancelStream()
+							resp.Body.Close()
+
+							<-watchdogDone
+
+							return
+						}
+					}
+
+					currentEnd := atomic.LoadInt64(
+						&me.EndBoundary,
 					)
 
-					if effectiveBytes <= 0 {
+					effectiveBytes := bytesRead
+
+					/*
+						Never write past the chunk boundary.
+					*/
+					if currentEnd > 0 &&
+						writeOffset+int64(effectiveBytes) >
+							currentEnd+1 {
+
+						effectiveBytes = int(
+							currentEnd + 1 - writeOffset,
+						)
+
+						if effectiveBytes <= 0 {
+							streamCompleted = true
+							break
+						}
+					}
+
+					/*
+						Write downloaded bytes.
+					*/
+					_, writeErr := finalFile.WriteAt(
+						buffer[:effectiveBytes],
+						writeOffset,
+					)
+
+					if writeErr != nil {
+						cancelStream()
+						resp.Body.Close()
+
+						<-watchdogDone
+
+						select {
+						case errChan <- fmt.Errorf(
+							"worker %d write failed at offset %d: %w",
+							myIndex,
+							writeOffset,
+							writeErr,
+						):
+						case <-ctx.Done():
+						}
+
+						return
+					}
+
+					/*
+						Update the authoritative resume offset.
+					*/
+					writeOffset += int64(effectiveBytes)
+
+					atomic.StoreInt64(
+						&me.CurrentPtr,
+						writeOffset,
+					)
+
+					/*
+						Checkpoint state.
+					*/
+					select {
+					case stateUpdateChan <- Chunk{
+						Index: myIndex,
+						Start: writeOffset,
+						End:   currentEnd,
+					}:
+					default:
+					}
+
+					/*
+						Report progress.
+					*/
+					select {
+					case progressChan <- int64(effectiveBytes):
+
+					case <-ctx.Done():
+						cancelStream()
+						resp.Body.Close()
+
+						<-watchdogDone
+
+						return
+					}
+
+					/*
+						Chunk boundary reached.
+					*/
+					if currentEnd > 0 &&
+						writeOffset > currentEnd {
+
 						streamCompleted = true
 						break
 					}
 				}
 
-				_, writeErr := finalFile.WriteAt(
-					buffer[:effectiveBytes],
-					writeOffset,
-				)
+				if readErr != nil {
+					if errors.Is(readErr, io.EOF) {
+						/*
+							Normal HTTP completion.
+						*/
+						streamCompleted = true
+					} else {
+						/*
+							Connection dropped or watchdog
+							cancelled the stream.
 
-				if writeErr != nil {
-					cancelStream()
-					resp.Body.Close()
-					<-streamDone
+							Resume from CurrentPtr.
+						*/
+						streamAborted = true
+					}
 
-					errChan <- fmt.Errorf(
-						"worker %d write failed at offset %d: %w",
-						myIndex,
-						writeOffset,
-						writeErr,
-					)
-
-					return
-				}
-
-				writeOffset += int64(effectiveBytes)
-
-				atomic.StoreInt64(
-					&me.CurrentPtr,
-					writeOffset,
-				)
-
-				select {
-				case stateUpdateChan <- Chunk{
-					Index: myIndex,
-					Start: writeOffset,
-					End:   currentEnd,
-				}:
-				default:
-				}
-
-				select {
-				case progressChan <- int64(effectiveBytes):
-				case <-ctx.Done():
-					cancelStream()
-					resp.Body.Close()
-					<-streamDone
-					return
-				}
-
-				if currentEnd > 0 &&
-					writeOffset > currentEnd {
-
-					streamCompleted = true
 					break
 				}
 			}
 
-			if readErr != nil {
-				/*
-					Normal EOF.
-				*/
-				if errors.Is(readErr, io.EOF) {
-					streamCompleted = true
-				} else {
-					/*
-						The request was cancelled by the idle watchdog,
-						or the underlying network connection died.
+			/*
+				====================================================
+				CLEANUP CURRENT STREAM
+				====================================================
+			*/
 
-						Do NOT report this as a fatal error.
-						Reconnect from CurrentPtr.
-					*/
-					if streamCtx.Err() != nil && ctx.Err() == nil {
-						streamAborted = true
-					} else {
-						streamAborted = true
-					}
+			cancelStream()
+			resp.Body.Close()
+
+			<-watchdogDone
+
+			if !idleTimer.Stop() {
+				select {
+				case <-idleTimer.C:
+				default:
+				}
+			}
+
+			/*
+				====================================================
+				COMPLETION
+				====================================================
+			*/
+
+			if streamCompleted {
+				/*
+					Dynamic/unbounded download.
+				*/
+				if endBoundary <= 0 {
+					return
 				}
 
+				/*
+					Bounded chunk.
+				*/
+				if writeOffset > atomic.LoadInt64(
+					&me.EndBoundary,
+				) {
+					return
+				}
+			}
+
+			/*
+				====================================================
+				NETWORK INTERRUPTION
+				====================================================
+
+				The current stream died.
+
+				Break back to the connection loop.
+
+				CurrentPtr contains the last successfully written
+				byte, so the next request starts exactly there.
+			*/
+			if streamAborted {
 				break
 			}
-		}
 
-		cancelStream()
+			/*
+				Unexpected termination.
 
-		if !idleTimer.Stop() {
-			select {
-			case <-idleTimer.C:
-			default:
-			}
-		}
-
-		resp.Body.Close()
-		<-streamDone
-
-		/*
-			Completed download.
-		*/
-		if streamCompleted {
-			if endBoundary <= 0 {
-				return
-			}
-
-			if writeOffset > atomic.LoadInt64(&me.EndBoundary) {
-				return
-			}
-		}
-
-		/*
-			Network interruption.
-
-			Loop back to connection establishment.
-
-			CurrentPtr already contains the last successfully
-			written byte, so the next request resumes from there.
-		*/
-		if streamAborted {
-			continue
+				Reconnect instead of leaving the worker stuck.
+			*/
+			break
 		}
 	}
 }
@@ -536,5 +674,6 @@ func min(a, b int) int {
 	if a < b {
 		return a
 	}
+
 	return b
 }

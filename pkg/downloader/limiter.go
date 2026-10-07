@@ -44,7 +44,12 @@ func (rl *RateLimiter) WaitN(ctx context.Context, n int) error {
 		return nil
 	}
 
-	for {
+	if n <= 0 {
+		return nil
+	}
+
+	remaining := float64(n)
+	for remaining > 0 {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -65,11 +70,16 @@ func (rl *RateLimiter) WaitN(ctx context.Context, n int) error {
 			rl.tokens = maxTokens
 		}
 
-		needed := float64(n)
+		needed := remaining
+		if needed > maxTokens {
+			needed = maxTokens
+		}
+
 		if rl.tokens >= needed {
 			rl.tokens -= needed
 			rl.mu.Unlock()
-			return nil
+			remaining -= needed
+			continue
 		}
 
 		// Calculate sleep time needed to regenerate tokens
@@ -88,4 +98,6 @@ func (rl *RateLimiter) WaitN(ctx context.Context, n int) error {
 		case <-time.After(sleepDuration):
 		}
 	}
+
+	return nil
 }
