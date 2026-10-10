@@ -37,6 +37,7 @@ type Server struct {
 
 func NewServer(executeJobFunc func(url string, savePath string, jobID string, headers map[string]string) error) *Server {
 	dbStore, _ := GetDBStore()
+
 	s := &Server{
 		Router:             http.NewServeMux(),
 		ExecuteDownloadJob: executeJobFunc,
@@ -53,6 +54,7 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 				w.WriteHeader(http.StatusOK)
 				return
 			}
+
 			next(w, r)
 		}
 	}
@@ -60,17 +62,29 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 	sameOriginOnly := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if origin := r.Header.Get("Origin"); origin != "" {
-				if origin != "http://127.0.0.1:9000" && origin != "http://localhost:9000" {
-					http.Error(w, "Forbidden: Cross-Origin Request Blocked", http.StatusForbidden)
+				if origin != "http://127.0.0.1:9000" &&
+					origin != "http://localhost:9000" {
+					http.Error(
+						w,
+						"Forbidden: Cross-Origin Request Blocked",
+						http.StatusForbidden,
+					)
 					return
 				}
 			}
+
 			if referer := r.Header.Get("Referer"); referer != "" {
-				if !strings.HasPrefix(referer, "http://127.0.0.1:9000") && !strings.HasPrefix(referer, "http://localhost:9000") {
-					http.Error(w, "Forbidden: Cross-Origin Request Blocked", http.StatusForbidden)
+				if !strings.HasPrefix(referer, "http://127.0.0.1:9000") &&
+					!strings.HasPrefix(referer, "http://localhost:9000") {
+					http.Error(
+						w,
+						"Forbidden: Cross-Origin Request Blocked",
+						http.StatusForbidden,
+					)
 					return
 				}
 			}
+
 			next(w, r)
 		}
 	}
@@ -89,7 +103,6 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 	s.Router.HandleFunc("/api/browse-directory", sameOriginOnly(s.handleBrowseDirectory))
 	s.Router.HandleFunc("/api/list-directory", sameOriginOnly(s.handleListDirectory))
 	s.Router.HandleFunc("/api/disk-space", sameOriginOnly(s.handleDiskSpace))
-	// Server-Sent Events real-time push endpoint
 	s.Router.HandleFunc("/api/events", s.handleEventsStream)
 
 	return s
@@ -102,6 +115,7 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 func writeJSONError(w http.ResponseWriter, status int, code string, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"code":    code,
 		"error":   message,
@@ -111,9 +125,15 @@ func writeJSONError(w http.ResponseWriter, status int, code string, message stri
 
 func requireAPIToken(w http.ResponseWriter, r *http.Request) bool {
 	if r.Header.Get("X-Hydra-Token") != hydraAPIToken {
-		writeJSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid Hydra API token")
+		writeJSONError(
+			w,
+			http.StatusUnauthorized,
+			"UNAUTHORIZED",
+			"invalid Hydra API token",
+		)
 		return false
 	}
+
 	return true
 }
 
@@ -127,10 +147,17 @@ func (s *Server) handleJobsAPI(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(s.db.GetAllJobs())
+
 	case http.MethodPost:
 		s.handleDownloadTrigger(w, r)
+
 	default:
-		writeJSONError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		writeJSONError(
+			w,
+			http.StatusMethodNotAllowed,
+			"METHOD_NOT_ALLOWED",
+			"method not allowed",
+		)
 	}
 }
 
@@ -140,39 +167,69 @@ func (s *Server) handleJobAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pathValue := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/jobs/"), "/")
+	pathValue := strings.Trim(
+		strings.TrimPrefix(r.URL.Path, "/api/jobs/"),
+		"/",
+	)
+
 	if pathValue == "" {
-		writeJSONError(w, http.StatusBadRequest, "INVALID_JOB_ID", "missing or invalid job id")
+		writeJSONError(
+			w,
+			http.StatusBadRequest,
+			"INVALID_JOB_ID",
+			"missing or invalid job id",
+		)
 		return
 	}
 
 	jobID := pathValue
+
 	for _, suffix := range []string{"/pause", "/resume"} {
 		if strings.HasSuffix(pathValue, suffix) {
 			jobID = strings.TrimSuffix(pathValue, suffix)
 			break
 		}
 	}
+
 	if jobID == "" || strings.Contains(jobID, "/") {
-		writeJSONError(w, http.StatusBadRequest, "INVALID_JOB_ID", "missing or invalid job id")
+		writeJSONError(
+			w,
+			http.StatusBadRequest,
+			"INVALID_JOB_ID",
+			"missing or invalid job id",
+		)
 		return
 	}
 
 	if _, exists := s.db.GetJob(jobID); !exists {
-		writeJSONError(w, http.StatusNotFound, "JOB_NOT_FOUND", "job not found")
+		writeJSONError(
+			w,
+			http.StatusNotFound,
+			"JOB_NOT_FOUND",
+			"job not found",
+		)
 		return
 	}
 
 	r.URL.RawQuery = "id=" + url.QueryEscape(jobID)
+
 	switch {
 	case r.Method == http.MethodPost && strings.HasSuffix(pathValue, "/pause"):
 		s.handlePauseJob(w, r)
+
 	case r.Method == http.MethodPost && strings.HasSuffix(pathValue, "/resume"):
 		s.handleResumeJob(w, r)
+
 	case r.Method == http.MethodDelete:
 		s.handleDeleteJob(w, r)
+
 	default:
-		writeJSONError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		writeJSONError(
+			w,
+			http.StatusMethodNotAllowed,
+			"METHOD_NOT_ALLOWED",
+			"method not allowed",
+		)
 	}
 }
 
@@ -185,13 +242,18 @@ func (s *Server) handleBrowseDirectory(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		CurrentPath string `json:"current_path"`
 	}
+
 	_ = json.NewDecoder(r.Body).Decode(&payload)
 
 	defaultPath := payload.CurrentPath
-	if defaultPath == "" || defaultPath == "PENDING" || defaultPath == "DEFAULT" {
+
+	if defaultPath == "" ||
+		defaultPath == "PENDING" ||
+		defaultPath == "DEFAULT" {
 		defaultPath = GetDefaultDownloadsDir()
 	} else {
 		resolved, err := ResolvePath(defaultPath)
+
 		if err == nil {
 			if stat, err := os.Stat(resolved); err == nil && !stat.IsDir() {
 				defaultPath = filepath.Dir(resolved)
@@ -202,7 +264,9 @@ func (s *Server) handleBrowseDirectory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	selectedDir, err := ChooseFolderDialog(defaultPath)
+
 	w.Header().Set("Content-Type", "application/json")
+
 	if err != nil {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"success": false,
@@ -223,32 +287,67 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		cfg := GetConfig()
-		_ = json.NewEncoder(w).Encode(cfg)
+
+		if err := json.NewEncoder(w).Encode(cfg); err != nil {
+			return
+		}
 
 	case http.MethodPost:
 		var updated Config
+
 		if err := json.NewDecoder(r.Body).Decode(&updated); err != nil {
-			http.Error(w, "Malformed JSON config", http.StatusBadRequest)
+			writeJSONError(
+				w,
+				http.StatusBadRequest,
+				"INVALID_JSON",
+				"malformed JSON config",
+			)
+			return
+		}
+
+		if updated.MaxConcurrentDownloads < 1 {
+			writeJSONError(
+				w,
+				http.StatusBadRequest,
+				"INVALID_CONCURRENCY",
+				"max concurrent downloads must be at least 1",
+			)
 			return
 		}
 
 		if err := SaveConfig(&updated); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
+			writeJSONError(
+				w,
+				http.StatusInternalServerError,
+				"CONFIG_SAVE_FAILED",
+				fmt.Sprintf("failed to save config: %v", err),
+			)
 			return
 		}
 
-		if qm := GetQueueManager(); qm != nil && updated.MaxConcurrentDownloads > 0 {
+		// Apply the new concurrency limit immediately.
+		if qm := GetQueueManager(); qm != nil {
 			qm.mu.Lock()
 			qm.maxConcurrent = updated.MaxConcurrentDownloads
 			qm.mu.Unlock()
+
 			qm.ProcessNext()
 		}
 
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "success", "message": "Settings updated"})
+
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"status":  "success",
+			"message": "Settings updated",
+		})
 
 	default:
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		writeJSONError(
+			w,
+			http.StatusMethodNotAllowed,
+			"METHOD_NOT_ALLOWED",
+			"method not allowed",
+		)
 	}
 }
 
@@ -268,7 +367,11 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Header.Get("X-Hydra-Token") != hydraAPIToken {
-		http.Error(w, "Unauthorized: Invalid security token", http.StatusUnauthorized)
+		http.Error(
+			w,
+			"Unauthorized: Invalid security token",
+			http.StatusUnauthorized,
+		)
 		return
 	}
 
@@ -290,12 +393,34 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if payload.SavePath == "" || (payload.JobID == "" && payload.URL == "") {
-		http.Error(w, "Missing url or save_path", http.StatusUnprocessableEntity)
+	// Explicit filename supplied by the caller.
+	if payload.Filename != "" &&
+		payload.Filename != "Calculating..." &&
+		payload.Filename != "Pending path..." {
+
+		if err := ValidateFilename(payload.Filename); err != nil {
+			writeJSONError(
+				w,
+				http.StatusBadRequest,
+				"INVALID_FILENAME",
+				err.Error(),
+			)
+			return
+		}
+	}
+
+	if payload.SavePath == "" ||
+		(payload.JobID == "" && payload.URL == "") {
+		http.Error(
+			w,
+			"Missing url or save_path",
+			http.StatusUnprocessableEntity,
+		)
 		return
 	}
 
 	var parsedScheduledAt *time.Time
+
 	if payload.ScheduledAt != "" {
 		if t, err := time.Parse(time.RFC3339, payload.ScheduledAt); err == nil {
 			parsedScheduledAt = &t
@@ -304,29 +429,55 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Existing job update.
 	if payload.JobID != "" {
 		job, exists := s.db.GetJob(payload.JobID)
+
 		if !exists {
 			http.Error(w, "Job not found", http.StatusNotFound)
 			return
 		}
 
 		targetSavePath := payload.SavePath
-		if strings.HasSuffix(targetSavePath, "/") || strings.HasSuffix(targetSavePath, string(filepath.Separator)) {
+
+		if strings.HasSuffix(targetSavePath, "/") ||
+			strings.HasSuffix(targetSavePath, string(filepath.Separator)) {
+
 			filename := job.FileName
-			if filename == "" || filename == "Calculating..." || filename == "Pending path..." {
+
+			if filename == "" ||
+				filename == "Calculating..." ||
+				filename == "Pending path..." {
+
 				parts := strings.Split(job.URL, "/")
+
 				if len(parts) > 0 {
-					filename = strings.Split(parts[len(parts)-1], "?")[0]
+					filename = strings.Split(
+						parts[len(parts)-1],
+						"?",
+					)[0]
 				}
 			}
+
 			if filename == "" {
 				filename = "downloaded_file.bin"
 			}
+
+			if err := ValidateFilename(filename); err != nil {
+				writeJSONError(
+					w,
+					http.StatusBadRequest,
+					"INVALID_FILENAME",
+					err.Error(),
+				)
+				return
+			}
+
 			targetSavePath = filepath.Join(targetSavePath, filename)
 		}
 
 		securedPath, err := ResolvePath(targetSavePath)
+
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return
@@ -339,22 +490,35 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		job.ExpectedChecksum = payload.ExpectedChecksum
 		job.ChecksumAlgo = payload.ChecksumAlgo
 		job.BatchID = payload.BatchID
-		if parsedScheduledAt != nil && parsedScheduledAt.After(time.Now()) {
+
+		if parsedScheduledAt != nil &&
+			parsedScheduledAt.After(time.Now()) {
+
 			job.Status = "SCHEDULED"
 			job.ScheduledAt = parsedScheduledAt
 			_ = s.db.SaveJob(&job)
+
 		} else {
 			job.Status = "QUEUED"
 			_ = s.db.SaveJob(&job)
+
 			if GetQueueManager() != nil {
 				GetQueueManager().ProcessNext()
 			}
 		}
+
 		GetBroker().BroadcastQueueState(s.db.GetAllJobs())
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": job.Status, "job_id": payload.JobID})
+
+		_ = json.NewEncoder(w).Encode(
+			map[string]string{
+				"status": job.Status,
+				"job_id": payload.JobID,
+			},
+		)
+
 		return
 	}
 
@@ -365,46 +529,118 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 	if payload.SavePath == "PENDING" {
 		securedPath = "PENDING"
 		status = "PENDING_PATH"
+
 		if payload.Filename != "" {
 			filename = payload.Filename
+
+			if err := ValidateFilename(filename); err != nil {
+				writeJSONError(
+					w,
+					http.StatusBadRequest,
+					"INVALID_FILENAME",
+					err.Error(),
+				)
+				return
+			}
+
 			categoryDir := ResolveCategoryPath(filename)
 			securedPath = filepath.Join(categoryDir, filename)
 		}
+
 		NotifyPendingPath(filename)
+
 	} else {
 		targetSavePath := payload.SavePath
+
 		if targetSavePath == "DEFAULT" || targetSavePath == "" {
 			filename = payload.Filename
+
 			if filename == "" || filename == "Calculating..." {
 				parts := strings.Split(payload.URL, "/")
+
 				if len(parts) > 0 {
-					filename = strings.Split(parts[len(parts)-1], "?")[0]
+					filename = strings.Split(
+						parts[len(parts)-1],
+						"?",
+					)[0]
 				}
 			}
+
 			if filename == "" {
 				filename = "downloaded_file.bin"
 			}
+
 			filename = filepath.Base(filename)
-			targetSavePath = filepath.Join(ResolveCategoryPath(filename), filename)
-		} else if strings.HasSuffix(targetSavePath, "/") || strings.HasSuffix(targetSavePath, string(filepath.Separator)) {
+
+			if err := ValidateFilename(filename); err != nil {
+				writeJSONError(
+					w,
+					http.StatusBadRequest,
+					"INVALID_FILENAME",
+					err.Error(),
+				)
+				return
+			}
+
+			targetSavePath = filepath.Join(
+				ResolveCategoryPath(filename),
+				filename,
+			)
+
+		} else if strings.HasSuffix(targetSavePath, "/") ||
+			strings.HasSuffix(targetSavePath, string(filepath.Separator)) {
+
 			inferredName := payload.Filename
+
 			if inferredName == "" || inferredName == "Calculating..." {
 				parts := strings.Split(payload.URL, "/")
+
 				if len(parts) > 0 {
-					inferredName = strings.Split(parts[len(parts)-1], "?")[0]
+					inferredName = strings.Split(
+						parts[len(parts)-1],
+						"?",
+					)[0]
 				}
 			}
+
 			if inferredName == "" {
 				inferredName = "downloaded_file.bin"
 			}
+
+			if err := ValidateFilename(inferredName); err != nil {
+				writeJSONError(
+					w,
+					http.StatusBadRequest,
+					"INVALID_FILENAME",
+					err.Error(),
+				)
+				return
+			}
+
 			filename = inferredName
-			targetSavePath = filepath.Join(targetSavePath, inferredName)
+			targetSavePath = filepath.Join(
+				targetSavePath,
+				inferredName,
+			)
+
 		} else {
 			filename = filepath.Base(targetSavePath)
+
+			if err := ValidateFilename(filename); err != nil {
+				writeJSONError(
+					w,
+					http.StatusBadRequest,
+					"INVALID_FILENAME",
+					err.Error(),
+				)
+				return
+			}
 		}
 
 		var err error
+
 		securedPath, err = ResolvePath(targetSavePath)
+
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return
@@ -414,7 +650,8 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 	jobID := fmt.Sprintf("job_%d", time.Now().UnixNano())
 
 	if status != "PENDING_PATH" {
-		if parsedScheduledAt != nil && parsedScheduledAt.After(time.Now()) {
+		if parsedScheduledAt != nil &&
+			parsedScheduledAt.After(time.Now()) {
 			status = "SCHEDULED"
 		} else {
 			status = "QUEUED"
@@ -449,7 +686,13 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": status, "job_id": jobID})
+
+	_ = json.NewEncoder(w).Encode(
+		map[string]string{
+			"status": status,
+			"job_id": jobID,
+		},
+	)
 }
 
 func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Request) {
@@ -468,22 +711,32 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 	}
 
 	if r.Header.Get("X-Hydra-Token") != hydraAPIToken {
-		http.Error(w, "Unauthorized: Invalid security token", http.StatusUnauthorized)
+		http.Error(
+			w,
+			"Unauthorized: Invalid security token",
+			http.StatusUnauthorized,
+		)
 		return
 	}
 
 	var payload BatchDownloadPayload
+
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "Malformed JSON payload", http.StatusBadRequest)
 		return
 	}
 
 	if len(payload.URLs) == 0 {
-		http.Error(w, "No URLs provided in batch request", http.StatusUnprocessableEntity)
+		http.Error(
+			w,
+			"No URLs provided in batch request",
+			http.StatusUnprocessableEntity,
+		)
 		return
 	}
 
 	var parsedScheduledAt *time.Time
+
 	if payload.ScheduledAt != "" {
 		if t, err := time.Parse(time.RFC3339, payload.ScheduledAt); err == nil {
 			parsedScheduledAt = &t
@@ -493,13 +746,21 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 	}
 
 	baseDir := payload.SavePath
-	if baseDir == "" || baseDir == "PENDING" || baseDir == "DEFAULT" {
+
+	if baseDir == "" ||
+		baseDir == "PENDING" ||
+		baseDir == "DEFAULT" {
 		baseDir = GetDefaultDownloadsDir()
 	}
 
 	resolvedBase, err := ResolvePath(baseDir + "/")
+
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Invalid destination directory: %v", err), http.StatusBadRequest)
+		http.Error(
+			w,
+			fmt.Sprintf("Invalid destination directory: %v", err),
+			http.StatusBadRequest,
+		)
 		return
 	}
 
@@ -508,30 +769,48 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 
 	for _, rawURL := range payload.URLs {
 		trimmedURL := strings.TrimSpace(rawURL)
+
 		if trimmedURL == "" {
 			continue
 		}
 
 		urlFilename := "downloaded_file.bin"
 		parts := strings.Split(trimmedURL, "/")
+
 		if len(parts) > 0 {
-			cleanPart := strings.Split(parts[len(parts)-1], "?")[0]
+			cleanPart := strings.Split(
+				parts[len(parts)-1],
+				"?",
+			)[0]
+
 			if cleanPart != "" {
 				urlFilename = cleanPart
 			}
 		}
 
+		if err := ValidateFilename(urlFilename); err != nil {
+			continue
+		}
+
 		categoryDir := ResolveCategoryPath(urlFilename)
 		targetDir := resolvedBase
-		if payload.SavePath == "DEFAULT" || payload.SavePath == "" {
+
+		if payload.SavePath == "DEFAULT" ||
+			payload.SavePath == "" {
 			targetDir, _ = ResolvePath(categoryDir + "/")
 		}
 
-		finalFilePath := filepath.Join(targetDir, urlFilename)
+		finalFilePath := filepath.Join(
+			targetDir,
+			urlFilename,
+		)
+
 		jobID := fmt.Sprintf("job_%d", time.Now().UnixNano())
 
 		status := "QUEUED"
-		if parsedScheduledAt != nil && parsedScheduledAt.After(time.Now()) {
+
+		if parsedScheduledAt != nil &&
+			parsedScheduledAt.After(time.Now()) {
 			status = "SCHEDULED"
 		}
 
@@ -563,6 +842,7 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
+
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status":          "accepted",
 		"batch_id":        batchID,
@@ -576,8 +856,13 @@ func (s *Server) handleRenderDashboard(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "running", "app": "Hydra Download Manager"})
+
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"status": "running",
+		"app":    "Hydra Download Manager",
+	})
 }
 
 func (s *Server) handleGetQueueSnippet(w http.ResponseWriter, r *http.Request) {
@@ -586,6 +871,7 @@ func (s *Server) handleGetQueueSnippet(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePauseJob(w http.ResponseWriter, r *http.Request) {
 	jobID := r.URL.Query().Get("id")
+
 	if jobID == "" {
 		http.Error(w, "Missing job id parameter", http.StatusBadRequest)
 		return
@@ -593,9 +879,11 @@ func (s *Server) handlePauseJob(w http.ResponseWriter, r *http.Request) {
 
 	if GlobalCancelMutex != nil && GlobalCancelMap != nil {
 		GlobalCancelMutex.Lock()
+
 		if cancel, exists := GlobalCancelMap[jobID]; exists {
 			cancel()
 		}
+
 		GlobalCancelMutex.Unlock()
 	}
 
@@ -605,18 +893,27 @@ func (s *Server) handlePauseJob(w http.ResponseWriter, r *http.Request) {
 	if GetQueueManager() != nil {
 		GetQueueManager().ProcessNext()
 	}
+
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "job paused"})
+
+	_ = json.NewEncoder(w).Encode(
+		map[string]string{
+			"status":  "ok",
+			"message": "job paused",
+		},
+	)
 }
 
 func (s *Server) handleResumeJob(w http.ResponseWriter, r *http.Request) {
 	jobID := r.URL.Query().Get("id")
+
 	if jobID == "" {
 		http.Error(w, "Missing job id parameter", http.StatusBadRequest)
 		return
 	}
 
 	_, exists := s.db.GetJob(jobID)
+
 	if !exists {
 		http.Error(w, "Job profile not found", http.StatusNotFound)
 		return
@@ -630,17 +927,25 @@ func (s *Server) handleResumeJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "job resumed"})
+
+	_ = json.NewEncoder(w).Encode(
+		map[string]string{
+			"status":  "ok",
+			"message": "job resumed",
+		},
+	)
 }
 
 func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	jobID := r.URL.Query().Get("id")
+
 	if jobID == "" {
 		http.Error(w, "Missing job id parameter", http.StatusBadRequest)
 		return
 	}
 
 	job, exists := s.db.GetJob(jobID)
+
 	if !exists {
 		http.Error(w, "Job profile not found", http.StatusNotFound)
 		return
@@ -648,27 +953,39 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 
 	if GlobalCancelMutex != nil && GlobalCancelMap != nil {
 		GlobalCancelMutex.Lock()
+
 		if cancel, active := GlobalCancelMap[jobID]; active {
 			cancel()
 		}
+
 		GlobalCancelMutex.Unlock()
 	}
 
 	_ = os.Remove(job.SavePath)
 	ClearJobState(job.SavePath)
 	_ = s.db.DeleteJob(jobID)
+
 	GetBroker().BroadcastQueueState(s.db.GetAllJobs())
 
 	if qm := GetQueueManager(); qm != nil {
 		qm.ProcessNext()
 	}
+
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "job deleted"})
+
+	_ = json.NewEncoder(w).Encode(
+		map[string]string{
+			"status":  "ok",
+			"message": "job deleted",
+		},
+	)
 }
 
 func (s *Server) handleGetQueueJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+
 	jobs := s.db.GetAllJobs()
+
 	_ = json.NewEncoder(w).Encode(jobs)
 }
 
@@ -681,25 +998,40 @@ func (s *Server) handleListDirectory(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Path string `json:"path"`
 	}
+
 	_ = json.NewDecoder(r.Body).Decode(&payload)
 
 	targetPath := payload.Path
-	if targetPath == "" || targetPath == "~" || targetPath == "DEFAULT" || targetPath == "PENDING" {
+
+	if targetPath == "" ||
+		targetPath == "~" ||
+		targetPath == "DEFAULT" ||
+		targetPath == "PENDING" {
+
 		home, err := os.UserHomeDir()
+
 		if err != nil {
-			http.Error(w, "Cannot resolve home directory", http.StatusInternalServerError)
+			http.Error(
+				w,
+				"Cannot resolve home directory",
+				http.StatusInternalServerError,
+			)
 			return
 		}
+
 		targetPath = home
 	}
 
 	resolved, err := ResolvePath(targetPath)
+
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
+
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"success": false,
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
@@ -708,12 +1040,15 @@ func (s *Server) handleListDirectory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	entries, err := os.ReadDir(resolved)
+
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
+
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"success": false,
 			"error":   fmt.Sprintf("Cannot read directory: %v", err),
 		})
+
 		return
 	}
 
@@ -733,6 +1068,7 @@ func (s *Server) handleListDirectory(w http.ResponseWriter, r *http.Request) {
 		}
 
 		fullPath := filepath.Join(resolved, entry.Name())
+
 		de := DirEntry{
 			Name:  entry.Name(),
 			Path:  fullPath,
@@ -753,11 +1089,13 @@ func (s *Server) handleListDirectory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	parentPath := filepath.Dir(resolved)
+
 	if parentPath == resolved {
 		parentPath = ""
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"success":     true,
 		"current":     resolved,

@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -43,6 +45,46 @@ func main() {
 		}
 		if job.Headers != nil {
 			headers = job.Headers
+		}
+
+		// A directory can be left in place when a previous job used the
+		// selected filename as its download directory. Keep retries stable
+		// by choosing a sibling download path instead of nesting repeatedly.
+		if info, statErr := os.Stat(savePath); statErr == nil && info.IsDir() {
+			filename := filepath.Base(job.FileName)
+			if filename == "" {
+				filename = filepath.Base(url)
+			}
+
+			targetDir := filepath.Dir(savePath)
+			for filepath.Base(targetDir) == filename {
+				targetDir = filepath.Dir(targetDir)
+			}
+
+			candidate := filepath.Join(
+				targetDir,
+				fmt.Sprintf("%s.hydra-%s.part", filename, jobID),
+			)
+			for suffix := 1; ; suffix++ {
+				candidateInfo, candidateErr := os.Stat(candidate)
+				if os.IsNotExist(candidateErr) ||
+					(candidateErr == nil && !candidateInfo.IsDir()) {
+					break
+				}
+
+				candidate = filepath.Join(
+					targetDir,
+					fmt.Sprintf("%s.hydra-%s.part-%d", filename, jobID, suffix),
+				)
+			}
+
+			savePath = candidate
+			job.SavePath = savePath
+			_ = dbStore.SaveJob(&job)
+		}
+
+		if info, statErr := os.Stat(savePath); statErr == nil && info.IsDir() {
+			return fmt.Errorf("download target is a directory: %s", savePath)
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -232,91 +274,90 @@ func main() {
 
 		done := make(chan struct{})
 
+		var downloaded atomic.Int64
+		downloaded.Store(downloadedBytes)
+
+		// Dedicated drain: never blocked by DB work.
 		go func() {
-			ticker := time.NewTicker(250 * time.Millisecond)
+			for {
+				select {
+				case <-done:
+					return
+				case p, ok := <-progressChan:
+					if !ok {
+						return
+					}
+					downloaded.Add(p)
+				}
+			}
+		}()
+
+		go func() {
+			ticker := time.NewTicker(500 * time.Millisecond)
 			defer ticker.Stop()
 
-			lastDownloaded := downloadedBytes
+			lastDownloaded := downloaded.Load()
 			lastTime := time.Now()
+			var smoothed float64
+			var lastChunkSave time.Time
 
 			for {
 				select {
 				case <-done:
 					return
 
-				case p := <-progressChan:
-					downloadedBytes += p
-
-				case st := <-stateChan:
-					if st.Index >= 0 && st.Index < len(chunkStates) {
-						chunkStates[st.Index].CurrentOffset = st.Start
-
-						if st.End > 0 && st.Start > st.End {
-							chunkStates[st.Index].Completed = true
-						}
-					}
-
 				case <-ticker.C:
 					now := time.Now()
+					cur := downloaded.Load()
 
-					// Synchronize chunk positions directly from atomic trackers
+					dt := now.Sub(lastTime).Seconds()
+					if dt < 0.1 {
+						continue // skip a too-close tick instead of reporting garbage
+					}
+
+					instant := float64(cur-lastDownloaded) / dt
+					lastDownloaded, lastTime = cur, now
+
+					// Exponential moving average to keep the display steady.
+					if smoothed == 0 {
+						smoothed = instant
+					} else {
+						smoothed = 0.3*instant + 0.7*smoothed
+					}
+
+					// Sync chunk positions from the atomic trackers (same as before).
 					for i, tr := range trackers {
-						cur := tr.GetCurrent()
-						end := tr.GetEnd()
-						chunkStates[i].CurrentOffset = cur
-						if end > 0 && cur > end {
+						c, end := tr.GetCurrent(), tr.GetEnd()
+						chunkStates[i].CurrentOffset = c
+						if end > 0 && c > end {
 							chunkStates[i].Completed = true
 							chunkStates[i].CurrentOffset = end + 1
 						}
 					}
 
-					duration := now.Sub(lastTime).Seconds()
-					if duration <= 0 {
-						duration = 0.25
-					}
-
-					diff := downloadedBytes - lastDownloaded
-					speedBytesPerSec := float64(diff) / duration
-
-					lastDownloaded = downloadedBytes
-					lastTime = now
-
-					speedStr := formatSpeed(speedBytesPerSec)
-					downloadedStr := formatBytes(downloadedBytes)
-
 					progressPct := 0.0
-
 					if meta.Size > 0 {
-						progressPct =
-							(float64(downloadedBytes) / float64(meta.Size)) * 100.0
-
+						progressPct = float64(cur) / float64(meta.Size) * 100.0
 						if progressPct > 100.0 {
 							progressPct = 100.0
 						}
 					}
 
 					etaStr := "--"
-
-					if speedBytesPerSec > 0 && meta.Size > 0 {
-						remainingBytes := meta.Size - downloadedBytes
-
-						if remainingBytes > 0 {
-							secs := float64(remainingBytes) / speedBytesPerSec
-							etaStr = formatETA(secs)
+					if smoothed > 0 && meta.Size > 0 {
+						if rem := meta.Size - cur; rem > 0 {
+							etaStr = formatETA(float64(rem) / smoothed)
 						}
 					}
 
-					_ = dbStore.UpdateProgress(
-						jobID,
-						progressPct,
-						downloadedStr,
-						speedStr,
-						etaStr,
-						"",
-						"DOWNLOADING",
-					)
+					_ = dbStore.UpdateProgress(jobID, progressPct, formatBytes(cur),
+						formatSpeed(smoothed), etaStr, "", "DOWNLOADING")
 
-					_ = dbStore.UpdateJobChunks(jobID, chunkStates)
+					// Chunk checkpoints don't need to be written twice a second.
+					if now.Sub(lastChunkSave) >= 2*time.Second {
+						_ = dbStore.UpdateJobChunks(jobID, chunkStates)
+						lastChunkSave = now
+					}
 				}
 			}
 		}()

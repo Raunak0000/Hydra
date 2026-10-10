@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // GetConfigDir returns $XDG_CONFIG_HOME/hydra (defaults to ~/.config/hydra)
@@ -62,6 +64,83 @@ func GetDefaultDownloadsDir() string {
 		return "/tmp"
 	}
 	return filepath.Join(home, "Downloads")
+}
+
+var (
+	ErrInvalidFilename = fmt.Errorf("invalid filename")
+)
+
+const MaxFilenameBytes = 255
+
+// ValidateFilename validates a single filesystem filename.
+//
+// A filename must:
+//   - be valid UTF-8
+//   - not be empty
+//   - not be "." or ".."
+//   - not contain path separators
+//   - not contain NUL bytes
+//   - not contain control characters
+//   - not exceed the Linux 255-byte component limit
+func ValidateFilename(filename string) error {
+	if filename == "" {
+		return fmt.Errorf("%w: filename is empty", ErrInvalidFilename)
+	}
+
+	if !utf8.ValidString(filename) {
+		return fmt.Errorf(
+			"%w: filename contains invalid UTF-8",
+			ErrInvalidFilename,
+		)
+	}
+
+	if filename == "." || filename == ".." {
+		return fmt.Errorf(
+			"%w: filename cannot be %q",
+			ErrInvalidFilename,
+			filename,
+		)
+	}
+
+	if strings.ContainsRune(filename, '\x00') {
+		return fmt.Errorf(
+			"%w: filename contains NUL byte",
+			ErrInvalidFilename,
+		)
+	}
+
+	if strings.ContainsAny(filename, `/\`) {
+		return fmt.Errorf(
+			"%w: filename contains a path separator",
+			ErrInvalidFilename,
+		)
+	}
+
+	for _, r := range filename {
+		if unicode.IsControl(r) {
+			return fmt.Errorf(
+				"%w: filename contains control characters",
+				ErrInvalidFilename,
+			)
+		}
+	}
+
+	if len([]byte(filename)) > MaxFilenameBytes {
+		return fmt.Errorf(
+			"%w: filename exceeds %d bytes",
+			ErrInvalidFilename,
+			MaxFilenameBytes,
+		)
+	}
+
+	if strings.TrimSpace(filename) == "" {
+		return fmt.Errorf(
+			"%w: filename contains only whitespace",
+			ErrInvalidFilename,
+		)
+	}
+
+	return nil
 }
 
 // ResolvePath expands ~ and ensures the directory path is absolute and valid

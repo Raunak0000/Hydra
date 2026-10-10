@@ -15,6 +15,8 @@ type HandshakeResult struct {
 	FinalURL     string
 }
 
+const metadataRateLimitRetries = 3
+
 func newMetadataClient() *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 
@@ -32,6 +34,66 @@ func newMetadataClient() *http.Client {
 	}
 }
 
+func doMetadataRequest(client *http.Client, req *http.Request) (*http.Response, error) {
+	for attempt := 0; ; attempt++ {
+		response, err := client.Do(req)
+		if err != nil || response.StatusCode != http.StatusTooManyRequests ||
+			attempt >= metadataRateLimitRetries {
+			return response, err
+		}
+
+		retryAfter := parseRetryAfter(response.Header.Get("Retry-After"))
+		response.Body.Close()
+
+		if retryAfter <= 0 {
+			retryAfter = time.Duration(attempt+1) * time.Second
+		}
+
+		time.Sleep(retryAfter)
+	}
+}
+
+func setBrowserHeaders(req *http.Request) {
+	if req.Header.Get("Accept") == "" {
+		req.Header.Set("Accept", "*/*")
+	}
+	if req.Header.Get("Accept-Language") == "" {
+		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	}
+	if req.Header.Get("Sec-Fetch-Dest") == "" {
+		req.Header.Set("Sec-Fetch-Dest", "document")
+	}
+	if req.Header.Get("Sec-Fetch-Mode") == "" {
+		req.Header.Set("Sec-Fetch-Mode", "navigate")
+	}
+	if req.Header.Get("Sec-Fetch-Site") == "" {
+		req.Header.Set("Sec-Fetch-Site", "none")
+	}
+}
+
+func parseRetryAfter(value string) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+
+	if seconds, err := strconv.Atoi(value); err == nil && seconds >= 0 {
+		return time.Duration(seconds) * time.Second
+	}
+
+	when, err := http.ParseTime(value)
+	if err != nil {
+		return 0
+	}
+
+	delay := time.Until(when)
+	if delay < 0 {
+		return 0
+	}
+
+	return delay
+}
+
 func GetMetadata(url string, headers map[string]string) (HandshakeResult, error) {
 	client := newMetadataClient()
 
@@ -42,8 +104,8 @@ func GetMetadata(url string, headers map[string]string) (HandshakeResult, error)
 	}
 
 	req.Header.Set("Range", "bytes=0-0")
-	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Connection", "keep-alive")
+	setBrowserHeaders(req)
 
 	for key, value := range headers {
 		req.Header.Set(key, value)
@@ -57,7 +119,7 @@ func GetMetadata(url string, headers map[string]string) (HandshakeResult, error)
 		)
 	}
 
-	response, err := client.Do(req)
+	response, err := doMetadataRequest(client, req)
 	if err != nil {
 		// Some servers behave badly with Range requests.
 		// Try a normal request before giving up.
@@ -71,7 +133,7 @@ func GetMetadata(url string, headers map[string]string) (HandshakeResult, error)
 
 	if response.StatusCode == http.StatusTooManyRequests {
 		return HandshakeResult{}, fmt.Errorf(
-			"HTTP 429: Host rate limit exceeded",
+			"HTTP 429: Host rate limit exceeded; provide the browser Cookie header in download options if the link only works in your browser",
 		)
 	}
 
@@ -180,6 +242,7 @@ func getMetadataFallback(
 
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Connection", "keep-alive")
+	setBrowserHeaders(req)
 
 	for key, value := range headers {
 		req.Header.Set(key, value)
@@ -193,7 +256,7 @@ func getMetadataFallback(
 		)
 	}
 
-	response, err := client.Do(req)
+	response, err := doMetadataRequest(client, req)
 	if err != nil {
 		if originalErr != nil {
 			return HandshakeResult{}, fmt.Errorf(
@@ -213,7 +276,7 @@ func getMetadataFallback(
 
 	if response.StatusCode == http.StatusTooManyRequests {
 		return HandshakeResult{}, fmt.Errorf(
-			"HTTP 429: Host rate limit exceeded",
+			"HTTP 429: Host rate limit exceeded; provide the browser Cookie header in download options if the link only works in your browser",
 		)
 	}
 

@@ -2,6 +2,8 @@ package storage
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"syscall"
 )
 
@@ -16,20 +18,25 @@ type DiskSpaceInfo struct {
 }
 
 func GetDiskSpace(path string, requiredBytes int64) (DiskSpaceInfo, error) {
-	resolved, err := ResolvePath(path + "/")
-	if err != nil {
-		return DiskSpaceInfo{}, fmt.Errorf("invalid disk path: %w", err)
+	dir := filepath.Dir(path)
+
+	// Walk up to the nearest existing directory (the target may not exist yet).
+	for {
+		if _, err := os.Stat(dir); err == nil {
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
 	}
 
 	var stat syscall.Statfs_t
-
-	if err := syscall.Statfs(resolved, &stat); err != nil {
-		return DiskSpaceInfo{}, fmt.Errorf(
-			"unable to determine disk space for %q: %w",
-			resolved,
-			err,
-		)
+	if err := syscall.Statfs(dir, &stat); err != nil {
+		return DiskSpaceInfo{}, fmt.Errorf("unable to determine disk space for %q: %w", dir, err)
 	}
+	resolved := dir
 
 	availableBytes := stat.Bavail * uint64(stat.Bsize)
 	freeBytes := stat.Bfree * uint64(stat.Bsize)
