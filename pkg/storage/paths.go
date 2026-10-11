@@ -143,43 +143,74 @@ func ValidateFilename(filename string) error {
 	return nil
 }
 
-// ResolvePath expands ~ and ensures the directory path is absolute and valid
+// ResolvePath expands ~, normalizes the path, makes it absolute,
+// and ensures the target directory exists.
 func ResolvePath(rawPath string) (string, error) {
-	cleaned := filepath.Clean(rawPath)
+	if strings.TrimSpace(rawPath) == "" {
+		return "", fmt.Errorf("path cannot be empty")
+	}
 
-	if strings.HasPrefix(cleaned, "~") {
+	// Expand only the current user's home directory.
+	if rawPath == "~" || strings.HasPrefix(rawPath, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return "", fmt.Errorf("failed to expand home dir: %w", err)
+			return "", fmt.Errorf("failed to resolve home directory: %w", err)
 		}
-		cleaned = filepath.Join(home, strings.TrimPrefix(cleaned, "~"))
+
+		if rawPath == "~" {
+			rawPath = home
+		} else {
+			rawPath = filepath.Join(home, rawPath[2:])
+		}
+	} else if strings.HasPrefix(rawPath, "~") {
+		return "", fmt.Errorf("unsupported home-directory syntax: %q", rawPath)
 	}
+
+	cleaned := filepath.Clean(rawPath)
 
 	if !filepath.IsAbs(cleaned) {
-		var err error
-		cleaned, err = filepath.Abs(cleaned)
+		absolute, err := filepath.Abs(cleaned)
 		if err != nil {
-			return "", fmt.Errorf("invalid path: %w", err)
+			return "", fmt.Errorf("failed to resolve absolute path: %w", err)
 		}
+		cleaned = absolute
 	}
 
-	// Determine destination directory whether path ends in a file or directory
+	// A trailing separator explicitly identifies a directory.
+	isDirectory := strings.HasSuffix(rawPath, string(filepath.Separator))
+
+	// Existing directories are also treated as directory destinations.
+	info, statErr := os.Stat(cleaned)
+	switch {
+	case statErr == nil:
+		if info.IsDir() {
+			isDirectory = true
+		}
+	case !os.IsNotExist(statErr):
+		return "", fmt.Errorf("failed to inspect destination: %w", statErr)
+	}
+
 	targetDir := cleaned
-	if strings.HasSuffix(rawPath, "/") || strings.HasSuffix(rawPath, string(filepath.Separator)) {
-		targetDir = cleaned
-	} else if stat, err := os.Stat(cleaned); err == nil && stat.IsDir() {
-		targetDir = cleaned
-	} else {
+	if !isDirectory {
 		targetDir = filepath.Dir(cleaned)
 	}
 
-	if _, err := os.Stat(targetDir); os.IsNotExist(err) {
-		if err := os.MkdirAll(targetDir, 0755); err != nil {
-			return "", fmt.Errorf("failed to create target directory: %w", err)
+	// Create the destination directory when necessary.
+	info, err := os.Stat(targetDir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return "", fmt.Errorf("failed to inspect destination directory: %w", err)
 		}
+
+		if err := os.MkdirAll(targetDir, 0755); err != nil {
+			return "", fmt.Errorf("failed to create destination directory: %w", err)
+		}
+	} else if !info.IsDir() {
+		return "", fmt.Errorf("destination parent is not a directory: %s", targetDir)
 	}
 
-	return TruncateFilename(cleaned, 120), nil
+	// Never truncate the complete path or silently change its filename.
+	return cleaned, nil
 }
 
 // TruncateFilename ensures path base filenames do not exceed system length limits

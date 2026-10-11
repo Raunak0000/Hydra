@@ -1,5 +1,3 @@
-// pkg/storage/allocator_linux.go
-
 package storage
 
 import (
@@ -8,30 +6,35 @@ import (
 	"syscall"
 )
 
-// PreallocateSpace claims a continuous physical block layout footprint on your storage drive
+// PreallocateFile reserves disk space for an already-open destination file.
+// The caller retains ownership of the file and must close it.
+func PreallocateFile(file *os.File, size int64) error {
+	if file == nil {
+		return fmt.Errorf("destination file is nil")
+	}
+
+	if size <= 0 {
+		return nil
+	}
+
+	if err := syscall.Fallocate(int(file.Fd()), 0, 0, size); err != nil {
+		return fmt.Errorf("Linux kernel fallocate failed: %w", err)
+	}
+
+	return nil
+}
+
+// PreallocateSpace creates a new destination file and preallocates its space.
 func PreallocateSpace(filePath string, size int64) (*os.File, error) {
-	// Standard high-speed Read/Write file handles work seamlessly with network chunk streaming
 	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create target storage file: %v", err)
+		return nil, fmt.Errorf("failed to open target storage file: %w", err)
 	}
 
-	// If size is unknown (0 or negative), skip kernel preallocation
-	if size <= 0 {
-		fmt.Println("[⚠️] File size unknown. Skipping Linux kernel pre-allocation.")
-		return file, nil
-	}
-
-	// Grab the low-level Linux File Descriptor (int)
-	fd := int(file.Fd())
-
-	// Pre-allocate space continuous block footprint on disk via kernel syscall
-	err = syscall.Fallocate(fd, 0, 0, size)
-	if err != nil {
+	if err := PreallocateFile(file, size); err != nil {
 		file.Close()
-		return nil, fmt.Errorf("linux kernel fallocate failed: %v", err)
+		return nil, err
 	}
 
-	fmt.Printf("[✓] Linux Kernel successfully pre-allocated %d bytes on SSD.\n", size)
 	return file, nil
 }
