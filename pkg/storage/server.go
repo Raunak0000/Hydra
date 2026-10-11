@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,7 +21,7 @@ var (
 	GlobalCancelMutex *sync.Mutex
 )
 
-const hydraAPIToken = "hydra_secure_token_bf1f753e"
+var hydraAPIToken = os.Getenv("HYDRA_API_TOKEN")
 
 type BatchDownloadPayload struct {
 	URLs        []string          `json:"urls"`
@@ -37,6 +38,10 @@ type Server struct {
 
 func NewServer(executeJobFunc func(url string, savePath string, jobID string, headers map[string]string) error) *Server {
 	dbStore, _ := GetDBStore()
+
+	if strings.TrimSpace(hydraAPIToken) == "" {
+		log.Fatal("HYDRA_API_TOKEN must be set")
+	}
 
 	s := &Server{
 		Router:             http.NewServeMux(),
@@ -103,7 +108,12 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 	s.Router.HandleFunc("/api/browse-directory", sameOriginOnly(s.handleBrowseDirectory))
 	s.Router.HandleFunc("/api/list-directory", sameOriginOnly(s.handleListDirectory))
 	s.Router.HandleFunc("/api/disk-space", sameOriginOnly(s.handleDiskSpace))
-	s.Router.HandleFunc("/api/events", s.handleEventsStream)
+	s.Router.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
+		if !requireAPIToken(w, r) {
+			return
+		}
+		s.handleEventsStream(w, r)
+	})
 
 	return s
 }

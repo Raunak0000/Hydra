@@ -53,3 +53,4 @@ downloaded_result.html
 *.prof
 coverage.out
 coverage.html
+.env.local
