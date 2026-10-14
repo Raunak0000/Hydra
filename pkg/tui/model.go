@@ -752,10 +752,15 @@ func (m Model) jobsView() string {
 	for index := m.scroll; index < end; index++ {
 		job := m.jobs[index]
 
+		displayName := job.FileName
+		if job.SavePath != "" {
+			displayName = filepath.Base(job.SavePath)
+		}
+
 		line := fmt.Sprintf(
 			"%-*s %9.1f%% %14s %10s  %s",
 			nameWidth,
-			truncate(job.FileName, nameWidth),
+			truncate(displayName, nameWidth),
 			job.Progress,
 			job.Speed,
 			job.ETA,
