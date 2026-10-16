@@ -215,10 +215,11 @@ func main() {
 				return fmt.Errorf("resume destination must be a regular, non-symlink file")
 			}
 
-			file, err = os.OpenFile(resolvedPath, os.O_RDWR, 0)
+			file, err = storage.OpenExistingDestination(resolvedPath)
 			if err != nil {
 				return fmt.Errorf("opening resume destination: %w", err)
 			}
+
 		} else {
 			resolvedPath, file, err = storage.ReserveConflict(resolvedPath, 0666)
 			if err != nil {
