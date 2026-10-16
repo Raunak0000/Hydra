@@ -235,8 +235,22 @@ func main() {
 		}
 
 		savePath = resolvedPath
-		defer file.Close()
 
+		newlyReserved := !resuming
+		initializationComplete := false
+
+		defer func() {
+			_ = file.Close()
+
+			if !initializationComplete {
+				if err := storage.CleanupNewDestination(
+					resolvedPath,
+					newlyReserved,
+				); err != nil {
+					log.Printf("[WARN] Destination cleanup failed: %v", err)
+				}
+			}
+		}()
 		// Check available space on the filesystem containing the final path.
 		if meta.Size > 0 {
 			diskInfo, err := storage.GetDiskSpace(savePath, meta.Size)
@@ -267,6 +281,8 @@ func main() {
 				return fmt.Errorf("preallocating destination: %w", err)
 			}
 		}
+
+		initializationComplete = true
 
 		numThreads := 8
 
