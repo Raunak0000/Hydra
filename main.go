@@ -220,6 +220,21 @@ func main() {
 				return fmt.Errorf("opening resume destination: %w", err)
 			}
 
+			info, err := file.Stat()
+			if err != nil {
+				_ = file.Close()
+				return fmt.Errorf("checking resume file size: %w", err)
+			}
+
+			if meta.Size > 0 && info.Size() > meta.Size {
+				_ = file.Close()
+				return fmt.Errorf(
+					"resume file is larger than expected: got %d bytes, expected at most %d",
+					info.Size(),
+					meta.Size,
+				)
+			}
+
 		} else {
 			resolvedPath, file, err = storage.ReserveConflict(resolvedPath, 0666)
 			if err != nil {
