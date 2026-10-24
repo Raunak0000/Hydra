@@ -235,6 +235,18 @@ func main() {
 				)
 			}
 
+			for _, chunk := range job.Chunks {
+				if chunk.CurrentOffset > info.Size() {
+					_ = file.Close()
+					return fmt.Errorf(
+						"resume metadata for chunk %d exceeds destination size: offset %d, file size %d",
+						chunk.Index,
+						chunk.CurrentOffset,
+						info.Size(),
+					)
+				}
+			}
+
 		} else {
 			resolvedPath, file, err = storage.ReserveConflict(resolvedPath, 0666)
 			if err != nil {
@@ -584,13 +596,10 @@ func main() {
 						current, end := tr.GetCurrent(), tr.GetEnd()
 
 						chunkStates[i].CurrentOffset = current
+						chunkStates[i].Completed = current >= end+1
 
-						if current >= end+1 {
-
-							chunkStates[i].Completed = true
-
+						if chunkStates[i].Completed {
 							chunkStates[i].CurrentOffset = end + 1
-
 						}
 
 					}
@@ -1031,66 +1040,62 @@ cleanup:
 }
 
 func validateChunkStates(chunks []models.ChunkState, fileSize int64) error {
-
 	if len(chunks) == 0 {
-
 		return fmt.Errorf("no persisted chunks to resume")
-
 	}
 
 	seen := make(map[int]bool, len(chunks))
 
 	for _, chunk := range chunks {
-
 		if chunk.Index < 0 || seen[chunk.Index] {
-
 			return fmt.Errorf("invalid or duplicate chunk index %d", chunk.Index)
-
 		}
-
 		seen[chunk.Index] = true
 
 		if chunk.Start < 0 {
-
 			return fmt.Errorf("chunk %d has negative start offset", chunk.Index)
-
 		}
 
 		if fileSize > 0 {
-
 			if chunk.End < chunk.Start || chunk.End >= fileSize {
-
 				return fmt.Errorf(
-
 					"chunk %d has invalid range [%d, %d] for file size %d",
-
 					chunk.Index, chunk.Start, chunk.End, fileSize,
 				)
-
 			}
-
 		} else if chunk.End >= 0 && chunk.End < chunk.Start {
-
 			return fmt.Errorf("chunk %d has invalid range", chunk.Index)
-
 		}
 
 		if chunk.CurrentOffset < chunk.Start {
-
 			return fmt.Errorf("chunk %d offset precedes its start", chunk.Index)
-
 		}
 
 		if chunk.End >= 0 && chunk.CurrentOffset > chunk.End+1 {
-
 			return fmt.Errorf("chunk %d offset exceeds its end", chunk.Index)
-
 		}
 
+		// A completed chunk must have reached the byte immediately
+		// after its range.
+		if chunk.Completed && chunk.End >= 0 &&
+			chunk.CurrentOffset != chunk.End+1 {
+			return fmt.Errorf(
+				"completed chunk %d has inconsistent offset %d; expected %d",
+				chunk.Index, chunk.CurrentOffset, chunk.End+1,
+			)
+		}
+
+		// An incomplete chunk must not already be at or beyond its end.
+		if !chunk.Completed && chunk.End >= 0 &&
+			chunk.CurrentOffset >= chunk.End+1 {
+			return fmt.Errorf(
+				"incomplete chunk %d has reached its end at offset %d",
+				chunk.Index, chunk.CurrentOffset,
+			)
+		}
 	}
 
 	return nil
-
 }
 
 func filepathBase(path string) string {
