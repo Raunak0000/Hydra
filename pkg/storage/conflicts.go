@@ -16,6 +16,25 @@ func ReserveConflict(path string, perm os.FileMode) (string, *os.File, error) {
 
 	path = filepath.Clean(path)
 
+	parentDir, err := filepath.Abs(filepath.Dir(path))
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve destination directory: %w", err)
+	}
+
+	resolvedParent, err := filepath.EvalSymlinks(parentDir)
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve destination directory symlinks: %w", err)
+	}
+
+	if resolvedParent != parentDir {
+		return "", nil, fmt.Errorf(
+			"destination parent directory must not contain symbolic links: %s",
+			parentDir,
+		)
+	}
+
+	path = filepath.Join(parentDir, filepath.Base(path))
+
 	dir := filepath.Dir(path)
 	name := filepath.Base(path)
 	ext := filepath.Ext(name)

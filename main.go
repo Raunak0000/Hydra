@@ -186,7 +186,18 @@ func main() {
 		var file *os.File
 
 		// Resolve the destination path before opening or reserving it.
-		resolvedPath, err := storage.ResolvePath(savePath)
+		pathResult, err := downloader.ValidateDownloadPath(
+			savePath,
+			downloader.PathValidationOptions{
+				CreateParentDirs: false,
+				AllowExisting:    true,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("validating download destination: %w", err)
+		}
+
+		resolvedPath := pathResult.FinalPath
 		if err != nil {
 			return fmt.Errorf("resolving destination path: %w", err)
 		}

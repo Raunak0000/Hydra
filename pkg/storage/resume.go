@@ -3,6 +3,7 @@ package storage
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"syscall"
 )
 
@@ -13,6 +14,25 @@ func OpenExistingDestination(path string) (*os.File, error) {
 	if path == "" {
 		return nil, fmt.Errorf("resume destination path cannot be empty")
 	}
+
+	parentDir, err := filepath.Abs(filepath.Dir(path))
+	if err != nil {
+		return nil, fmt.Errorf("resolve resume destination directory: %w", err)
+	}
+
+	resolvedParent, err := filepath.EvalSymlinks(parentDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve resume destination directory symlinks: %w", err)
+	}
+
+	if resolvedParent != parentDir {
+		return nil, fmt.Errorf(
+			"resume destination parent must not contain symbolic links: %s",
+			parentDir,
+		)
+	}
+
+	path = filepath.Join(parentDir, filepath.Base(path))
 
 	fd, err := syscall.Open(
 		path,

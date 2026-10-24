@@ -124,11 +124,21 @@ func ValidateDownloadPath(
 	}
 
 	// Validate symlinks in the existing parent path.
-	if _, err := filepath.EvalSymlinks(parentDir); err != nil {
+	// Reject parent paths that resolve through symbolic links.
+	resolvedParent, err := filepath.EvalSymlinks(parentDir)
+	if err != nil {
 		return nil, fmt.Errorf(
-			"%w: unable to resolve parent directory symlinks: %v",
+			"%w: unable to resolve parent directory: %v",
 			ErrInvalidPath,
 			err,
+		)
+	}
+
+	if resolvedParent != parentDir {
+		return nil, fmt.Errorf(
+			"%w: parent directory must not contain symbolic links: %s",
+			ErrInvalidPath,
+			parentDir,
 		)
 	}
 
@@ -148,6 +158,13 @@ func ValidateDownloadPath(
 
 	if err == nil {
 		result.Exists = true
+		if destinationInfo.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf(
+				"%w: symbolic-link destinations are not allowed: %s",
+				ErrInvalidPath,
+				path,
+			)
+		}
 		result.IsDirectory = destinationInfo.IsDir()
 
 		if destinationInfo.IsDir() {

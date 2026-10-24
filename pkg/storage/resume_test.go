@@ -55,3 +55,32 @@ func TestOpenExistingDestinationRejectsSymlink(t *testing.T) {
 		t.Fatal("target file was unexpectedly modified")
 	}
 }
+
+func TestOpenExistingDestinationRejectsSymlinkParent(t *testing.T) {
+	root := t.TempDir()
+	realDir := filepath.Join(root, "real")
+	linkDir := filepath.Join(root, "linked")
+
+	if err := os.Mkdir(realDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	target := filepath.Join(realDir, "download.bin")
+	if err := os.WriteFile(target, []byte("existing data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	linkPath := filepath.Join(linkDir, "download.bin")
+	file, err := OpenExistingDestination(linkPath)
+	if file != nil {
+		_ = file.Close()
+		t.Fatal("expected symlink parent to be rejected")
+	}
+	if err == nil {
+		t.Fatal("expected an error for symlinked parent directory")
+	}
+}
