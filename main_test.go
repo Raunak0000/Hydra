@@ -100,6 +100,22 @@ func TestValidateChunkStates(t *testing.T) {
 			fileSize: 100,
 			wantErr:  true,
 		},
+		{
+			name: "negative chunk index",
+			chunks: []models.ChunkState{
+				{Index: -1, Start: 0, End: 99, CurrentOffset: 20},
+			},
+			fileSize: 100,
+			wantErr:  true,
+		},
+		{
+			name: "negative current offset",
+			chunks: []models.ChunkState{
+				{Index: 0, Start: 0, End: 99, CurrentOffset: -1},
+			},
+			fileSize: 100,
+			wantErr:  true,
+		},
 	}
 
 	for _, tt := range tests {

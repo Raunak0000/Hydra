@@ -281,13 +281,18 @@ func main() {
 		defer func() {
 			_ = file.Close()
 
-			if !initializationComplete {
-				if err := storage.CleanupNewDestination(
-					resolvedPath,
-					newlyReserved,
-				); err != nil {
-					log.Printf("[WARN] Destination cleanup failed: %v", err)
-				}
+			// Preserve partial downloads when paused or cancelled.
+			if ctx.Err() != nil {
+				return
+			}
+
+			// Keep successfully initialized downloads and resumed files.
+			if initializationComplete || !newlyReserved {
+				return
+			}
+
+			if err := storage.CleanupNewDestination(resolvedPath, true); err != nil {
+				log.Printf("[WARN] Destination cleanup failed: %v", err)
 			}
 		}()
 		// Check available space on the filesystem containing the final path.
