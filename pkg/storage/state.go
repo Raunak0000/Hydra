@@ -2,23 +2,54 @@ package storage
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/Raunak0000/Hydra/pkg/models"
 )
 
-// SaveJobState serializes an active UIJob's state layout directly into a .hydra metadata file
+// SaveJobState atomically saves an active UIJob to its .hydra metadata file.
 func SaveJobState(job models.UIJob) error {
-	// ── FIX: Capitalized SavePath to match models.UIJob definition perfectly ──
-	statePath := job.SavePath + ".hydra"
-
-	file, err := os.OpenFile(statePath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
-	if err != nil {
-		return err
+	if job.SavePath == "" {
+		return fmt.Errorf("job save path cannot be empty")
 	}
-	defer file.Close()
 
-	return json.NewEncoder(file).Encode(job)
+	statePath := job.SavePath + ".hydra"
+	dir := filepath.Dir(statePath)
+
+	tmp, err := os.CreateTemp(dir, ".hydra-state-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temporary state file: %w", err)
+	}
+
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("set state file permissions: %w", err)
+	}
+
+	if err := json.NewEncoder(tmp).Encode(job); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("encode job state: %w", err)
+	}
+
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("sync job state: %w", err)
+	}
+
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temporary state file: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, statePath); err != nil {
+		return fmt.Errorf("replace job state: %w", err)
+	}
+
+	return nil
 }
 
 // LoadJobState parses a saved .hydra state file from disk to resume a download
