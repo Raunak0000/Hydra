@@ -82,6 +82,24 @@ func TestValidateChunkStates(t *testing.T) {
 			fileSize: 100,
 			wantErr:  true,
 		},
+		{
+			name: "overlapping chunk ranges",
+			chunks: []models.ChunkState{
+				{Index: 0, Start: 0, End: 59, CurrentOffset: 30},
+				{Index: 1, Start: 50, End: 99, CurrentOffset: 70},
+			},
+			fileSize: 100,
+			wantErr:  true,
+		},
+		{
+			name: "gap between chunk ranges",
+			chunks: []models.ChunkState{
+				{Index: 0, Start: 0, End: 39, CurrentOffset: 20},
+				{Index: 1, Start: 50, End: 99, CurrentOffset: 70},
+			},
+			fileSize: 100,
+			wantErr:  true,
+		},
 	}
 
 	for _, tt := range tests {

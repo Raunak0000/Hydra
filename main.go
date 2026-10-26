@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"sort"
 
 	"fmt"
 
@@ -1057,6 +1058,38 @@ func validateChunkStates(chunks []models.ChunkState, fileSize int64) error {
 
 	seen := make(map[int]bool, len(chunks))
 
+	if fileSize > 0 {
+		ordered := append([]models.ChunkState(nil), chunks...)
+
+		sort.Slice(ordered, func(i, j int) bool {
+			return ordered[i].Start < ordered[j].Start
+		})
+
+		expectedStart := int64(0)
+
+		for _, chunk := range ordered {
+			if chunk.Start != expectedStart {
+				return fmt.Errorf(
+					"gap or invalid range before chunk %d: expected start %d, got %d",
+					chunk.Index,
+					expectedStart,
+					chunk.Start,
+				)
+			}
+
+			expectedStart = chunk.End + 1
+		}
+
+		if expectedStart != fileSize {
+			return fmt.Errorf(
+				"chunk ranges cover %d bytes, expected %d",
+				expectedStart,
+				fileSize,
+			)
+		}
+	}
+	ranges := make([]models.ChunkState, 0, len(chunks))
+
 	for _, chunk := range chunks {
 		if chunk.Index < 0 || seen[chunk.Index] {
 			return fmt.Errorf("invalid or duplicate chunk index %d", chunk.Index)
@@ -1076,6 +1109,19 @@ func validateChunkStates(chunks []models.ChunkState, fileSize int64) error {
 			}
 		} else if chunk.End >= 0 && chunk.End < chunk.Start {
 			return fmt.Errorf("chunk %d has invalid range", chunk.Index)
+		}
+
+		if chunk.End >= chunk.Start {
+			for _, previous := range ranges {
+				if chunk.Start <= previous.End && previous.Start <= chunk.End {
+					return fmt.Errorf(
+						"chunks %d and %d have overlapping ranges",
+						previous.Index,
+						chunk.Index,
+					)
+				}
+			}
+			ranges = append(ranges, chunk)
 		}
 
 		if chunk.CurrentOffset < chunk.Start {
