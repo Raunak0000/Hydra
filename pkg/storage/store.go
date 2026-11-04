@@ -80,6 +80,14 @@ func (s *MemoryStore) UpdateJobChunks(id string, chunks []models.ChunkState) {
 	}
 }
 
+func (s *MemoryStore) UpdateJobURL(id string, url string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if job, exists := s.Jobs[id]; exists {
+		job.URL = url
+	}
+}
+
 func (s *MemoryStore) GetJob(id string) (models.UIJob, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

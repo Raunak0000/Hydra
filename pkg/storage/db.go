@@ -227,6 +227,13 @@ func (s *DBStore) UpdateJobChunks(jobID string, chunks []models.ChunkState) erro
 	return err
 }
 
+func (s *DBStore) UpdateJobURL(jobID string, newURL string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`UPDATE jobs SET url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;`, newURL, jobID)
+	return err
+}
+
 func (s *DBStore) GetJob(jobID string) (models.UIJob, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

@@ -97,6 +97,31 @@ func StartIPCServer(downloadTrigger func(string, string, string)) {
 				return
 			}
 
+			// ── 🔗 HANDLE UPDATE URL COMMAND ──
+			if strings.HasPrefix(commandText, "UPDATE_URL|") {
+				payload := strings.TrimPrefix(commandText, "UPDATE_URL|")
+				parts := strings.SplitN(payload, "|", 2)
+				if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+					_, _ = c.Write([]byte("ERROR|Usage: UPDATE_URL|<jobID>|<newURL>\n"))
+					return
+				}
+				jobID := parts[0]
+				newURL := parts[1]
+
+				if _, exists := dbStore.GetJob(jobID); !exists {
+					_, _ = c.Write([]byte("ERROR|Target job profile not found in database.\n"))
+					return
+				}
+
+				if err := dbStore.UpdateJobURL(jobID, newURL); err != nil {
+					_, _ = c.Write([]byte(fmt.Sprintf("ERROR|Failed to update job URL: %v\n", err)))
+					return
+				}
+
+				_, _ = c.Write([]byte("SUCCESS|Job URL successfully updated.\n"))
+				return
+			}
+
 			// ── 🗑️ HANDLE DELETE COMMAND ──
 			if strings.HasPrefix(commandText, "DELETE|") {
 				jobID := strings.TrimPrefix(commandText, "DELETE|")

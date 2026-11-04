@@ -66,6 +66,13 @@ func main() {
 			os.Exit(1)
 		}
 		executeActionRequest(conn, action, os.Args[2])
+	case "update-url":
+		if len(os.Args) < 4 {
+			fmt.Println("[X] Error: 'update-url' requires both a target Job ID and a new URL.")
+			fmt.Println("Usage: hydra update-url <JOB_ID> <NEW_URL>")
+			os.Exit(1)
+		}
+		executeUpdateURLRequest(conn, os.Args[2], os.Args[3])
 	default:
 		fmt.Printf("[X] Error: Unknown subcommand '%s'\n", action)
 		printUsage()
@@ -121,11 +128,30 @@ func executeActionRequest(conn net.Conn, action string, jobID string) {
 	}
 }
 
+func executeUpdateURLRequest(conn net.Conn, jobID string, newURL string) {
+	payload := fmt.Sprintf("UPDATE_URL|%s|%s\n", jobID, newURL)
+	_, _ = conn.Write([]byte(payload))
+
+	reply, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil {
+		fmt.Println("[X] Error: Failed to read daemon confirmation for update-url action.")
+		return
+	}
+
+	reply = strings.TrimSpace(reply)
+	if strings.HasPrefix(reply, "SUCCESS") {
+		fmt.Printf("[✓] URL for job %s updated successfully. You can now resume it!\n", jobID)
+	} else {
+		fmt.Printf("[X] Daemon rejected update-url: %s\n", reply)
+	}
+}
+
 func printUsage() {
 	fmt.Println("🚀 HYDRA COMMAND LINE INTERFACE CONTROL UTILITY")
 	fmt.Println("Usage:")
-	fmt.Println("  hydra status          - Display live progress text grids for all managed tracking tasks")
-	fmt.Println("  hydra pause [id]      - Contextually freeze parallel downloader channel pools for a job")
-	fmt.Println("  hydra resume [id]     - Reload serialization snapshots and resume a specific job")
-	fmt.Println("  hydra delete [id]     - Purge structural job trace files and records from the queue server")
+	fmt.Println("  hydra status                   - Display live progress text grids for all managed tracking tasks")
+	fmt.Println("  hydra pause [id]               - Contextually freeze parallel downloader channel pools for a job")
+	fmt.Println("  hydra resume [id]              - Reload serialization snapshots and resume a specific job")
+	fmt.Println("  hydra update-url [id] [new_url] - Update download URL for a job (e.g. after link expires)")
+	fmt.Println("  hydra delete [id]              - Purge structural job trace files and records from the queue server")
 }

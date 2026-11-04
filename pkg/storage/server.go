@@ -101,6 +101,7 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 	s.Router.HandleFunc("/api/queue/json", sameOriginOnly(s.handleGetQueueJSON))
 	s.Router.HandleFunc("/api/download/pause", sameOriginOnly(s.handlePauseJob))
 	s.Router.HandleFunc("/api/download/resume", sameOriginOnly(s.handleResumeJob))
+	s.Router.HandleFunc("/api/download/update-url", sameOriginOnly(s.handleUpdateJobURL))
 	s.Router.HandleFunc("/api/download/delete", sameOriginOnly(s.handleDeleteJob))
 	s.Router.HandleFunc("/api/jobs", s.handleJobsAPI)
 	s.Router.HandleFunc("/api/jobs/", s.handleJobAPI)
@@ -156,7 +157,14 @@ func (s *Server) handleJobsAPI(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(s.db.GetAllJobs())
+		var jobs []models.UIJob
+		if s.db != nil {
+			jobs = s.db.GetAllJobs()
+		}
+		if jobs == nil {
+			jobs = []models.UIJob{}
+		}
+		_ = json.NewEncoder(w).Encode(jobs)
 
 	case http.MethodPost:
 		s.handleDownloadTrigger(w, r)
@@ -194,7 +202,7 @@ func (s *Server) handleJobAPI(w http.ResponseWriter, r *http.Request) {
 
 	jobID := pathValue
 
-	for _, suffix := range []string{"/pause", "/resume"} {
+	for _, suffix := range []string{"/pause", "/resume", "/url"} {
 		if strings.HasSuffix(pathValue, suffix) {
 			jobID = strings.TrimSuffix(pathValue, suffix)
 			break
@@ -229,6 +237,9 @@ func (s *Server) handleJobAPI(w http.ResponseWriter, r *http.Request) {
 
 	case r.Method == http.MethodPost && strings.HasSuffix(pathValue, "/resume"):
 		s.handleResumeJob(w, r)
+
+	case r.Method == http.MethodPost && strings.HasSuffix(pathValue, "/url"):
+		s.handleUpdateJobURL(w, r)
 
 	case r.Method == http.MethodDelete:
 		s.handleDeleteJob(w, r)
@@ -942,6 +953,56 @@ func (s *Server) handleResumeJob(w http.ResponseWriter, r *http.Request) {
 		map[string]string{
 			"status":  "ok",
 			"message": "job resumed",
+		},
+	)
+}
+
+func (s *Server) handleUpdateJobURL(w http.ResponseWriter, r *http.Request) {
+	jobID := r.URL.Query().Get("id")
+
+	if jobID == "" {
+		http.Error(w, "Missing job id parameter", http.StatusBadRequest)
+		return
+	}
+
+	_, exists := s.db.GetJob(jobID)
+	if !exists {
+		http.Error(w, "Job profile not found", http.StatusNotFound)
+		return
+	}
+
+	var newURL string
+	if r.Header.Get("Content-Type") == "application/json" {
+		var req struct {
+			URL string `json:"url"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err == nil {
+			newURL = req.URL
+		}
+	} else {
+		newURL = r.URL.Query().Get("url")
+		if newURL == "" {
+			newURL = r.FormValue("url")
+		}
+	}
+
+	if newURL == "" {
+		http.Error(w, "Missing url parameter", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.db.UpdateJobURL(jobID, newURL); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to update URL: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	GetBroker().BroadcastQueueState(s.db.GetAllJobs())
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(
+		map[string]string{
+			"status":  "ok",
+			"message": "job url updated",
 		},
 	)
 }
