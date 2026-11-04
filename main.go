@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"math"
 	"sort"
 
 	"fmt"
@@ -328,7 +329,15 @@ func main() {
 
 		initializationComplete = true
 
-		numThreads := 8
+		cfg := storage.GetConfig()
+
+		numThreads := cfg.DefaultThreads
+		if numThreads <= 0 {
+			numThreads = 8
+		}
+		if cfg.MaxThreads > 0 && numThreads > cfg.MaxThreads {
+			numThreads = cfg.MaxThreads
+		}
 
 		if !meta.AcceptRanges || meta.Size <= 0 {
 
@@ -465,7 +474,7 @@ func main() {
 
 		}
 
-		cfg := storage.GetConfig()
+		cfg = storage.GetConfig()
 
 		speedLimit := job.MaxSpeedBytes
 
@@ -641,7 +650,12 @@ func main() {
 
 						if remaining := meta.Size - cur; remaining > 0 {
 
-							eta = formatETA(float64(remaining) / smoothed)
+							etaSeconds := float64(remaining) / smoothed
+
+							if !math.IsNaN(etaSeconds) &&
+								!math.IsInf(etaSeconds, 0) {
+								eta = formatETA(etaSeconds)
+							}
 
 						}
 
@@ -1225,6 +1239,10 @@ func formatSpeed(bytesPerSec float64) string {
 }
 
 func formatETA(seconds float64) string {
+
+	if math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds < 0 {
+		return "--"
+	}
 
 	if seconds < 60 {
 

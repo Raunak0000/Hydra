@@ -174,6 +174,12 @@ func GetMetadata(url string, headers map[string]string) (HandshakeResult, error)
 	if response.StatusCode != http.StatusOK &&
 		response.StatusCode != http.StatusPartialContent {
 
+		if response.StatusCode == http.StatusNotFound {
+			return HandshakeResult{}, fmt.Errorf(
+				"server returned HTTP 404: download link expired - regenerate link",
+			)
+		}
+
 		return HandshakeResult{}, fmt.Errorf(
 			"server returned status: %d",
 			response.StatusCode,

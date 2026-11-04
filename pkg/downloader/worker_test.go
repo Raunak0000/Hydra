@@ -248,3 +248,149 @@ func TestPauseAndResumeDownload(t *testing.T) {
 
 	t.Logf("✓ File matches original payload byte-for-byte after pause and resume!")
 }
+
+func TestConcurrencyLimitWithChunkClaiming(t *testing.T) {
+	// Create 8 MB of random test data
+	fileSize := int64(8 * 1024 * 1024)
+	payload := make([]byte, fileSize)
+	_, err := rand.Read(payload)
+	if err != nil {
+		t.Fatalf("failed to generate random test data: %v", err)
+	}
+
+	var activeConns atomic.Int32
+	maxConcurrency := int32(2)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cur := activeConns.Add(1)
+		defer activeConns.Add(-1)
+
+		if cur > maxConcurrency {
+			w.Header().Set("Retry-After", "1800")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte("concurrency limit exceeded"))
+			return
+		}
+
+		totalSize := int64(len(payload))
+		rangeHeader := r.Header.Get("Range")
+		if rangeHeader == "" {
+			w.Header().Set("Content-Length", strconv.FormatInt(totalSize, 10))
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(payload)
+			return
+		}
+
+		rangeHeader = strings.TrimPrefix(rangeHeader, "bytes=")
+		parts := strings.Split(rangeHeader, "-")
+		start, _ := strconv.ParseInt(parts[0], 10, 64)
+		end := totalSize - 1
+		if len(parts) > 1 && parts[1] != "" {
+			pEnd, _ := strconv.ParseInt(parts[1], 10, 64)
+			if pEnd < totalSize {
+				end = pEnd
+			}
+		}
+
+		chunkLen := end - start + 1
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, totalSize))
+		w.Header().Set("Content-Length", strconv.FormatInt(chunkLen, 10))
+		w.WriteHeader(http.StatusPartialContent)
+
+		written := int64(0)
+		bufSize := 64 * 1024
+		for written < chunkLen {
+			toWrite := int64(bufSize)
+			if chunkLen-written < toWrite {
+				toWrite = chunkLen - written
+			}
+			_, _ = w.Write(payload[start+written : start+written+toWrite])
+			written += toWrite
+			time.Sleep(2 * time.Millisecond)
+		}
+	}))
+	defer server.Close()
+
+	tmpFile, err := os.CreateTemp("", "hydra_concurrency_test_*.bin")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+
+	if err := tmpFile.Truncate(fileSize); err != nil {
+		t.Fatalf("failed to truncate temp file: %v", err)
+	}
+
+	numThreads := 4
+	chunks := CalculateChunks(fileSize, numThreads)
+	trackers := make([]*AdaptiveTracker, numThreads)
+	for i, ch := range chunks {
+		trackers[i] = &AdaptiveTracker{
+			Index:       i,
+			StartByte:   ch.Start,
+			CurrentPtr:  ch.Start,
+			EndBoundary: ch.End,
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, numThreads)
+	progressChan := make(chan int64, 1024)
+	stateChan := make(chan Chunk, 1024)
+
+	var totalDownloaded atomic.Int64
+	doneReading := make(chan struct{})
+	go func() {
+		for p := range progressChan {
+			totalDownloaded.Add(p)
+		}
+		close(doneReading)
+	}()
+
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		go DownloadChunkParallel(
+			ctx,
+			server.URL,
+			i,
+			trackers,
+			tmpFile,
+			&wg,
+			errChan,
+			progressChan,
+			stateChan,
+			nil,
+			nil,
+		)
+	}
+
+	wg.Wait()
+	close(progressChan)
+	close(stateChan)
+	<-doneReading
+
+	select {
+	case err := <-errChan:
+		t.Fatalf("unexpected worker error: %v", err)
+	default:
+	}
+
+	if !AllTrackersCompleted(trackers) {
+		t.Fatalf("not all chunks completed; trackers: %+v", trackers)
+	}
+
+	writtenData, err := os.ReadFile(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("reading file: %v", err)
+	}
+
+	if !bytes.Equal(writtenData, payload) {
+		t.Fatalf("downloaded file does not match original payload")
+	}
+
+	t.Logf("✓ Concurrency limited download (4 workers, 2 server slots) finished 100%% without stalling!")
+}

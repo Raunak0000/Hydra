@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,9 +22,9 @@ const (
 
 	MaxStreamRetries = 8
 
-	// Maximum time an active HTTP stream can produce no data
-	// before it is considered stalled and reconnected.
-	StreamIdleTimeout = 10 * time.Second
+	// Maximum time an active HTTP stream can produce no data before it is
+	// considered stalled and reconnected.
+	StreamIdleTimeout = 15 * time.Second
 )
 
 var bufferPool = sync.Pool{
@@ -54,7 +56,7 @@ var SharedHTTPClient = &http.Client{
 func DownloadChunkParallel(
 	ctx context.Context,
 	url string,
-	myIndex int,
+	initialIndex int,
 	trackers []*AdaptiveTracker,
 	finalFile *os.File,
 	wg *sync.WaitGroup,
@@ -66,29 +68,65 @@ func DownloadChunkParallel(
 ) {
 	defer wg.Done()
 
-	me := trackers[myIndex]
-
 	bufPtr := bufferPool.Get().(*[]byte)
 	defer bufferPool.Put(bufPtr)
 
 	buffer := *bufPtr
+
+	var me *AdaptiveTracker
+	defer func() {
+		if me != nil {
+			me.Release()
+		}
+	}()
+
+	// Stagger initial worker connections slightly (50ms per worker index)
+	// to avoid triggering CDN / Cloudflare burst rate limits on initial connection.
+	if initialIndex > 0 {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Duration(initialIndex*50) * time.Millisecond):
+		}
+	}
+
+	targetIndex := initialIndex
 
 	for {
 		if ctx.Err() != nil {
 			return
 		}
 
-		writeOffset := atomic.LoadInt64(&me.CurrentPtr)
-		endBoundary := atomic.LoadInt64(&me.EndBoundary)
-
-		// Chunk is already complete.
-		if endBoundary > 0 && writeOffset > endBoundary {
-			return
+		if me != nil {
+			me.Release()
+			me = nil
 		}
+
+		// Claim an unfinished chunk from trackers (preferred: targetIndex)
+		me = ClaimNextUnfinishedTracker(trackers, targetIndex)
+		if me == nil {
+			// No tracker available to claim right now. Check if all chunks are finished.
+			if AllTrackersCompleted(trackers) {
+				return // Entire download is complete
+			}
+
+			// Some chunks are still in progress by other workers.
+			// Wait briefly to see if another worker finishes, drops, or yields a chunk.
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(50 * time.Millisecond):
+				targetIndex = -1
+				continue
+			}
+		}
+
+		myIndex := me.Index
+		chunkCompleted := false
 
 		/*
 			========================================================
-			CONNECTION LOOP
+			CONNECTION LOOP FOR CLAIMED CHUNK
 			========================================================
 
 			This loop intentionally has no fixed retry limit.
@@ -97,26 +135,20 @@ func DownloadChunkParallel(
 			trying until the parent context is cancelled.
 		*/
 
-		for attempt := 1; ; attempt++ {
+		for attempt := 1; !chunkCompleted; attempt++ {
 			if ctx.Err() != nil {
+				me.Release()
 				return
 			}
 
-			/*
-				Always reload the latest offset before reconnecting.
+			writeOffset := atomic.LoadInt64(&me.CurrentPtr)
+			endBoundary := atomic.LoadInt64(&me.EndBoundary)
 
-				This is what allows:
-
-				    network dies
-				    ↓
-				    current bytes remain on disk
-				    ↓
-				    connection retries
-				    ↓
-				    Range starts at CurrentPtr
-			*/
-			writeOffset = atomic.LoadInt64(&me.CurrentPtr)
-			endBoundary = atomic.LoadInt64(&me.EndBoundary)
+			// Chunk is already complete.
+			if endBoundary > 0 && writeOffset > endBoundary {
+				chunkCompleted = true
+				break
+			}
 
 			/*
 				Create a context specifically for this HTTP stream.
@@ -135,6 +167,7 @@ func DownloadChunkParallel(
 
 			if err != nil {
 				cancelStream()
+				me.Release()
 
 				select {
 				case errChan <- fmt.Errorf(
@@ -151,7 +184,34 @@ func DownloadChunkParallel(
 			hasRange := false
 
 			/*
-				Set the correct Range header.
+				Apply caller-provided headers.
+
+				Range and Content-Length are owned by the worker. Allowing
+				a browser-supplied value to survive here can make a resumed
+				worker request the wrong byte window and stall at a chunk
+				boundary.
+			*/
+			for key, value := range headers {
+				if strings.EqualFold(key, "Range") ||
+					strings.EqualFold(key, "Content-Length") {
+					continue
+				}
+				req.Header.Set(key, value)
+			}
+
+			if req.Header.Get("User-Agent") == "" {
+				req.Header.Set(
+					"User-Agent",
+					"Mozilla/5.0 (X11; Linux x86_64) "+
+						"AppleWebKit/537.36 "+
+						"(KHTML, like Gecko) "+
+						"Chrome/126.0.0.0 Safari/537.36",
+				)
+			}
+
+			/*
+				Set the correct Range header after caller headers so the
+				worker always owns the byte window.
 			*/
 			if endBoundary > 0 {
 				req.Header.Set(
@@ -174,23 +234,6 @@ func DownloadChunkParallel(
 				)
 
 				hasRange = true
-			}
-
-			/*
-				Apply caller-provided headers.
-			*/
-			for key, value := range headers {
-				req.Header.Set(key, value)
-			}
-
-			if req.Header.Get("User-Agent") == "" {
-				req.Header.Set(
-					"User-Agent",
-					"Mozilla/5.0 (X11; Linux x86_64) "+
-						"AppleWebKit/537.36 "+
-						"(KHTML, like Gecko) "+
-						"Chrome/126.0.0.0 Safari/537.36",
-				)
 			}
 
 			/*
@@ -233,8 +276,22 @@ func DownloadChunkParallel(
 					}
 				}
 
+				// Cap retry delay between 1s and 3s (plus jitter).
+				// Servers/CDNs send Retry-After: 1800+ (30 mins) on concurrency limit.
+				// A long sleep causes download speed to drop to 0.
+				if retryAfter > 3*time.Second {
+					retryAfter = 3 * time.Second
+				}
+				if retryAfter < 1*time.Second {
+					retryAfter = 1 * time.Second
+				}
+				retryAfter += time.Duration(rand.Intn(400)+100) * time.Millisecond
+
 				resp.Body.Close()
 				cancelStream()
+
+				// Release the claim on this chunk during backoff so other workers can coordinate
+				me.Release()
 
 				select {
 				case <-ctx.Done():
@@ -243,7 +300,8 @@ func DownloadChunkParallel(
 				case <-time.After(retryAfter):
 				}
 
-				continue
+				targetIndex = -1
+				break
 			}
 
 			/*
@@ -265,6 +323,7 @@ func DownloadChunkParallel(
 
 				select {
 				case <-ctx.Done():
+					me.Release()
 					return
 
 				case <-time.After(backoff):
@@ -288,13 +347,22 @@ func DownloadChunkParallel(
 
 					resp.Body.Close()
 					cancelStream()
+					me.Release()
 
-					select {
-					case errChan <- fmt.Errorf(
+					errMsg := fmt.Sprintf(
 						"worker %d expected HTTP 206 for ranged request, got HTTP %d",
 						myIndex,
 						status,
-					):
+					)
+					if status == http.StatusNotFound {
+						errMsg = fmt.Sprintf(
+							"worker %d: server returned HTTP 404 (download link expired or resource not found)",
+							myIndex,
+						)
+					}
+
+					select {
+					case errChan <- fmt.Errorf("%s", errMsg):
 					case <-ctx.Done():
 					}
 
@@ -306,6 +374,7 @@ func DownloadChunkParallel(
 				if contentRange == "" {
 					resp.Body.Close()
 					cancelStream()
+					me.Release()
 
 					select {
 					case errChan <- fmt.Errorf(
@@ -327,6 +396,7 @@ func DownloadChunkParallel(
 				); err != nil {
 					resp.Body.Close()
 					cancelStream()
+					me.Release()
 
 					select {
 					case errChan <- fmt.Errorf(
@@ -346,6 +416,7 @@ func DownloadChunkParallel(
 				if rangeStart != writeOffset {
 					resp.Body.Close()
 					cancelStream()
+					me.Release()
 
 					select {
 					case errChan <- fmt.Errorf(
@@ -370,6 +441,7 @@ func DownloadChunkParallel(
 
 					resp.Body.Close()
 					cancelStream()
+					me.Release()
 
 					select {
 					case errChan <- fmt.Errorf(
@@ -436,6 +508,7 @@ func DownloadChunkParallel(
 
 			streamCompleted := false
 			streamAborted := false
+			streamBytes := int64(0)
 
 			/*
 				====================================================
@@ -538,6 +611,7 @@ func DownloadChunkParallel(
 						Update the authoritative resume offset.
 					*/
 					writeOffset += int64(effectiveBytes)
+					streamBytes += int64(effectiveBytes)
 
 					atomic.StoreInt64(
 						&me.CurrentPtr,
@@ -585,9 +659,14 @@ func DownloadChunkParallel(
 				if readErr != nil {
 					if errors.Is(readErr, io.EOF) {
 						/*
-							Normal HTTP completion.
+							HTTP completion is only normal when this stream
+							reached its assigned boundary. A CDN can close
+							a range response early; reconnect from the
+							authoritative offset instead of leaving the
+							worker finished with a partial chunk.
 						*/
-						streamCompleted = true
+						streamCompleted = endBoundary <= 0 ||
+							writeOffset > endBoundary
 					} else {
 						/*
 							Connection dropped or watchdog
@@ -598,6 +677,11 @@ func DownloadChunkParallel(
 						streamAborted = true
 					}
 
+					break
+				}
+
+				if streamBytes == 0 {
+					streamAborted = true
 					break
 				}
 			}
@@ -631,6 +715,7 @@ func DownloadChunkParallel(
 					Dynamic/unbounded download.
 				*/
 				if endBoundary <= 0 {
+					me.Release()
 					return
 				}
 
@@ -640,7 +725,8 @@ func DownloadChunkParallel(
 				if writeOffset > atomic.LoadInt64(
 					&me.EndBoundary,
 				) {
-					return
+					chunkCompleted = true
+					break
 				}
 			}
 
@@ -667,6 +753,13 @@ func DownloadChunkParallel(
 			*/
 			break
 		}
+
+		// Release claim on completed chunk and claim the next unfinished chunk
+		if me != nil {
+			me.Release()
+			me = nil
+		}
+		targetIndex = -1
 	}
 }
 

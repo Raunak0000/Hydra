@@ -13,6 +13,7 @@ type AdaptiveTracker struct {
 	StartByte   int64
 	CurrentPtr  int64
 	EndBoundary int64
+	Claimed     int32
 }
 
 func (at *AdaptiveTracker) GetStart() int64 {
@@ -25,6 +26,59 @@ func (at *AdaptiveTracker) GetCurrent() int64 {
 
 func (at *AdaptiveTracker) GetEnd() int64 {
 	return atomic.LoadInt64(&at.EndBoundary)
+}
+
+func (at *AdaptiveTracker) TryClaim() bool {
+	return atomic.CompareAndSwapInt32(&at.Claimed, 0, 1)
+}
+
+func (at *AdaptiveTracker) Release() {
+	atomic.StoreInt32(&at.Claimed, 0)
+}
+
+func (at *AdaptiveTracker) IsCompleted() bool {
+	end := at.GetEnd()
+	if end <= 0 {
+		return false
+	}
+	return at.GetCurrent() > end
+}
+
+// ClaimNextUnfinishedTracker atomically claims an unfinished tracker.
+// If preferredIndex is valid and unfinished, it attempts to claim that first.
+func ClaimNextUnfinishedTracker(trackers []*AdaptiveTracker, preferredIndex int) *AdaptiveTracker {
+	if preferredIndex >= 0 && preferredIndex < len(trackers) {
+		tr := trackers[preferredIndex]
+		if !tr.IsCompleted() && tr.TryClaim() {
+			if !tr.IsCompleted() {
+				return tr
+			}
+			tr.Release()
+		}
+	}
+
+	for _, tr := range trackers {
+		if tr.IsCompleted() {
+			continue
+		}
+		if tr.TryClaim() {
+			if !tr.IsCompleted() {
+				return tr
+			}
+			tr.Release()
+		}
+	}
+	return nil
+}
+
+// AllTrackersCompleted returns true if every tracker in the slice has finished.
+func AllTrackersCompleted(trackers []*AdaptiveTracker) bool {
+	for _, tr := range trackers {
+		if !tr.IsCompleted() {
+			return false
+		}
+	}
+	return true
 }
 
 func CalculateChunks(fileSize int64, numThreads int) []Chunk {
@@ -96,7 +150,7 @@ func StealWork(trackers []*AdaptiveTracker, dynamicMinChunk int64) (int64, int64
 		midpoint := current + (remaining / 2)
 
 		if atomic.CompareAndSwapInt64(&targetTracker.EndBoundary, end, midpoint) {
-			return midpoint, end, targetTracker
+			return midpoint + 1, end, targetTracker
 		}
 	}
 }
