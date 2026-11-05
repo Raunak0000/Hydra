@@ -22,6 +22,56 @@ var (
 	dbOnce        sync.Once
 )
 
+// openDBStore opens (or creates) a SQLite database at the given path and
+// initialises the schema. It is the low-level constructor used by both
+// GetDBStore (singleton) and tests (isolated per-test stores).
+func openDBStore(dbPath string) (*DBStore, error) {
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
+	}
+
+	if _, err := db.Exec(`
+		PRAGMA journal_mode = WAL;
+		PRAGMA synchronous = NORMAL;
+		PRAGMA foreign_keys = ON;
+	`); err != nil {
+		return nil, fmt.Errorf("failed to configure sqlite pragma: %w", err)
+	}
+
+	schema := `
+	CREATE TABLE IF NOT EXISTS jobs (
+		id TEXT PRIMARY KEY,
+		file_name TEXT NOT NULL,
+		url TEXT NOT NULL,
+		save_path TEXT NOT NULL,
+		progress REAL DEFAULT 0.0,
+		total_size TEXT DEFAULT 'Calculating...',
+		downloaded TEXT DEFAULT '0.00 MB',
+		speed TEXT DEFAULT '0.00 KB/s',
+		eta TEXT DEFAULT '--',
+		status TEXT NOT NULL,
+		max_speed_bytes INTEGER DEFAULT 0,
+		expected_checksum TEXT DEFAULT '',
+		checksum_algo TEXT DEFAULT '',
+		checksum_verified INTEGER DEFAULT 0,
+		chunks TEXT,
+		headers TEXT,
+		batch_id TEXT DEFAULT '',
+		scheduled_at DATETIME,
+		error_message TEXT DEFAULT '',
+		completed_at DATETIME,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	`
+	if _, err := db.Exec(schema); err != nil {
+		return nil, fmt.Errorf("failed to create database tables: %w", err)
+	}
+
+	return &DBStore{db: db}, nil
+}
+
 func GetDBStore() (*DBStore, error) {
 	var initErr error
 	dbOnce.Do(func() {
@@ -32,67 +82,25 @@ func GetDBStore() (*DBStore, error) {
 		}
 
 		dbPath := filepath.Join(dataDir, "hydra.db")
-		db, err := sql.Open("sqlite", dbPath+"?_pragma=busy_timeout(5000)")
+		store, err := openDBStore(dbPath)
 		if err != nil {
-			initErr = fmt.Errorf("failed to open sqlite database: %w", err)
+			initErr = err
 			return
 		}
 
-		// Enforce WAL mode for non-blocking concurrent reads/writes
-		if _, err := db.Exec(`
-			PRAGMA journal_mode = WAL;
-			PRAGMA synchronous = NORMAL;
-			PRAGMA foreign_keys = ON;
-		`); err != nil {
-			initErr = fmt.Errorf("failed to configure sqlite pragma: %w", err)
-			return
-		}
-
-		// Base Schema
-		schema := `
-		CREATE TABLE IF NOT EXISTS jobs (
-			id TEXT PRIMARY KEY,
-			file_name TEXT NOT NULL,
-			url TEXT NOT NULL,
-			save_path TEXT NOT NULL,
-			progress REAL DEFAULT 0.0,
-			total_size TEXT DEFAULT 'Calculating...',
-			downloaded TEXT DEFAULT '0.00 MB',
-			speed TEXT DEFAULT '0.00 KB/s',
-			eta TEXT DEFAULT '--',
-			status TEXT NOT NULL,
-			max_speed_bytes INTEGER DEFAULT 0,
-			expected_checksum TEXT DEFAULT '',
-			checksum_algo TEXT DEFAULT '',
-			checksum_verified INTEGER DEFAULT 0,
-			chunks TEXT,
-			headers TEXT,
-			batch_id TEXT DEFAULT '',
-			scheduled_at DATETIME,
-			error_message TEXT DEFAULT '',
-			completed_at DATETIME,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		);
-		`
-		if _, err := db.Exec(schema); err != nil {
-			initErr = fmt.Errorf("failed to create database tables: %w", err)
-			return
-		}
-
-		// Auto-migrations for existing databases
-		db.Exec(`ALTER TABLE jobs ADD COLUMN eta TEXT DEFAULT '--';`)
-		db.Exec(`ALTER TABLE jobs ADD COLUMN max_speed_bytes INTEGER DEFAULT 0;`)
-		db.Exec(`ALTER TABLE jobs ADD COLUMN expected_checksum TEXT DEFAULT '';`)
-		db.Exec(`ALTER TABLE jobs ADD COLUMN checksum_algo TEXT DEFAULT '';`)
-		db.Exec(`ALTER TABLE jobs ADD COLUMN checksum_verified INTEGER DEFAULT 0;`)
+		// Auto-migrations for existing databases (safe no-ops on new DBs)
+		store.db.Exec(`ALTER TABLE jobs ADD COLUMN eta TEXT DEFAULT '--';`)
+		store.db.Exec(`ALTER TABLE jobs ADD COLUMN max_speed_bytes INTEGER DEFAULT 0;`)
+		store.db.Exec(`ALTER TABLE jobs ADD COLUMN expected_checksum TEXT DEFAULT '';`)
+		store.db.Exec(`ALTER TABLE jobs ADD COLUMN checksum_algo TEXT DEFAULT '';`)
+		store.db.Exec(`ALTER TABLE jobs ADD COLUMN checksum_verified INTEGER DEFAULT 0;`)
 		// ── Phase 2 Migrations ──
-		db.Exec(`ALTER TABLE jobs ADD COLUMN batch_id TEXT DEFAULT '';`)
-		db.Exec(`ALTER TABLE jobs ADD COLUMN scheduled_at DATETIME;`)
-		db.Exec(`ALTER TABLE jobs ADD COLUMN error_message TEXT DEFAULT '';`)
-		db.Exec(`ALTER TABLE jobs ADD COLUMN completed_at DATETIME;`)
+		store.db.Exec(`ALTER TABLE jobs ADD COLUMN batch_id TEXT DEFAULT '';`)
+		store.db.Exec(`ALTER TABLE jobs ADD COLUMN scheduled_at DATETIME;`)
+		store.db.Exec(`ALTER TABLE jobs ADD COLUMN error_message TEXT DEFAULT '';`)
+		store.db.Exec(`ALTER TABLE jobs ADD COLUMN completed_at DATETIME;`)
 
-		globalDBStore = &DBStore{db: db}
+		globalDBStore = store
 	})
 
 	return globalDBStore, initErr
@@ -285,7 +293,7 @@ func (s *DBStore) GetPendingScheduledJobs() []models.UIJob {
 	       max_speed_bytes, expected_checksum, checksum_algo, checksum_verified, chunks, headers,
 	       batch_id, scheduled_at, error_message, completed_at, created_at
 	FROM jobs 
-	WHERE status = 'SCHEDULED' AND scheduled_at <= CURRENT_TIMESTAMP;`
+	WHERE status = 'SCHEDULED' AND datetime(scheduled_at) <= datetime('now');`
 	rows, err := s.db.Query(query)
 	if err != nil {
 		return nil
@@ -361,4 +369,28 @@ func scanJobRow(scanFn func(dest ...any) error) (models.UIJob, error) {
 	}
 
 	return job, nil
+}
+
+// RecoverStaleJobs resets jobs that were left in DOWNLOADING state from a
+// previous daemon run. They are moved to PAUSED so the user can safely resume
+// them. Jobs that were QUEUED before the restart are left as-is; the queue
+// manager's ProcessNext will re-promote them once it starts.
+func (s *DBStore) RecoverStaleJobs() (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	res, err := s.db.Exec(`
+		UPDATE jobs
+		SET    status     = 'PAUSED',
+		       speed      = '0.00 KB/s',
+		       eta        = '--',
+		       updated_at = CURRENT_TIMESTAMP
+		WHERE  status = 'DOWNLOADING';
+	`)
+	if err != nil {
+		return 0, err
+	}
+
+	n, _ := res.RowsAffected()
+	return int(n), nil
 }

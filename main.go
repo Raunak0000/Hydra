@@ -953,6 +953,18 @@ func main() {
 
 	storage.InitQueueManager(2, executeDownloadJob)
 
+	// Recover jobs that were left DOWNLOADING when the previous daemon exited.
+	// Reset them to PAUSED so the user can safely resume them. Then re-promote
+	// any QUEUED jobs that were waiting when the daemon was last shut down.
+	if dbStore, err := storage.GetDBStore(); err == nil {
+		if n, err := dbStore.RecoverStaleJobs(); err != nil {
+			log.Printf("[Hydra-Daemon] Failed to recover stale jobs: %v", err)
+		} else if n > 0 {
+			log.Printf("[Hydra-Daemon] Recovered %d stale DOWNLOADING job(s) → PAUSED", n)
+		}
+		storage.GetQueueManager().ProcessNext()
+	}
+
 	go storage.StartIPCServer(func(url, savePath, jobID string) {
 
 		if err := executeDownloadJob(url, savePath, jobID, nil); err != nil {

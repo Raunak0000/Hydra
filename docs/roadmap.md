@@ -102,15 +102,15 @@ user-facing service that users must operate manually.
 - [x] Add off-peak scheduling.
 - [x] Add persistent configuration.
 - [x] Add automatic media categorization.
-- [ ] Add user-facing default rules by file type and destination.
+- [x] Add user-facing default rules by file type and destination.
 - [x] **Milestone:** Hydra can organize and defer downloads automatically.
 
 ### Week 12: Queue validation
 
 - [x] Validate queue promotion and retry behavior.
-- [ ] Test queue recovery after daemon restart.
-- [ ] Test schedule behavior across timezone and clock changes.
-- [ ] **Milestone:** Queued and scheduled downloads behave predictably.
+- [x] Test queue recovery after daemon restart.
+- [x] Test schedule behavior across timezone and clock changes.
+- [x] **Milestone:** Queued and scheduled downloads behave predictably.
 
 ## Phase 5: Performance and Integrity (Weeks 13-15)
 
