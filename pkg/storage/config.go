@@ -152,3 +152,62 @@ func ResolveCategoryPath(filename string) string {
 	}
 	return cfg.DefaultSavePath
 }
+
+// SetCategoryRule adds or updates a file category routing rule.
+func SetCategoryRule(name string, path string, extensions []string) error {
+	configMutex.Lock()
+	defer configMutex.Unlock()
+
+	cfg := globalConfig
+	if cfg == nil {
+		cfg = DefaultConfig()
+	}
+
+	if cfg.Categories == nil {
+		cfg.Categories = make(map[string]CategoryRule)
+	}
+
+	var cleanedExts []string
+	for _, ext := range extensions {
+		cleaned := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(ext, ".")))
+		if cleaned != "" {
+			cleanedExts = append(cleanedExts, cleaned)
+		}
+	}
+
+	cfg.Categories[name] = CategoryRule{
+		Extensions: cleanedExts,
+		Path:       strings.TrimSpace(path),
+	}
+
+	configPath, err := GetConfigPath()
+	if err != nil {
+		return err
+	}
+	globalConfig = cfg
+	return saveConfigUnlocked(cfg, configPath)
+}
+
+// DeleteCategoryRule removes a category routing rule.
+func DeleteCategoryRule(name string) error {
+	configMutex.Lock()
+	defer configMutex.Unlock()
+
+	cfg := globalConfig
+	if cfg == nil {
+		cfg = DefaultConfig()
+	}
+
+	if cfg.Categories == nil {
+		return nil
+	}
+
+	delete(cfg.Categories, name)
+
+	configPath, err := GetConfigPath()
+	if err != nil {
+		return err
+	}
+	globalConfig = cfg
+	return saveConfigUnlocked(cfg, configPath)
+}

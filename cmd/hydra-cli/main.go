@@ -7,10 +7,12 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/Raunak0000/Hydra/pkg/models"
+	"github.com/Raunak0000/Hydra/pkg/storage"
 )
 
 func getSocketPath() string {
@@ -73,6 +75,22 @@ func main() {
 			os.Exit(1)
 		}
 		executeUpdateURLRequest(conn, os.Args[2], os.Args[3])
+	case "rules":
+		executeRulesRequest(conn)
+	case "set-rule":
+		if len(os.Args) < 5 {
+			fmt.Println("[X] Error: 'set-rule' requires category name, destination path, and extensions.")
+			fmt.Println("Usage: hydra set-rule <CATEGORY> <PATH> <ext1,ext2,...>")
+			os.Exit(1)
+		}
+		executeSetRuleRequest(conn, os.Args[2], os.Args[3], os.Args[4])
+	case "delete-rule":
+		if len(os.Args) < 3 {
+			fmt.Println("[X] Error: 'delete-rule' requires a category name parameter.")
+			fmt.Println("Usage: hydra delete-rule <CATEGORY>")
+			os.Exit(1)
+		}
+		executeDeleteRuleRequest(conn, os.Args[2])
 	default:
 		fmt.Printf("[X] Error: Unknown subcommand '%s'\n", action)
 		printUsage()
@@ -146,6 +164,76 @@ func executeUpdateURLRequest(conn net.Conn, jobID string, newURL string) {
 	}
 }
 
+func executeRulesRequest(conn net.Conn) {
+	_, _ = conn.Write([]byte("RULES\n"))
+
+	var categories map[string]storage.CategoryRule
+	if err := json.NewDecoder(conn).Decode(&categories); err != nil {
+		fmt.Println("[X] Error: Failed to parse category rules:", err)
+		return
+	}
+
+	if len(categories) == 0 {
+		fmt.Println("🐉 No download category rules configured.")
+		return
+	}
+
+	fmt.Println("\n📂 HYDRA DEFAULT DOWNLOAD ROUTING RULES:")
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', tabwriter.Debug)
+	fmt.Fprintln(w, "CATEGORY\t DESTINATION PATH\t EXTENSIONS")
+	fmt.Fprintln(w, "────────\t ────────────────\t ──────────")
+
+	var names []string
+	for name := range categories {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		rule := categories[name]
+		exts := strings.Join(rule.Extensions, ", ")
+		fmt.Fprintf(w, "%s\t %s\t %s\n", name, rule.Path, exts)
+	}
+	w.Flush()
+	fmt.Println()
+}
+
+func executeSetRuleRequest(conn net.Conn, name string, path string, extensions string) {
+	payload := fmt.Sprintf("SET_RULE|%s|%s|%s\n", name, path, extensions)
+	_, _ = conn.Write([]byte(payload))
+
+	reply, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil {
+		fmt.Println("[X] Error: Failed to read daemon response for set-rule action.")
+		return
+	}
+
+	reply = strings.TrimSpace(reply)
+	if strings.HasPrefix(reply, "SUCCESS") {
+		fmt.Printf("[✓] Category rule '%s' successfully configured for '%s'.\n", name, path)
+	} else {
+		fmt.Printf("[X] Daemon rejected set-rule: %s\n", reply)
+	}
+}
+
+func executeDeleteRuleRequest(conn net.Conn, name string) {
+	payload := fmt.Sprintf("DELETE_RULE|%s\n", name)
+	_, _ = conn.Write([]byte(payload))
+
+	reply, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil {
+		fmt.Println("[X] Error: Failed to read daemon response for delete-rule action.")
+		return
+	}
+
+	reply = strings.TrimSpace(reply)
+	if strings.HasPrefix(reply, "SUCCESS") {
+		fmt.Printf("[✓] Category rule '%s' successfully deleted.\n", name)
+	} else {
+		fmt.Printf("[X] Daemon rejected delete-rule: %s\n", reply)
+	}
+}
+
 func printUsage() {
 	fmt.Println("🚀 HYDRA COMMAND LINE INTERFACE CONTROL UTILITY")
 	fmt.Println("Usage:")
@@ -154,4 +242,7 @@ func printUsage() {
 	fmt.Println("  hydra resume [id]              - Reload serialization snapshots and resume a specific job")
 	fmt.Println("  hydra update-url [id] [new_url] - Update download URL for a job (e.g. after link expires)")
 	fmt.Println("  hydra delete [id]              - Purge structural job trace files and records from the queue server")
+	fmt.Println("  hydra rules                    - View all file category routing rules and target folders")
+	fmt.Println("  hydra set-rule <name> <path> <exts> - Configure target destination for file extensions")
+	fmt.Println("  hydra delete-rule <name>       - Remove a file category routing rule")
 }

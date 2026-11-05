@@ -148,6 +148,48 @@ func StartIPCServer(downloadTrigger func(string, string, string)) {
 				return
 			}
 
+			// ── 📂 HANDLE RULES COMMAND ──
+			if commandText == "RULES" {
+				cfg := GetConfig()
+				_ = json.NewEncoder(c).Encode(cfg.Categories)
+				return
+			}
+
+			// ── ➕ HANDLE SET_RULE COMMAND ──
+			if strings.HasPrefix(commandText, "SET_RULE|") {
+				payload := strings.TrimPrefix(commandText, "SET_RULE|")
+				parts := strings.SplitN(payload, "|", 3)
+				if len(parts) != 3 || parts[0] == "" || parts[1] == "" {
+					_, _ = c.Write([]byte("ERROR|Usage: SET_RULE|<category>|<destination_path>|<ext1,ext2...>\n"))
+					return
+				}
+				name := parts[0]
+				destPath := parts[1]
+				extList := strings.Split(parts[2], ",")
+
+				if err := SetCategoryRule(name, destPath, extList); err != nil {
+					_, _ = c.Write([]byte(fmt.Sprintf("ERROR|Failed to save rule: %v\n", err)))
+					return
+				}
+				_, _ = c.Write([]byte("SUCCESS|Category rule successfully saved.\n"))
+				return
+			}
+
+			// ── ❌ HANDLE DELETE_RULE COMMAND ──
+			if strings.HasPrefix(commandText, "DELETE_RULE|") {
+				name := strings.TrimSpace(strings.TrimPrefix(commandText, "DELETE_RULE|"))
+				if name == "" {
+					_, _ = c.Write([]byte("ERROR|Missing category name parameter.\n"))
+					return
+				}
+				if err := DeleteCategoryRule(name); err != nil {
+					_, _ = c.Write([]byte(fmt.Sprintf("ERROR|Failed to delete rule: %v\n", err)))
+					return
+				}
+				_, _ = c.Write([]byte("SUCCESS|Category rule successfully removed.\n"))
+				return
+			}
+
 			// ── 🚀 HANDLE DOWNLOAD DISPATCH ──
 			if strings.HasPrefix(commandText, "DOWNLOAD|") {
 				payload := strings.TrimPrefix(commandText, "DOWNLOAD|")

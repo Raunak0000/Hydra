@@ -106,6 +106,7 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 	s.Router.HandleFunc("/api/jobs", s.handleJobsAPI)
 	s.Router.HandleFunc("/api/jobs/", s.handleJobAPI)
 	s.Router.HandleFunc("/api/settings", sameOriginOnly(s.handleSettings))
+	s.Router.HandleFunc("/api/rules", s.handleRulesAPI)
 	s.Router.HandleFunc("/api/browse-directory", sameOriginOnly(s.handleBrowseDirectory))
 	s.Router.HandleFunc("/api/list-directory", sameOriginOnly(s.handleListDirectory))
 	s.Router.HandleFunc("/api/disk-space", sameOriginOnly(s.handleDiskSpace))
@@ -369,6 +370,60 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			"METHOD_NOT_ALLOWED",
 			"method not allowed",
 		)
+	}
+}
+
+func (s *Server) handleRulesAPI(w http.ResponseWriter, r *http.Request) {
+	if !requireAPIToken(w, r) {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case http.MethodGet:
+		cfg := GetConfig()
+		_ = json.NewEncoder(w).Encode(cfg.Categories)
+
+	case http.MethodPost:
+		var req struct {
+			Name       string   `json:"name"`
+			Path       string   `json:"path"`
+			Extensions []string `json:"extensions"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_JSON", "malformed JSON body")
+			return
+		}
+		if req.Name == "" || req.Path == "" {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_INPUT", "name and path are required")
+			return
+		}
+		if err := SetCategoryRule(req.Name, req.Path, req.Extensions); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "SAVE_FAILED", err.Error())
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"status":  "ok",
+			"message": "rule saved",
+		})
+
+	case http.MethodDelete:
+		name := r.URL.Query().Get("name")
+		if name == "" {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_INPUT", "missing name parameter")
+			return
+		}
+		if err := DeleteCategoryRule(name); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "DELETE_FAILED", err.Error())
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"status":  "ok",
+			"message": "rule deleted",
+		})
+
+	default:
+		writeJSONError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
 	}
 }
 
