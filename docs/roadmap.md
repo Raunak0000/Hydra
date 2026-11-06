@@ -207,8 +207,8 @@ user-facing service that users must operate manually.
 
 ### Week 23: Hardening validation
 
-- [ ] Expand crash, interruption, disk-full, and concurrent-state tests.
-- [ ] Run race detection across downloader, queue, and storage packages.
+- [x] Expand crash, interruption, disk-full, and concurrent-state tests.
+- [x] Run race detection across downloader, queue, and storage packages.
 - [ ] Test symlinks, traversal attempts, conflicts, and unusual filenames.
 - [ ] **Milestone:** Storage behavior is safe under failure and concurrency.
 

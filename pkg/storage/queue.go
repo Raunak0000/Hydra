@@ -25,16 +25,21 @@ var (
 	queueOnce          sync.Once
 )
 
+// NewQueueManager initializes an isolated QueueManager instance.
+func NewQueueManager(maxConcurrent int, trigger func(string, string, string, map[string]string) error) *QueueManager {
+	return &QueueManager{
+		maxConcurrent: maxConcurrent,
+		triggerFunc:   trigger,
+		sem:           make(chan struct{}, maxConcurrent),
+		broadcast:     make(chan models.UIJob, 256),
+		clients:       make(map[chan models.UIJob]bool),
+		stopChan:      make(chan struct{}),
+	}
+}
+
 func InitQueueManager(maxConcurrent int, trigger func(string, string, string, map[string]string) error) *QueueManager {
 	queueOnce.Do(func() {
-		GlobalQueueManager = &QueueManager{
-			maxConcurrent: maxConcurrent,
-			triggerFunc:   trigger,
-			sem:           make(chan struct{}, maxConcurrent),
-			broadcast:     make(chan models.UIJob, 256),
-			clients:       make(map[chan models.UIJob]bool),
-			stopChan:      make(chan struct{}),
-		}
+		GlobalQueueManager = NewQueueManager(maxConcurrent, trigger)
 		go GlobalQueueManager.StartBroadcaster()
 		go GlobalQueueManager.startScheduler()
 	})
@@ -43,15 +48,20 @@ func InitQueueManager(maxConcurrent int, trigger func(string, string, string, ma
 
 func GetQueueManager() *QueueManager {
 	if GlobalQueueManager == nil {
-		GlobalQueueManager = &QueueManager{
-			maxConcurrent: 2,
-			sem:           make(chan struct{}, 2),
-			broadcast:     make(chan models.UIJob, 256),
-			clients:       make(map[chan models.UIJob]bool),
-			stopChan:      make(chan struct{}),
-		}
+		GlobalQueueManager = NewQueueManager(2, nil)
 	}
 	return GlobalQueueManager
+}
+
+// Stop terminates background goroutines for the QueueManager.
+func (qm *QueueManager) Stop() {
+	qm.mu.Lock()
+	defer qm.mu.Unlock()
+	select {
+	case <-qm.stopChan:
+	default:
+		close(qm.stopChan)
+	}
 }
 
 // Semaphore worker acquisition
