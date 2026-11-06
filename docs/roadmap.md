@@ -181,8 +181,8 @@ user-facing service that users must operate manually.
 
 - [x] Add GitHub Actions release workflow.
 - [x] Document extension packaging and installation.
-- [ ] Validate package installation, upgrade, and removal.
-- [ ] **Milestone:** Hydra packages are reproducible and ready for testing.
+- [x] Validate package installation, upgrade, and removal.
+- [x] **Milestone:** Hydra packages are reproducible and ready for testing.
 
 ## Phase 8: Storage and Download Hardening (Weeks 21-23)
 

@@ -21,6 +21,11 @@ contents:
     file_info:
       mode: 0755
 
+  - src: ./bin/hydra-tui
+    dst: /usr/bin/hydra-tui
+    file_info:
+      mode: 0755
+
   - src: ./packaging/systemd/hydra.service
     dst: /usr/lib/systemd/user/hydra.service
     file_info:

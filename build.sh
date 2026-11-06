@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
+export PATH="$PATH:$HOME/go/bin"
+
 echo "🔨 [1/3] Compiling Go production binaries (-s -w)..."
 mkdir -p bin dist
 go build -ldflags="-s -w" -o bin/hydra-daemon main.go
