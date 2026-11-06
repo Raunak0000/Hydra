@@ -209,8 +209,8 @@ user-facing service that users must operate manually.
 
 - [x] Expand crash, interruption, disk-full, and concurrent-state tests.
 - [x] Run race detection across downloader, queue, and storage packages.
-- [ ] Test symlinks, traversal attempts, conflicts, and unusual filenames.
-- [ ] **Milestone:** Storage behavior is safe under failure and concurrency.
+- [x] Test symlinks, traversal attempts, conflicts, and unusual filenames.
+- [x] **Milestone:** Storage behavior is safe under failure and concurrency.
 
 ## Phase 9: IDM-Like Linux Desktop Experience (Weeks 24-27)
 

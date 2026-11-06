@@ -40,6 +40,13 @@ func ReserveConflict(path string, perm os.FileMode) (string, *os.File, error) {
 	ext := filepath.Ext(name)
 	base := strings.TrimSuffix(name, ext)
 
+	// In Unix, dotfiles without a secondary extension (e.g. ".env", ".bashrc")
+	// should be treated as the file's base name rather than a lonely extension.
+	if strings.HasPrefix(name, ".") && len(name) > 1 && !strings.Contains(name[1:], ".") {
+		base = name
+		ext = ""
+	}
+
 	for i := 0; ; i++ {
 		candidate := path
 		if i > 0 {

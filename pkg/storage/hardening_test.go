@@ -377,3 +377,4 @@ func TestConcurrentState_QueueManagerConcurrency(t *testing.T) {
 
 	wg.Wait()
 }
+
