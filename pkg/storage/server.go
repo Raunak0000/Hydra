@@ -69,10 +69,11 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 			if origin := r.Header.Get("Origin"); origin != "" {
 				if origin != "http://127.0.0.1:9000" &&
 					origin != "http://localhost:9000" {
-					http.Error(
+					writeJSONError(
 						w,
-						"Forbidden: Cross-Origin Request Blocked",
 						http.StatusForbidden,
+						"FORBIDDEN_ORIGIN",
+						"Forbidden: Cross-Origin Request Blocked",
 					)
 					return
 				}
@@ -81,10 +82,11 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 			if referer := r.Header.Get("Referer"); referer != "" {
 				if !strings.HasPrefix(referer, "http://127.0.0.1:9000") &&
 					!strings.HasPrefix(referer, "http://localhost:9000") {
-					http.Error(
+					writeJSONError(
 						w,
-						"Forbidden: Cross-Origin Request Blocked",
 						http.StatusForbidden,
+						"FORBIDDEN_REFERER",
+						"Forbidden: Cross-Origin Request Blocked",
 					)
 					return
 				}
@@ -257,7 +259,12 @@ func (s *Server) handleJobAPI(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleBrowseDirectory(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		writeJSONError(
+			w,
+			http.StatusMethodNotAllowed,
+			"METHOD_NOT_ALLOWED",
+			"method not allowed",
+		)
 		return
 	}
 
@@ -438,15 +445,21 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		writeJSONError(
+			w,
+			http.StatusMethodNotAllowed,
+			"METHOD_NOT_ALLOWED",
+			"Method Not Allowed",
+		)
 		return
 	}
 
 	if r.Header.Get("X-Hydra-Token") != hydraAPIToken {
-		http.Error(
+		writeJSONError(
 			w,
-			"Unauthorized: Invalid security token",
 			http.StatusUnauthorized,
+			"INVALID_TOKEN",
+			"Unauthorized: Invalid security token",
 		)
 		return
 	}
@@ -465,7 +478,12 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Malformed JSON payload", http.StatusBadRequest)
+		writeJSONError(
+			w,
+			http.StatusBadRequest,
+			"MALFORMED_JSON",
+			"Malformed JSON payload",
+		)
 		return
 	}
 
@@ -487,10 +505,11 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 
 	if payload.SavePath == "" ||
 		(payload.JobID == "" && payload.URL == "") {
-		http.Error(
+		writeJSONError(
 			w,
-			"Missing url or save_path",
 			http.StatusUnprocessableEntity,
+			"MISSING_FIELDS",
+			"Missing url or save_path",
 		)
 		return
 	}
@@ -510,7 +529,12 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		job, exists := s.db.GetJob(payload.JobID)
 
 		if !exists {
-			http.Error(w, "Job not found", http.StatusNotFound)
+			writeJSONError(
+				w,
+				http.StatusNotFound,
+				"JOB_NOT_FOUND",
+				"Job not found",
+			)
 			return
 		}
 
@@ -555,7 +579,7 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		securedPath, err := ResolvePath(targetSavePath)
 
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
+			writeJSONError(w, http.StatusForbidden, "INVALID_SAVE_PATH", err.Error())
 			return
 		}
 
@@ -718,7 +742,7 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		securedPath, err = ResolvePath(targetSavePath)
 
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
+			writeJSONError(w, http.StatusForbidden, "INVALID_SAVE_PATH", err.Error())
 			return
 		}
 	}
@@ -782,15 +806,21 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 	}
 
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		writeJSONError(
+			w,
+			http.StatusMethodNotAllowed,
+			"METHOD_NOT_ALLOWED",
+			"Method Not Allowed",
+		)
 		return
 	}
 
 	if r.Header.Get("X-Hydra-Token") != hydraAPIToken {
-		http.Error(
+		writeJSONError(
 			w,
-			"Unauthorized: Invalid security token",
 			http.StatusUnauthorized,
+			"INVALID_TOKEN",
+			"Unauthorized: Invalid security token",
 		)
 		return
 	}
@@ -798,15 +828,21 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 	var payload BatchDownloadPayload
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Malformed JSON payload", http.StatusBadRequest)
+		writeJSONError(
+			w,
+			http.StatusBadRequest,
+			"MALFORMED_JSON",
+			"Malformed JSON payload",
+		)
 		return
 	}
 
 	if len(payload.URLs) == 0 {
-		http.Error(
+		writeJSONError(
 			w,
-			"No URLs provided in batch request",
 			http.StatusUnprocessableEntity,
+			"EMPTY_BATCH",
+			"No URLs provided in batch request",
 		)
 		return
 	}
@@ -832,10 +868,11 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 	resolvedBase, err := ResolvePath(baseDir + "/")
 
 	if err != nil {
-		http.Error(
+		writeJSONError(
 			w,
-			fmt.Sprintf("Invalid destination directory: %v", err),
 			http.StatusBadRequest,
+			"INVALID_DESTINATION_DIR",
+			fmt.Sprintf("Invalid destination directory: %v", err),
 		)
 		return
 	}
@@ -949,7 +986,7 @@ func (s *Server) handlePauseJob(w http.ResponseWriter, r *http.Request) {
 	jobID := r.URL.Query().Get("id")
 
 	if jobID == "" {
-		http.Error(w, "Missing job id parameter", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "MISSING_JOB_ID", "Missing job id parameter")
 		return
 	}
 
@@ -963,8 +1000,10 @@ func (s *Server) handlePauseJob(w http.ResponseWriter, r *http.Request) {
 		GlobalCancelMutex.Unlock()
 	}
 
-	_ = s.db.UpdateStatus(jobID, "PAUSED")
-	GetBroker().BroadcastQueueState(s.db.GetAllJobs())
+	if s.db != nil {
+		_ = s.db.UpdateStatus(jobID, "PAUSED")
+		GetBroker().BroadcastQueueState(s.db.GetAllJobs())
+	}
 
 	if GetQueueManager() != nil {
 		GetQueueManager().ProcessNext()
@@ -984,14 +1023,19 @@ func (s *Server) handleResumeJob(w http.ResponseWriter, r *http.Request) {
 	jobID := r.URL.Query().Get("id")
 
 	if jobID == "" {
-		http.Error(w, "Missing job id parameter", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "MISSING_JOB_ID", "Missing job id parameter")
+		return
+	}
+
+	if s.db == nil {
+		writeJSONError(w, http.StatusNotFound, "JOB_NOT_FOUND", "Job profile not found")
 		return
 	}
 
 	_, exists := s.db.GetJob(jobID)
 
 	if !exists {
-		http.Error(w, "Job profile not found", http.StatusNotFound)
+		writeJSONError(w, http.StatusNotFound, "JOB_NOT_FOUND", "Job profile not found")
 		return
 	}
 
@@ -1016,13 +1060,18 @@ func (s *Server) handleUpdateJobURL(w http.ResponseWriter, r *http.Request) {
 	jobID := r.URL.Query().Get("id")
 
 	if jobID == "" {
-		http.Error(w, "Missing job id parameter", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "MISSING_JOB_ID", "Missing job id parameter")
+		return
+	}
+
+	if s.db == nil {
+		writeJSONError(w, http.StatusNotFound, "JOB_NOT_FOUND", "Job profile not found")
 		return
 	}
 
 	_, exists := s.db.GetJob(jobID)
 	if !exists {
-		http.Error(w, "Job profile not found", http.StatusNotFound)
+		writeJSONError(w, http.StatusNotFound, "JOB_NOT_FOUND", "Job profile not found")
 		return
 	}
 
@@ -1042,12 +1091,12 @@ func (s *Server) handleUpdateJobURL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if newURL == "" {
-		http.Error(w, "Missing url parameter", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "MISSING_URL", "Missing url parameter")
 		return
 	}
 
 	if err := s.db.UpdateJobURL(jobID, newURL); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to update URL: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "UPDATE_URL_FAILED", fmt.Sprintf("Failed to update URL: %v", err))
 		return
 	}
 
@@ -1066,14 +1115,19 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	jobID := r.URL.Query().Get("id")
 
 	if jobID == "" {
-		http.Error(w, "Missing job id parameter", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "MISSING_JOB_ID", "Missing job id parameter")
+		return
+	}
+
+	if s.db == nil {
+		writeJSONError(w, http.StatusNotFound, "JOB_NOT_FOUND", "Job profile not found")
 		return
 	}
 
 	job, exists := s.db.GetJob(jobID)
 
 	if !exists {
-		http.Error(w, "Job profile not found", http.StatusNotFound)
+		writeJSONError(w, http.StatusNotFound, "JOB_NOT_FOUND", "Job profile not found")
 		return
 	}
 
@@ -1117,7 +1171,12 @@ func (s *Server) handleGetQueueJSON(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListDirectory(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		writeJSONError(
+			w,
+			http.StatusMethodNotAllowed,
+			"METHOD_NOT_ALLOWED",
+			"Method Not Allowed",
+		)
 		return
 	}
 
@@ -1137,10 +1196,11 @@ func (s *Server) handleListDirectory(w http.ResponseWriter, r *http.Request) {
 		home, err := os.UserHomeDir()
 
 		if err != nil {
-			http.Error(
+			writeJSONError(
 				w,
-				"Cannot resolve home directory",
 				http.StatusInternalServerError,
+				"RESOLVE_HOME_FAILED",
+				"Cannot resolve home directory",
 			)
 			return
 		}

@@ -202,7 +202,7 @@ user-facing service that users must operate manually.
 - [x] Validate available disk space without creating directories.
 - [x] Save job state atomically.
 - [x] Harden resume integrity and recovery.
-- [ ] Audit every storage/API error path for explicit, actionable reporting.
+- [x] Audit every storage/API error path for explicit, actionable reporting.
 - [x] **Milestone:** Failed or interrupted work cannot silently corrupt state.
 
 ### Week 23: Hardening validation
