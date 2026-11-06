@@ -134,10 +134,10 @@ user-facing service that users must operate manually.
 
 ### Week 15: Performance validation
 
-- [ ] Benchmark single-stream and ranged downloads.
-- [ ] Measure rate limiting accuracy.
-- [ ] Measure memory use with large files and many jobs.
-- [ ] **Milestone:** Performance characteristics are documented for release.
+- [x] Benchmark single-stream and ranged downloads.
+- [x] Measure rate limiting accuracy.
+- [x] Measure memory use with large files and many jobs.
+- [x] **Milestone:** Performance characteristics are documented for release.
 
 ## Phase 6: Terminal Interface (Weeks 16-18)
 
