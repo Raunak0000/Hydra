@@ -6,16 +6,18 @@ import (
 	"github.com/Raunak0000/Hydra/pkg/models"
 )
 
-func TestMemoryStoreUpdateJobURL(t *testing.T) {
-	store := &MemoryStore{
-		Jobs: make(map[string]*models.UIJob),
-	}
+func TestDBStoreUpdateJobURL(t *testing.T) {
+	store := newTestDBStore(t)
 	job := &models.UIJob{
-		ID:     "job-test-1",
-		URL:    "https://old-example.com/file.mkv",
-		Status: "PAUSED",
+		ID:       "job-test-1",
+		FileName: "file.mkv",
+		URL:      "https://old-example.com/file.mkv",
+		SavePath: "/tmp/file.mkv",
+		Status:   "PAUSED",
 	}
-	store.SetJob("job-test-1", job)
+	if err := store.SaveJob(job); err != nil {
+		t.Fatalf("failed to save job: %v", err)
+	}
 
 	retrieved, exists := store.GetJob("job-test-1")
 	if !exists {
@@ -25,7 +27,9 @@ func TestMemoryStoreUpdateJobURL(t *testing.T) {
 		t.Fatalf("expected old url, got %s", retrieved.URL)
 	}
 
-	store.UpdateJobURL("job-test-1", "https://new-example.com/file.mkv")
+	if err := store.UpdateJobURL("job-test-1", "https://new-example.com/file.mkv"); err != nil {
+		t.Fatalf("failed to update job url: %v", err)
+	}
 
 	retrieved, exists = store.GetJob("job-test-1")
 	if !exists {
