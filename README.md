@@ -35,6 +35,7 @@ Hydra CLI -----------+
 ### Binaries
 
 - `hydra-daemon` - headless download service and HTTP server.
+- `hydra-gui` - native GTK 4 + Libadwaita graphical download manager with new-download, pause, resume, retry, cancel, delete, destination picker, and live progress views.
 - `hydra-tui` - interactive terminal interface built with Bubble Tea.
 - `hydra` - CLI client for status and job control through the Unix socket.
 - `hydra-tray` - optional GTK/AppIndicator system-tray and menu-bar controller.
@@ -82,7 +83,11 @@ Pass `--no-tray` to omit the optional tray login autostart entry.
 Launching **Hydra Downloader** from your desktop application menu opens
 `hydra-tui --ensure-daemon` (starting the local background engine if needed)
 and provides desktop quick actions for the system tray controller, downloads
-folder, **Pause All**, and **Resume All**.
+folder, **Pause All**, and **Resume All**. Launching **Hydra Graphical Manager**
+opens `hydra-gui --ensure-daemon` so you can create, pause, resume, retry,
+cancel, and delete downloads, customize destination folders and filenames, and
+monitor live progress, parallel chunk segments, and speed history without
+opening a terminal.
 
 Native desktop notifications (`notify-send` / `org.freedesktop.Notifications`)
 report queued, scheduled, completed, failed, checksum-mismatch, and pending-path

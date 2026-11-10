@@ -227,11 +227,11 @@ user-facing service that users must operate manually.
 
 ### Week 25: Graphical download manager
 
-- [ ] Add a graphical download list.
-- [ ] Add download details and progress views.
-- [ ] Add pause, resume, cancel, retry, and delete actions.
-- [ ] Add destination and filename controls.
-- [ ] **Milestone:** Users can manage downloads without a terminal.
+- [x] Add a graphical download list.
+- [x] Add download details and progress views.
+- [x] Add pause, resume, cancel, retry, and delete actions.
+- [x] Add destination and filename controls.
+- [x] **Milestone:** Users can manage downloads without a terminal.
 
 ### Week 26: IDM-style browser workflow
 

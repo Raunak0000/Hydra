@@ -1,0 +1,27 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Hydra Graphical Manager
+GenericName=Download Manager
+Comment=Graphical Download List and Live Progress Inspector for Hydra
+Exec=/usr/bin/hydra-gui --ensure-daemon
+Icon=hydra
+Terminal=false
+Categories=Network;FileTransfer;GTK;
+Keywords=download;manager;hydra;gui;progress;
+StartupNotify=true
+StartupWMClass=org.hydra.Downloader
+Actions=NewDownload;OpenTUI;OpenDownloads;
+
+[Desktop Action NewDownload]
+Name=New Download
+Exec=/usr/bin/hydra-gui --ensure-daemon --new-download
+
+[Desktop Action OpenTUI]
+Name=Open Terminal Manager (TUI)
+Exec=/usr/bin/hydra-tui --ensure-daemon
+
+[Desktop Action OpenDownloads]
+Name=Open Downloads Folder
+Exec=/usr/bin/hydra-tray --open-downloads
+

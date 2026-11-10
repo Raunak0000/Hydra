@@ -31,6 +31,46 @@ contents:
     file_info:
       mode: 0755
 
+  - src: ./packaging/gui/hydra-gui
+    dst: /usr/bin/hydra-gui
+    file_info:
+      mode: 0755
+
+  - src: ./packaging/gui/hydra_gui/__init__.py
+    dst: /usr/share/hydra/gui/hydra_gui/__init__.py
+    file_info:
+      mode: 0644
+
+  - src: ./packaging/gui/hydra_gui/client.py
+    dst: /usr/share/hydra/gui/hydra_gui/client.py
+    file_info:
+      mode: 0644
+
+  - src: ./packaging/gui/hydra_gui/details_view.py
+    dst: /usr/share/hydra/gui/hydra_gui/details_view.py
+    file_info:
+      mode: 0644
+
+  - src: ./packaging/gui/hydra_gui/dialogs.py
+    dst: /usr/share/hydra/gui/hydra_gui/dialogs.py
+    file_info:
+      mode: 0644
+
+  - src: ./packaging/gui/hydra_gui/models.py
+    dst: /usr/share/hydra/gui/hydra_gui/models.py
+    file_info:
+      mode: 0644
+
+  - src: ./packaging/gui/hydra_gui/theme.py
+    dst: /usr/share/hydra/gui/hydra_gui/theme.py
+    file_info:
+      mode: 0644
+
+  - src: ./packaging/gui/hydra_gui/window.py
+    dst: /usr/share/hydra/gui/hydra_gui/window.py
+    file_info:
+      mode: 0644
+
   - src: ./packaging/systemd/hydra.service
     dst: /usr/lib/systemd/user/hydra.service
     file_info:
@@ -38,6 +78,11 @@ contents:
 
   - src: ./packaging/desktop/hydra.desktop
     dst: /usr/share/applications/hydra.desktop
+    file_info:
+      mode: 0644
+
+  - src: ./packaging/desktop/hydra-gui.desktop
+    dst: /usr/share/applications/hydra-gui.desktop
     file_info:
       mode: 0644
 

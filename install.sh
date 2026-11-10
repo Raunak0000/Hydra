@@ -263,6 +263,7 @@ configure_paths_for_mode() {
         local sys_prefix="${PREFIX:-/usr}"
         BIN_DIR="$sys_prefix/bin"
         APP_DIR="$sys_prefix/share/applications"
+        GUI_DATA_DIR="$sys_prefix/share/hydra/gui"
         ICON_DIR="$sys_prefix/share/icons/hicolor/scalable/apps"
         SYSTEMD_USER_DIR="$sys_prefix/lib/systemd/user"
         if [[ -z "$PREFIX" || "$PREFIX" == "/usr" ]]; then
@@ -274,6 +275,7 @@ configure_paths_for_mode() {
         local usr_prefix="${PREFIX:-$HOME/.local}"
         BIN_DIR="$usr_prefix/bin"
         APP_DIR="$XDG_DATA_BASE/applications"
+        GUI_DATA_DIR="$XDG_DATA_BASE/hydra/gui"
         ICON_DIR="$XDG_DATA_BASE/icons/hicolor/scalable/apps"
         SYSTEMD_USER_DIR="$XDG_CONFIG_BASE/systemd/user"
         AUTOSTART_DIR="$XDG_CONFIG_BASE/autostart"
@@ -292,15 +294,18 @@ install_files_mode() {
             systemctl --global disable hydra.service >/dev/null 2>&1 || true
         fi
 
+        rm -rf "$GUI_DATA_DIR"
         rm -f \
             "$BIN_DIR/hydra-daemon" \
             "$BIN_DIR/hydra" \
             "$BIN_DIR/hydra-tui" \
             "$BIN_DIR/hydra-tray" \
+            "$BIN_DIR/hydra-gui" \
             "$SYSTEMD_USER_DIR/hydra.service" \
             "$AUTOSTART_DIR/hydra-daemon.desktop" \
             "$AUTOSTART_DIR/hydra-tray.desktop" \
             "$APP_DIR/hydra.desktop" \
+            "$APP_DIR/hydra-gui.desktop" \
             "$ICON_DIR/hydra.svg"
 
         if command -v update-desktop-database >/dev/null 2>&1; then
@@ -319,20 +324,30 @@ install_files_mode() {
     build_binaries
 
     echo "📥 Installing Hydra ($MODE mode)..."
-    install -d -m 755 "$BIN_DIR" "$APP_DIR" "$ICON_DIR" "$SYSTEMD_USER_DIR" "$AUTOSTART_DIR"
+    install -d -m 755 "$BIN_DIR" "$APP_DIR" "$GUI_DATA_DIR/hydra_gui" "$ICON_DIR" "$SYSTEMD_USER_DIR" "$AUTOSTART_DIR"
 
     install -m 755 "$BIN_SRC/hydra-daemon" "$BIN_DIR/hydra-daemon"
     install -m 755 "$BIN_SRC/hydra" "$BIN_DIR/hydra"
     install -m 755 "$BIN_SRC/hydra-tui" "$BIN_DIR/hydra-tui"
     install -m 755 packaging/tray/hydra-tray "$BIN_DIR/hydra-tray"
+    install -m 755 packaging/gui/hydra-gui "$BIN_DIR/hydra-gui"
+    install -m 644 packaging/gui/hydra_gui/*.py "$GUI_DATA_DIR/hydra_gui/"
 
     sed -e "s|/usr/bin/hydra-daemon|$BIN_DIR/hydra-daemon|g" \
         -e "s|/usr/bin/hydra-tui|$BIN_DIR/hydra-tui|g" \
         -e "s|/usr/bin/hydra-tray|$BIN_DIR/hydra-tray|g" \
+        -e "s|/usr/bin/hydra-gui|$BIN_DIR/hydra-gui|g" \
         -e "s|/usr/bin/hydra |$BIN_DIR/hydra |g" \
         -e "s|/usr/bin/hydra$|$BIN_DIR/hydra|g" \
         packaging/desktop/hydra.desktop > "$APP_DIR/hydra.desktop"
     chmod 644 "$APP_DIR/hydra.desktop"
+
+    sed -e "s|/usr/bin/hydra-daemon|$BIN_DIR/hydra-daemon|g" \
+        -e "s|/usr/bin/hydra-tui|$BIN_DIR/hydra-tui|g" \
+        -e "s|/usr/bin/hydra-tray|$BIN_DIR/hydra-tray|g" \
+        -e "s|/usr/bin/hydra-gui|$BIN_DIR/hydra-gui|g" \
+        packaging/desktop/hydra-gui.desktop > "$APP_DIR/hydra-gui.desktop"
+    chmod 644 "$APP_DIR/hydra-gui.desktop"
     install -m 644 packaging/icons/hydra.svg "$ICON_DIR/hydra.svg"
 
     sed "s|/usr/bin/hydra-daemon|$BIN_DIR/hydra-daemon|g" packaging/systemd/hydra.service \
@@ -388,16 +403,18 @@ install_files_mode() {
 
     echo ""
     echo "✅ Hydra installation complete!"
-    echo "   Binaries:   $BIN_DIR/{hydra-daemon,hydra,hydra-tui,hydra-tray}"
+    echo "   Binaries:   $BIN_DIR/{hydra-daemon,hydra,hydra-tui,hydra-tray,hydra-gui}"
+    echo "   GUI Assets: $GUI_DATA_DIR/hydra_gui"
     echo "   Systemd:    $SYSTEMD_USER_DIR/hydra.service"
     echo "   Autostart:  $AUTOSTART_DIR/hydra-daemon.desktop"
     if [[ "$NO_TRAY" -eq 0 ]]; then
         echo "   Tray Auto:  $AUTOSTART_DIR/hydra-tray.desktop"
     fi
-    echo "   Launcher:   $APP_DIR/hydra.desktop"
+    echo "   Launchers:  $APP_DIR/{hydra.desktop,hydra-gui.desktop}"
     echo ""
     echo "   Quick commands:"
     echo "     hydra status    # Check background download engine"
+    echo "     hydra-gui       # Launch GTK 4 graphical download manager"
     echo "     hydra-tui       # Launch terminal UI"
     echo "     hydra-tray      # Launch optional system-tray controller"
 }

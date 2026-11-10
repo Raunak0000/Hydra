@@ -172,9 +172,10 @@ func TestInstallerScript_UserInstallAndUninstall(t *testing.T) {
 	expectedDaemon := filepath.Join(prefix, "bin", "hydra-daemon")
 	expectedTUI := filepath.Join(prefix, "bin", "hydra-tui")
 	expectedTray := filepath.Join(prefix, "bin", "hydra-tray")
+	expectedGUI := filepath.Join(prefix, "bin", "hydra-gui")
 	expectedCLI := filepath.Join(prefix, "bin", "hydra")
 
-	for _, binName := range []string{"hydra-daemon", "hydra", "hydra-tui", "hydra-tray"} {
+	for _, binName := range []string{"hydra-daemon", "hydra", "hydra-tui", "hydra-tray", "hydra-gui"} {
 		info, err := os.Stat(filepath.Join(prefix, "bin", binName))
 		if err != nil {
 			t.Fatalf("installed binary %s missing: %v", binName, err)
@@ -182,6 +183,11 @@ func TestInstallerScript_UserInstallAndUninstall(t *testing.T) {
 		if info.Mode().Perm()&0111 == 0 {
 			t.Fatalf("installed binary %s not executable: %o", binName, info.Mode().Perm())
 		}
+	}
+
+	guiModulePath := filepath.Join(dataHome, "hydra", "gui", "hydra_gui", "window.py")
+	if _, err := os.Stat(guiModulePath); err != nil {
+		t.Fatalf("installed GUI module missing: %s (%v)", guiModulePath, err)
 	}
 
 	servicePath := filepath.Join(cfgHome, "systemd", "user", "hydra.service")
@@ -228,8 +234,18 @@ func TestInstallerScript_UserInstallAndUninstall(t *testing.T) {
 		}
 	}
 
+	guiLauncherPath := filepath.Join(dataHome, "applications", "hydra-gui.desktop")
+	guiLauncherData, err := os.ReadFile(guiLauncherPath)
+	if err != nil {
+		t.Fatalf("read installed GUI launcher desktop entry: %v", err)
+	}
+	if !strings.Contains(string(guiLauncherData), "Exec="+expectedGUI+" --ensure-daemon") {
+		t.Fatalf("installed hydra-gui.desktop missing expected Exec line:\n%s", string(guiLauncherData))
+	}
+
 	for _, p := range []string{
 		launcherPath,
+		guiLauncherPath,
 		filepath.Join(dataHome, "icons", "hicolor", "scalable", "apps", "hydra.svg"),
 		filepath.Join(cfgHome, "hydra", "api.token"),
 	} {
@@ -265,10 +281,13 @@ func TestInstallerScript_UserInstallAndUninstall(t *testing.T) {
 		expectedCLI,
 		expectedTUI,
 		expectedTray,
+		expectedGUI,
+		guiModulePath,
 		servicePath,
 		autostartPath,
 		trayAutostartPath,
 		launcherPath,
+		guiLauncherPath,
 		filepath.Join(dataHome, "icons", "hicolor", "scalable", "apps", "hydra.svg"),
 	} {
 		if _, err := os.Stat(removed); !os.IsNotExist(err) {
@@ -311,5 +330,22 @@ func TestHydraTrayController_UnitAndHeadlessAutostart(t *testing.T) {
 	unitCmd := exec.Command(pythonBin, "-B", "-m", "unittest", "discover", "-s", filepath.Join(repoRoot, "packaging", "tray"), "-p", "test_*.py")
 	if out, err := unitCmd.CombinedOutput(); err != nil {
 		t.Fatalf("tray unit tests failed: %v\n%s", err, string(out))
+	}
+}
+
+func TestHydraGUI_UnitAndCheck(t *testing.T) {
+	pythonBin, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 unavailable; skipping GUI unit tests")
+	}
+
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	unitCmd := exec.Command(pythonBin, "-B", "-m", "unittest", "discover", "-s", filepath.Join(repoRoot, "packaging", "gui"), "-p", "test_*.py")
+	if out, err := unitCmd.CombinedOutput(); err != nil {
+		t.Fatalf("gui unit tests failed: %v\n%s", err, string(out))
 	}
 }

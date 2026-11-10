@@ -28,11 +28,15 @@ declare -a REQUIRED_FILES=(
     "-rwxr-xr-x .* \./usr/bin/hydra$"
     "-rwxr-xr-x .* \./usr/bin/hydra-tui"
     "-rwxr-xr-x .* \./usr/bin/hydra-tray"
-    "-rw-r--r-- .* \./usr/lib/systemd/user/hydra.service"
-    "-rw-r--r-- .* \./usr/share/applications/hydra.desktop"
-    "-rw-r--r-- .* \./etc/xdg/autostart/hydra-daemon.desktop"
-    "-rw-r--r-- .* \./etc/xdg/autostart/hydra-tray.desktop"
-    "-rw-r--r-- .* \./usr/share/icons/hicolor/scalable/apps/hydra.svg"
+    "-rwxr-xr-x .* \./usr/bin/hydra-gui"
+    "-rw-r--r-- .* \./usr/share/hydra/gui/hydra_gui/__init__\.py"
+    "-rw-r--r-- .* \./usr/share/hydra/gui/hydra_gui/window\.py"
+    "-rw-r--r-- .* \./usr/lib/systemd/user/hydra\.service"
+    "-rw-r--r-- .* \./usr/share/applications/hydra\.desktop"
+    "-rw-r--r-- .* \./usr/share/applications/hydra-gui\.desktop"
+    "-rw-r--r-- .* \./etc/xdg/autostart/hydra-daemon\.desktop"
+    "-rw-r--r-- .* \./etc/xdg/autostart/hydra-tray\.desktop"
+    "-rw-r--r-- .* \./usr/share/icons/hicolor/scalable/apps/hydra\.svg"
 )
 
 for pattern in "${REQUIRED_FILES[@]}"; do
@@ -54,8 +58,12 @@ test -x "$TEST_ROOT/usr/bin/hydra-daemon" || { echo "❌ Missing hydra-daemon bi
 test -x "$TEST_ROOT/usr/bin/hydra" || { echo "❌ Missing hydra CLI binary"; exit 1; }
 test -x "$TEST_ROOT/usr/bin/hydra-tui" || { echo "❌ Missing hydra-tui binary"; exit 1; }
 test -x "$TEST_ROOT/usr/bin/hydra-tray" || { echo "❌ Missing hydra-tray executable"; exit 1; }
+test -x "$TEST_ROOT/usr/bin/hydra-gui" || { echo "❌ Missing hydra-gui executable"; exit 1; }
+test -f "$TEST_ROOT/usr/share/hydra/gui/hydra_gui/__init__.py" || { echo "❌ Missing hydra_gui package"; exit 1; }
+test -f "$TEST_ROOT/usr/share/hydra/gui/hydra_gui/window.py" || { echo "❌ Missing hydra_gui window module"; exit 1; }
 test -f "$TEST_ROOT/usr/lib/systemd/user/hydra.service" || { echo "❌ Missing systemd service"; exit 1; }
 test -f "$TEST_ROOT/usr/share/applications/hydra.desktop" || { echo "❌ Missing desktop file"; exit 1; }
+test -f "$TEST_ROOT/usr/share/applications/hydra-gui.desktop" || { echo "❌ Missing GUI desktop file"; exit 1; }
 test -f "$TEST_ROOT/etc/xdg/autostart/hydra-daemon.desktop" || { echo "❌ Missing autostart desktop file"; exit 1; }
 test -f "$TEST_ROOT/etc/xdg/autostart/hydra-tray.desktop" || { echo "❌ Missing tray autostart desktop file"; exit 1; }
 test -f "$TEST_ROOT/usr/share/icons/hicolor/scalable/apps/hydra.svg" || { echo "❌ Missing icon"; exit 1; }
@@ -63,6 +71,7 @@ test -f "$TEST_ROOT/usr/share/icons/hicolor/scalable/apps/hydra.svg" || { echo "
 if command -v desktop-file-validate >/dev/null 2>&1; then
     desktop-file-validate \
         "$TEST_ROOT/usr/share/applications/hydra.desktop" \
+        "$TEST_ROOT/usr/share/applications/hydra-gui.desktop" \
         "$TEST_ROOT/etc/xdg/autostart/hydra-daemon.desktop" \
         "$TEST_ROOT/etc/xdg/autostart/hydra-tray.desktop"
     echo "  ✓ Desktop entries pass desktop-file-validate."

@@ -506,6 +506,31 @@ def stop_daemon_engine() -> None:
         pass
 
 
+def open_gui_window(script_path: Path, client: HydraClient) -> None:
+    gui_bin = resolve_sibling_binary("hydra-gui", script_path)
+    if not gui_bin:
+        repo_gui = script_path.resolve().parent.parent / "gui" / "hydra-gui"
+        if repo_gui.is_file() and os.access(repo_gui, os.X_OK):
+            gui_bin = str(repo_gui)
+    if not gui_bin:
+        notify_fallback("Hydra GUI Missing", "Could not locate hydra-gui executable.")
+        return
+
+    env = os.environ.copy()
+    tok = client.current_token()
+    if tok:
+        env["HYDRA_API_TOKEN"] = tok
+
+    subprocess.Popen(
+        [gui_bin, "--daemon-url", client.base_url, "--ensure-daemon"],
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
 def open_tui_window(script_path: Path, client: HydraClient) -> None:
     tui_bin = resolve_sibling_binary("hydra-tui", script_path)
     if not tui_bin:
@@ -599,7 +624,11 @@ def run_tray_app(args: argparse.Namespace, lock_handle: Any) -> int:
             self.menu.append(self.status_item)
             self.menu.append(Gtk.SeparatorMenuItem())
 
-            open_item = Gtk.MenuItem(label="Open Hydra Manager")
+            open_gui_item = Gtk.MenuItem(label="Open Graphical Manager")
+            open_gui_item.connect("activate", lambda *_: open_gui_window(script_path, client))
+            self.menu.append(open_gui_item)
+
+            open_item = Gtk.MenuItem(label="Open Terminal Manager (TUI)")
             open_item.connect("activate", lambda *_: open_tui_window(script_path, client))
             self.menu.append(open_item)
 
