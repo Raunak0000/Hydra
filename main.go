@@ -184,7 +184,7 @@ func main() {
 
 		if meta.Size > 0 {
 
-			totalSizeStr = fmt.Sprintf("%.2f MB", float64(meta.Size)/(1024*1024))
+			totalSizeStr = formatBytes(meta.Size)
 
 		}
 
@@ -193,6 +193,8 @@ func main() {
 			return fmt.Errorf("updating total size: %w", err)
 
 		}
+
+		job.TotalSize = totalSizeStr
 
 		resuming := len(job.Chunks) > 0
 		var file *os.File
@@ -939,6 +941,10 @@ func main() {
 
 			}
 
+		}
+
+		if meta.Size <= 0 && finalDownloaded > 0 {
+			_ = dbStore.UpdateTotalSize(jobID, formatBytes(finalDownloaded))
 		}
 
 		if err := dbStore.UpdateProgress(

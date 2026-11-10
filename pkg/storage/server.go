@@ -574,12 +574,25 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if job.Status == "DOWNLOADING" || job.Status == "COMPLETED" {
+			writeJSONError(
+				w,
+				http.StatusConflict,
+				"INVALID_JOB_STATE",
+				"Cannot change destination while download is downloading or completed",
+			)
+			return
+		}
+
 		targetSavePath := payload.SavePath
 
 		if strings.HasSuffix(targetSavePath, "/") ||
 			strings.HasSuffix(targetSavePath, string(filepath.Separator)) {
 
-			filename := job.FileName
+			filename := payload.Filename
+			if filename == "" || filename == "Calculating..." || filename == "Pending path..." {
+				filename = job.FileName
+			}
 
 			if filename == "" ||
 				filename == "Calculating..." ||
@@ -610,6 +623,22 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 			}
 
 			targetSavePath = filepath.Join(targetSavePath, filename)
+		} else if payload.Filename != "" &&
+			payload.Filename != "Calculating..." &&
+			payload.Filename != "Pending path..." {
+			targetSavePath = filepath.Join(filepath.Dir(targetSavePath), payload.Filename)
+		}
+
+		if baseName := filepath.Base(targetSavePath); baseName != "" {
+			if err := ValidateFilename(baseName); err != nil {
+				writeJSONError(
+					w,
+					http.StatusBadRequest,
+					"INVALID_FILENAME",
+					err.Error(),
+				)
+				return
+			}
 		}
 
 		securedPath, err := ResolvePath(targetSavePath)
@@ -619,13 +648,37 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if len(job.Chunks) > 0 && job.SavePath != "" && job.SavePath != "PENDING" && job.SavePath != "DEFAULT" && securedPath != job.SavePath {
+			writeJSONError(
+				w,
+				http.StatusConflict,
+				"PARTIAL_TRANSFER_EXISTS",
+				"Cannot move destination after partial chunk data has been written",
+			)
+			return
+		}
+
 		job.SavePath = securedPath
-		job.ScheduledAt = parsedScheduledAt
-		job.Headers = payload.Headers
-		job.MaxSpeedBytes = payload.MaxSpeedBytes
-		job.ExpectedChecksum = payload.ExpectedChecksum
-		job.ChecksumAlgo = payload.ChecksumAlgo
-		job.BatchID = payload.BatchID
+		job.FileName = filepath.Base(securedPath)
+		job.ErrorMessage = ""
+		if parsedScheduledAt != nil {
+			job.ScheduledAt = parsedScheduledAt
+		}
+		if len(payload.Headers) > 0 {
+			job.Headers = payload.Headers
+		}
+		if payload.MaxSpeedBytes > 0 {
+			job.MaxSpeedBytes = payload.MaxSpeedBytes
+		}
+		if payload.ExpectedChecksum != "" {
+			job.ExpectedChecksum = payload.ExpectedChecksum
+		}
+		if payload.ChecksumAlgo != "" {
+			job.ChecksumAlgo = payload.ChecksumAlgo
+		}
+		if payload.BatchID != "" {
+			job.BatchID = payload.BatchID
+		}
 
 		if parsedScheduledAt != nil &&
 			parsedScheduledAt.After(time.Now()) {
