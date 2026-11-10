@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Hydra Download Engine
+Comment=Background download engine for Hydra
+Exec=/usr/bin/hydra-daemon --autostart
+Icon=hydra
+Terminal=false
+Categories=Network;FileTransfer;
+StartupNotify=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+

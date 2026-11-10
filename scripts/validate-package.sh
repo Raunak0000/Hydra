@@ -29,6 +29,7 @@ declare -a REQUIRED_FILES=(
     "-rwxr-xr-x .* \./usr/bin/hydra-tui"
     "-rw-r--r-- .* \./usr/lib/systemd/user/hydra.service"
     "-rw-r--r-- .* \./usr/share/applications/hydra.desktop"
+    "-rw-r--r-- .* \./etc/xdg/autostart/hydra-daemon.desktop"
     "-rw-r--r-- .* \./usr/share/icons/hicolor/scalable/apps/hydra.svg"
 )
 
@@ -52,6 +53,7 @@ test -x "$TEST_ROOT/usr/bin/hydra" || { echo "❌ Missing hydra CLI binary"; exi
 test -x "$TEST_ROOT/usr/bin/hydra-tui" || { echo "❌ Missing hydra-tui binary"; exit 1; }
 test -f "$TEST_ROOT/usr/lib/systemd/user/hydra.service" || { echo "❌ Missing systemd service"; exit 1; }
 test -f "$TEST_ROOT/usr/share/applications/hydra.desktop" || { echo "❌ Missing desktop file"; exit 1; }
+test -f "$TEST_ROOT/etc/xdg/autostart/hydra-daemon.desktop" || { echo "❌ Missing autostart desktop file"; exit 1; }
 test -f "$TEST_ROOT/usr/share/icons/hicolor/scalable/apps/hydra.svg" || { echo "❌ Missing icon"; exit 1; }
 
 # Execute postinst maintainer script
@@ -77,7 +79,7 @@ if [[ -f "$TEST_ROOT/DEBIAN/prerm" ]]; then
     echo "  ✓ prerm maintainer script executed cleanly."
 fi
 
-rm -rf "$TEST_ROOT/usr"
+rm -rf "$TEST_ROOT/usr" "$TEST_ROOT/etc"
 echo "  ✓ Clean removal verified."
 
 echo "============================================="

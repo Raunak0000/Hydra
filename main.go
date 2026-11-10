@@ -2,37 +2,47 @@ package main
 
 import (
 	"context"
-	"math"
-	"sort"
-
+	"errors"
+	"flag"
 	"fmt"
-
 	"log"
-
+	"math"
 	"net/http"
-
 	"os"
-
 	"os/signal"
-
 	"path/filepath"
-
+	"sort"
 	"sync"
-
 	"sync/atomic"
-
 	"syscall"
-
 	"time"
 
 	"github.com/Raunak0000/Hydra/pkg/downloader"
-
 	"github.com/Raunak0000/Hydra/pkg/models"
-
 	"github.com/Raunak0000/Hydra/pkg/storage"
 )
 
 func main() {
+	autostart := flag.Bool("autostart", false, "Exit cleanly if Hydra daemon is already running")
+	flag.Parse()
+
+	instanceLock, err := storage.AcquireInstanceLock()
+	if err != nil {
+		if errors.Is(err, storage.ErrDaemonAlreadyRunning) {
+			if *autostart {
+				log.Println("[Hydra-Daemon] Background engine is already running; skipping autostart.")
+				return
+			}
+			log.Printf("[X] Error: %v", err)
+			os.Exit(2)
+		}
+		log.Fatalf("[X] Critical: Failed to acquire daemon instance lock: %v", err)
+	}
+	defer func() {
+		if relErr := instanceLock.Release(); relErr != nil {
+			log.Printf("releasing instance lock: %v", relErr)
+		}
+	}()
 
 	dbStore, err := storage.GetDBStore()
 
@@ -951,7 +961,14 @@ func main() {
 
 	}
 
-	storage.InitQueueManager(2, executeDownloadJob)
+	maxConcurrent := 2
+	if cfg, cfgErr := storage.LoadConfig(); cfgErr != nil {
+		log.Printf("[Hydra-Daemon] Failed to load config (using defaults): %v", cfgErr)
+	} else if cfg.MaxConcurrentDownloads > 0 {
+		maxConcurrent = cfg.MaxConcurrentDownloads
+	}
+
+	storage.InitQueueManager(maxConcurrent, executeDownloadJob)
 
 	// Recover jobs that were left DOWNLOADING when the previous daemon exited.
 	// Reset them to PAUSED so the user can safely resume them. Then re-promote
@@ -963,6 +980,10 @@ func main() {
 			log.Printf("[Hydra-Daemon] Recovered %d stale DOWNLOADING job(s) → PAUSED", n)
 		}
 		storage.GetQueueManager().ProcessNext()
+	}
+
+	if _, tokenErr := storage.EnsureAPIToken(); tokenErr != nil {
+		log.Fatalf("[X] Critical: Failed to initialize API token: %v", tokenErr)
 	}
 
 	go storage.StartIPCServer(func(url, savePath, jobID string) {
@@ -1071,6 +1092,9 @@ func main() {
 	}
 
 cleanup:
+	if qm := storage.GetQueueManager(); qm != nil {
+		qm.Stop()
+	}
 
 	if err := os.Remove(storage.GetSocketPath()); err != nil && !os.IsNotExist(err) {
 

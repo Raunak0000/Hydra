@@ -65,6 +65,33 @@ nfpm.yaml                 Debian/RPM package definition
 
 The TUI itself does not require GTK, Qt, a graphical desktop, or systemd.
 
+## Install
+
+Install Hydra for your user with a single command (builds binaries, installs the
+desktop launcher and icon, configures login autostart via `systemd --user` and
+XDG autostart, provisions a per-user API token, and starts the background
+engine):
+
+```bash
+./install.sh
+```
+
+Or install system-wide via native `.deb`/`.rpm` packaging:
+
+```bash
+./install.sh --package
+# or install an existing release package directly:
+sudo apt install ./dist/hydra_1.0.0_amd64.deb
+# or on Fedora / RHEL:
+sudo dnf install ./dist/hydra-1.0.0-1.x86_64.rpm
+```
+
+Uninstall cleanly:
+
+```bash
+./install.sh --uninstall
+```
+
 ## Build
 
 Build the daemon:
@@ -310,12 +337,13 @@ python3 -m json.tool extension/manifest.json >/dev/null
 ## Packaging
 
 The repository includes `nfpm.yaml`, desktop integration, icons, maintainer
-scripts, and a systemd user service. `build.sh` creates `.deb` and `.rpm`
-packages when `nfpm` is installed.
+scripts, XDG autostart, and a systemd user service. `build.sh` creates `.deb`
+and `.rpm` packages when `nfpm` is installed.
 
-The current package definition installs the daemon and CLI. The TUI binary is
-built by `build.sh` and can be distributed alongside them; update `nfpm.yaml`
-when you want the TUI included in native packages.
+The package definition installs `hydra-daemon`, `hydra`, `hydra-tui`, the
+desktop launcher and icon, `/etc/xdg/autostart/hydra-daemon.desktop`, and
+`/usr/lib/systemd/user/hydra.service` (enabled globally so the background
+engine starts automatically after user login).
 
 ## Linux Compatibility
 

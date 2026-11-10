@@ -36,6 +36,11 @@ contents:
     file_info:
       mode: 0644
 
+  - src: ./packaging/autostart/hydra-daemon.desktop
+    dst: /etc/xdg/autostart/hydra-daemon.desktop
+    file_info:
+      mode: 0644
+
   - src: ./packaging/icons/hydra.svg
     dst: /usr/share/icons/hicolor/scalable/apps/hydra.svg
     file_info:

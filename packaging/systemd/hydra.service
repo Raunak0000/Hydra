@@ -1,14 +1,17 @@
 [Unit]
-Description=Hydra Core Download Daemon
-After=network.target
+Description=Hydra Background Download Engine
+Documentation=https://github.com/Raunak0000/Hydra
+After=dbus.socket network.target
 
 [Service]
 Type=simple
 ExecStart=/usr/bin/hydra-daemon
 Restart=on-failure
 RestartSec=3s
+RestartPreventExitStatus=2
+TimeoutStopSec=15s
 Environment=XDG_RUNTIME_DIR=%t
-PassEnvironment=DISPLAY WAYLAND_DISPLAY XAUTHORITY DBUS_SESSION_BUS_ADDRESS
+PassEnvironment=DISPLAY WAYLAND_DISPLAY XAUTHORITY DBUS_SESSION_BUS_ADDRESS XDG_CONFIG_HOME XDG_DATA_HOME
 
 [Install]
 WantedBy=default.target

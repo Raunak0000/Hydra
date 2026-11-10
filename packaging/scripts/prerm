@@ -1,9 +1,20 @@
 #!/bin/sh
 set -e
 
-# Disable user services on remove or upgrade
-if [ "$1" = "remove" ] || [ "$1" = "upgrade" ]; then
-    if command -v systemctl >/dev/null 2>&1; then
+# Disable user service globally on complete package removal (Debian: remove/deconfigure, RPM: 0)
+if [ "$1" = "remove" ] || [ "$1" = "deconfigure" ] || [ "$1" = "0" ]; then
+    if [ "$(id -u)" -eq 0 ] && command -v systemctl >/dev/null 2>&1; then
+        if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
+            SUDO_UID=$(id -u "$SUDO_USER" 2>/dev/null || true)
+            RUNTIME_DIR="/run/user/$SUDO_UID"
+            if [ -n "$SUDO_UID" ] && [ -S "$RUNTIME_DIR/bus" ] && command -v runuser >/dev/null 2>&1; then
+                runuser -u "$SUDO_USER" -- env \
+                    XDG_RUNTIME_DIR="$RUNTIME_DIR" \
+                    DBUS_SESSION_BUS_ADDRESS="unix:path=$RUNTIME_DIR/bus" \
+                    systemctl --user stop hydra.service >/dev/null 2>&1 || true
+            fi
+        fi
+
         systemctl --global disable hydra.service >/dev/null 2>&1 || true
     fi
 fi

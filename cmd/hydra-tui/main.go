@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Raunak0000/Hydra/pkg/storage"
 	"github.com/Raunak0000/Hydra/pkg/tui"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -16,7 +17,13 @@ func main() {
 	flag.Parse()
 
 	if *daemonToken == "" {
-		fmt.Fprintln(os.Stderr, "Error: set HYDRA_API_TOKEN or provide --token")
+		if token, err := storage.LoadAPIToken(); err == nil && token != "" {
+			*daemonToken = token
+		}
+	}
+
+	if *daemonToken == "" {
+		fmt.Fprintln(os.Stderr, "Error: set HYDRA_API_TOKEN, pass --token, or start hydra-daemon to generate an API token")
 		os.Exit(1)
 	}
 

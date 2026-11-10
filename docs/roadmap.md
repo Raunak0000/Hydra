@@ -214,12 +214,12 @@ user-facing service that users must operate manually.
 
 ## Phase 9: IDM-Like Linux Desktop Experience (Weeks 24-27)
 
-**Status: Planned**
+**Status: In Progress**
 
 ### Week 24: Desktop application shell
 
-- [ ] Provide a one-command/package installation experience.
-- [ ] Start the background engine automatically after user login.
+- [x] Provide a one-command/package installation experience.
+- [x] Start the background engine automatically after user login.
 - [ ] Add a desktop launcher and optional system-tray/menu-bar controller.
 - [ ] Add native notifications for queued, completed, and failed jobs.
 - [ ] **Milestone:** Hydra behaves like a normal installed Linux desktop
