@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""Native GTK 4 + Libadwaita graphical download manager for Hydra."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import signal
+import sys
+from pathlib import Path
+from typing import List, Optional
+
+
+def _bootstrap_gui_package() -> Path:
+    script_path = Path(__file__).resolve()
+    data_home = os.environ.get("XDG_DATA_HOME", "").strip() or str(Path.home() / ".local" / "share")
+
+    candidates = [
+        script_path.parent,
+        Path(data_home) / "hydra" / "gui",
+        Path.home() / ".local" / "share" / "hydra" / "gui",
+        Path("/usr/share/hydra/gui"),
+    ]
+    for base in candidates:
+        if (base / "hydra_gui" / "__init__.py").is_file():
+            base_str = str(base)
+            if base_str not in sys.path:
+                sys.path.insert(0, base_str)
+            break
+    return script_path
+
+
+SCRIPT_PATH = _bootstrap_gui_package()
+
+from hydra_gui.client import (  # noqa: E402
+    DEFAULT_DAEMON_URL,
+    HydraGUIClient,
+    ensure_local_daemon,
+    probe_gui_backend,
+)
+
+
+def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="hydra-gui",
+        description="Graphical download manager and live progress inspector for Hydra.",
+    )
+    parser.add_argument(
+        "--daemon-url",
+        default=DEFAULT_DAEMON_URL,
+        help=f"Hydra daemon HTTP API base URL (default: {DEFAULT_DAEMON_URL})",
+    )
+    parser.add_argument(
+        "--token",
+        default="",
+        help="Hydra daemon API token override",
+    )
+    parser.add_argument(
+        "--poll-interval",
+        type=float,
+        default=0.75,
+        help="Active download refresh interval in seconds (default: 0.75)",
+    )
+    parser.add_argument(
+        "--ensure-daemon",
+        action="store_true",
+        help="Start local hydra-daemon automatically if not running",
+    )
+    parser.add_argument(
+        "--select-job",
+        default="",
+        help="Select and inspect a specific job ID on launch",
+    )
+    parser.add_argument(
+        "--new-download",
+        action="store_true",
+        help="Open the New Download dialog immediately on launch",
+    )
+    parser.add_argument(
+        "--url",
+        default="",
+        help="Pre-fill download URL when opening --new-download",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Inspect GTK 4 + Libadwaita GUI support and exit (prints JSON status)",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    args = parse_args(argv)
+
+    if args.check:
+        info = probe_gui_backend()
+        print(json.dumps(info))
+        return 0 if info["available"] else 1
+
+    backend_info = probe_gui_backend(verify_display=True)
+    if not backend_info["available"]:
+        print(f"hydra-gui: {backend_info['reason']}", file=sys.stderr)
+        return 1
+
+    if args.ensure_daemon:
+        ensure_local_daemon(args.daemon_url, anchor_path=SCRIPT_PATH)
+
+    from hydra_gui.window import HydraApplication
+
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    client = HydraGUIClient(args.daemon_url, args.token)
+    app = HydraApplication(
+        client=client,
+        anchor_path=SCRIPT_PATH,
+        initial_job_id=args.select_job,
+        poll_interval_sec=args.poll_interval,
+        open_new_download=bool(args.new_download or args.url.strip()),
+        initial_url=args.url,
+    )
+    return int(app.run(None))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
