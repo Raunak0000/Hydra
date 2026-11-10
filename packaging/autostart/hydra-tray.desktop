@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Hydra System Tray
+Comment=Optional system tray controller for Hydra Downloader
+Exec=/usr/bin/hydra-tray --autostart
+Icon=hydra
+Terminal=false
+Categories=Network;FileTransfer;
+StartupNotify=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+

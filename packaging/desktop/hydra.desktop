@@ -1,9 +1,29 @@
 [Desktop Entry]
-Name=Hydra Downloader
-Comment=High-Performance Multi-threaded Download Manager
-Exec=xdg-open http://127.0.0.1:9000
-Icon=hydra
-Terminal=false
+Version=1.0
 Type=Application
+Name=Hydra Downloader
+GenericName=Download Manager
+Comment=High-Performance Multi-threaded Download Manager
+Exec=/usr/bin/hydra-tui --ensure-daemon
+Icon=hydra
+Terminal=true
 Categories=Network;FileTransfer;
-StartupNotify=false
+Keywords=download;manager;hydra;accelerator;
+StartupNotify=true
+Actions=TrayController;OpenDownloads;PauseAll;ResumeAll;
+
+[Desktop Action TrayController]
+Name=Start System Tray Controller
+Exec=/usr/bin/hydra-tray
+
+[Desktop Action OpenDownloads]
+Name=Open Downloads Folder
+Exec=/usr/bin/hydra-tray --open-downloads
+
+[Desktop Action PauseAll]
+Name=Pause All Downloads
+Exec=/usr/bin/hydra pause-all
+
+[Desktop Action ResumeAll]
+Name=Resume All Downloads
+Exec=/usr/bin/hydra resume-all

@@ -91,6 +91,7 @@ func DownloadChunkParallel(
 	}
 
 	targetIndex := initialIndex
+	stall429Count := 0
 
 	for {
 		if ctx.Err() != nil {
@@ -287,17 +288,41 @@ func DownloadChunkParallel(
 				}
 				retryAfter += time.Duration(rand.Intn(400)+100) * time.Millisecond
 
+				bodySnippet := readBodySnippet(resp.Body)
 				resp.Body.Close()
 				cancelStream()
 
 				// Release the claim on this chunk during backoff so other workers can coordinate
 				me.Release()
 
+				progressBefore := sumTrackersCurrent(trackers)
+
+				timer := time.NewTimer(retryAfter)
 				select {
 				case <-ctx.Done():
+					timer.Stop()
 					return
 
-				case <-time.After(retryAfter):
+				case <-timer.C:
+				}
+
+				progressAfter := sumTrackersCurrent(trackers)
+				if progressAfter > progressBefore {
+					// Other streams are actively transferring bytes; this 429 is a concurrency cap.
+					stall429Count = 0
+				} else {
+					stall429Count++
+					if (isHardRateLimitMessage(bodySnippet) && stall429Count >= 2) || stall429Count >= 4 {
+						errMsg := fmt.Sprintf("worker %d HTTP 429: host rate limit exceeded", myIndex)
+						if bodySnippet != "" {
+							errMsg = fmt.Sprintf("worker %d HTTP 429: %s", myIndex, bodySnippet)
+						}
+						select {
+						case errChan <- fmt.Errorf("%s", errMsg):
+						case <-ctx.Done():
+						}
+						return
+					}
 				}
 
 				targetIndex = -1
@@ -535,6 +560,8 @@ func DownloadChunkParallel(
 				bytesRead, readErr := resp.Body.Read(buffer)
 
 				if bytesRead > 0 {
+					stall429Count = 0
+
 					/*
 						Tell watchdog that data arrived.
 					*/
@@ -761,6 +788,14 @@ func DownloadChunkParallel(
 		}
 		targetIndex = -1
 	}
+}
+
+func sumTrackersCurrent(trackers []*AdaptiveTracker) int64 {
+	var total int64
+	for _, tr := range trackers {
+		total += tr.GetCurrent()
+	}
+	return total
 }
 
 func min(a, b int) int {

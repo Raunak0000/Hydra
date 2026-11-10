@@ -220,9 +220,9 @@ user-facing service that users must operate manually.
 
 - [x] Provide a one-command/package installation experience.
 - [x] Start the background engine automatically after user login.
-- [ ] Add a desktop launcher and optional system-tray/menu-bar controller.
-- [ ] Add native notifications for queued, completed, and failed jobs.
-- [ ] **Milestone:** Hydra behaves like a normal installed Linux desktop
+- [x] Add a desktop launcher and optional system-tray/menu-bar controller.
+- [x] Add native notifications for queued, completed, and failed jobs.
+- [x] **Milestone:** Hydra behaves like a normal installed Linux desktop
   application.
 
 ### Week 25: Graphical download manager

@@ -9,6 +9,7 @@ PKG_FORMAT=""
 UNINSTALL=0
 SKIP_BUILD=0
 NO_START=0
+NO_TRAY=0
 PREFIX=""
 BIN_SRC="$SCRIPT_DIR/bin"
 XDG_CONFIG_BASE="${XDG_CONFIG_HOME:-$HOME/.config}"
@@ -35,6 +36,7 @@ Options:
   --xdg-data-home DIR     Override XDG data home (default: $XDG_DATA_HOME or ~/.local/share)
   --skip-build            Use existing binaries in ./bin without running go build
   --no-start              Do not interact with systemd or start daemon immediately
+  --no-tray               Do not install login autostart entry for optional hydra-tray
   -h, --help              Show this help message
 EOF
 }
@@ -89,6 +91,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-start)
             NO_START=1
+            shift
+            ;;
+        --no-tray)
+            NO_TRAY=1
             shift
             ;;
         -h|--help)
@@ -290,8 +296,10 @@ install_files_mode() {
             "$BIN_DIR/hydra-daemon" \
             "$BIN_DIR/hydra" \
             "$BIN_DIR/hydra-tui" \
+            "$BIN_DIR/hydra-tray" \
             "$SYSTEMD_USER_DIR/hydra.service" \
             "$AUTOSTART_DIR/hydra-daemon.desktop" \
+            "$AUTOSTART_DIR/hydra-tray.desktop" \
             "$APP_DIR/hydra.desktop" \
             "$ICON_DIR/hydra.svg"
 
@@ -316,8 +324,15 @@ install_files_mode() {
     install -m 755 "$BIN_SRC/hydra-daemon" "$BIN_DIR/hydra-daemon"
     install -m 755 "$BIN_SRC/hydra" "$BIN_DIR/hydra"
     install -m 755 "$BIN_SRC/hydra-tui" "$BIN_DIR/hydra-tui"
+    install -m 755 packaging/tray/hydra-tray "$BIN_DIR/hydra-tray"
 
-    install -m 644 packaging/desktop/hydra.desktop "$APP_DIR/hydra.desktop"
+    sed -e "s|/usr/bin/hydra-daemon|$BIN_DIR/hydra-daemon|g" \
+        -e "s|/usr/bin/hydra-tui|$BIN_DIR/hydra-tui|g" \
+        -e "s|/usr/bin/hydra-tray|$BIN_DIR/hydra-tray|g" \
+        -e "s|/usr/bin/hydra |$BIN_DIR/hydra |g" \
+        -e "s|/usr/bin/hydra$|$BIN_DIR/hydra|g" \
+        packaging/desktop/hydra.desktop > "$APP_DIR/hydra.desktop"
+    chmod 644 "$APP_DIR/hydra.desktop"
     install -m 644 packaging/icons/hydra.svg "$ICON_DIR/hydra.svg"
 
     sed "s|/usr/bin/hydra-daemon|$BIN_DIR/hydra-daemon|g" packaging/systemd/hydra.service \
@@ -327,6 +342,12 @@ install_files_mode() {
     sed "s|/usr/bin/hydra-daemon|$BIN_DIR/hydra-daemon|g" packaging/autostart/hydra-daemon.desktop \
         > "$AUTOSTART_DIR/hydra-daemon.desktop"
     chmod 644 "$AUTOSTART_DIR/hydra-daemon.desktop"
+
+    if [[ "$NO_TRAY" -eq 0 ]]; then
+        sed "s|/usr/bin/hydra-tray|$BIN_DIR/hydra-tray|g" packaging/autostart/hydra-tray.desktop \
+            > "$AUTOSTART_DIR/hydra-tray.desktop"
+        chmod 644 "$AUTOSTART_DIR/hydra-tray.desktop"
+    fi
 
     if command -v update-desktop-database >/dev/null 2>&1; then
         update-desktop-database -q "$APP_DIR" >/dev/null 2>&1 || true
@@ -367,14 +388,18 @@ install_files_mode() {
 
     echo ""
     echo "✅ Hydra installation complete!"
-    echo "   Binaries:   $BIN_DIR/{hydra-daemon,hydra,hydra-tui}"
+    echo "   Binaries:   $BIN_DIR/{hydra-daemon,hydra,hydra-tui,hydra-tray}"
     echo "   Systemd:    $SYSTEMD_USER_DIR/hydra.service"
     echo "   Autostart:  $AUTOSTART_DIR/hydra-daemon.desktop"
+    if [[ "$NO_TRAY" -eq 0 ]]; then
+        echo "   Tray Auto:  $AUTOSTART_DIR/hydra-tray.desktop"
+    fi
     echo "   Launcher:   $APP_DIR/hydra.desktop"
     echo ""
     echo "   Quick commands:"
     echo "     hydra status    # Check background download engine"
     echo "     hydra-tui       # Launch terminal UI"
+    echo "     hydra-tray      # Launch optional system-tray controller"
 }
 
 if [[ "$MODE" == "package" ]]; then

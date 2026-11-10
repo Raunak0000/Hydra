@@ -713,14 +713,31 @@ func (m Model) View() string {
 		)
 	}
 
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
+	parts := []string{
 		header,
 		"",
 		body,
 		"",
 		footerStyle.Render(footer),
-	)
+	}
+	if errMsg := m.selectedError(); errMsg != "" {
+		parts = append(parts, errorStyle.Render("Error: "+errMsg))
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+func (m Model) selectedError() string {
+	if m.err != nil {
+		return m.err.Error()
+	}
+	if m.selected >= 0 && m.selected < len(m.jobs) {
+		job := m.jobs[m.selected]
+		if job.Status == "FAILED" && strings.TrimSpace(job.ErrorMessage) != "" {
+			return strings.TrimSpace(job.ErrorMessage)
+		}
+	}
+	return ""
 }
 
 func (m Model) jobsView() string {

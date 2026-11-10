@@ -394,3 +394,77 @@ func TestConcurrencyLimitWithChunkClaiming(t *testing.T) {
 
 	t.Logf("✓ Concurrency limited download (4 workers, 2 server slots) finished 100%% without stalling!")
 }
+
+func TestDownloadChunkParallel_FailsCleanlyOnPersistent429Lock(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "60")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte("id busy - generate a new download link if stuck"))
+	}))
+	defer server.Close()
+
+	fileSize := int64(2 * 1024 * 1024)
+	tmpFile, err := os.CreateTemp("", "hydra_429_lock_*.bin")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+	if err := tmpFile.Truncate(fileSize); err != nil {
+		t.Fatalf("failed to truncate temp file: %v", err)
+	}
+
+	numThreads := 2
+	chunks := CalculateChunks(fileSize, numThreads)
+	trackers := make([]*AdaptiveTracker, len(chunks))
+	for i, ch := range chunks {
+		trackers[i] = &AdaptiveTracker{
+			Index:       i,
+			StartByte:   ch.Start,
+			CurrentPtr:  ch.Start,
+			EndBoundary: ch.End,
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, numThreads)
+	progressChan := make(chan int64, 64)
+	stateChan := make(chan Chunk, 64)
+
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		go DownloadChunkParallel(
+			ctx,
+			server.URL,
+			i,
+			trackers,
+			tmpFile,
+			&wg,
+			errChan,
+			progressChan,
+			stateChan,
+			nil,
+			nil,
+		)
+	}
+
+	wg.Wait()
+	close(progressChan)
+	close(stateChan)
+
+	select {
+	case workerErr := <-errChan:
+		if workerErr == nil || !strings.Contains(workerErr.Error(), "id busy - generate a new download link if stuck") {
+			t.Fatalf("unexpected worker error: %v", workerErr)
+		}
+	default:
+		t.Fatal("expected worker error on persistent 429 id-busy lock, got none")
+	}
+
+	if ctx.Err() != nil {
+		t.Fatalf("workers stalled until context timeout (%v) instead of failing cleanly", ctx.Err())
+	}
+}

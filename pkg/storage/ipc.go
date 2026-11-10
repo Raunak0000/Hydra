@@ -67,6 +67,8 @@ func StartIPCServer(downloadTrigger func(string, string, string)) {
 			if strings.HasPrefix(commandText, "PAUSE|") {
 				jobID := strings.TrimPrefix(commandText, "PAUSE|")
 
+				_ = dbStore.UpdateStatus(jobID, "PAUSED")
+
 				if GlobalCancelMutex != nil && GlobalCancelMap != nil {
 					GlobalCancelMutex.Lock()
 					if cancel, exists := GlobalCancelMap[jobID]; exists {
@@ -75,8 +77,22 @@ func StartIPCServer(downloadTrigger func(string, string, string)) {
 					GlobalCancelMutex.Unlock()
 				}
 
-				_ = dbStore.UpdateStatus(jobID, "PAUSED")
+				GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
 				_, _ = c.Write([]byte("SUCCESS|Job successfully paused.\n"))
+				return
+			}
+
+			// ── ⏸ HANDLE PAUSE_ALL COMMAND ──
+			if commandText == "PAUSE_ALL" {
+				paused := PauseAllJobs(dbStore)
+				_, _ = c.Write([]byte(fmt.Sprintf("SUCCESS|Paused %d active/queued job(s).\n", paused)))
+				return
+			}
+
+			// ── ▶ HANDLE RESUME_ALL COMMAND ──
+			if commandText == "RESUME_ALL" {
+				resumed := ResumeAllJobs(dbStore)
+				_, _ = c.Write([]byte(fmt.Sprintf("SUCCESS|Queued %d paused job(s) to resume.\n", resumed)))
 				return
 			}
 
@@ -223,6 +239,7 @@ func StartIPCServer(downloadTrigger func(string, string, string)) {
 					Status:     "DOWNLOADING",
 				}
 				_ = dbStore.SaveJob(&newJob)
+				NotifyDownloadQueued(fileName, securedPath)
 
 				_, _ = c.Write([]byte("SUCCESS|Download job dispatched to background daemon.\n"))
 				go downloadTrigger(targetURL, securedPath, jobID)

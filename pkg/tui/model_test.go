@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/Raunak0000/Hydra/pkg/models"
@@ -80,5 +81,20 @@ func TestFooterActionsAreClickable(t *testing.T) {
 	}
 	if got := model.footerAction(30, footerY); got != "delete" {
 		t.Fatalf("footer delete action = %q", got)
+	}
+}
+
+func TestViewShowsSelectedFailedJobErrorMessage(t *testing.T) {
+	model := loadTestJobs(NewModel(nil), []models.UIJob{
+		{
+			ID:           "job-err",
+			FileName:     "movie.mkv",
+			Status:       "FAILED",
+			ErrorMessage: "HTTP 429: id busy - generate a new download link if stuck",
+		},
+	})
+	view := model.View()
+	if !strings.Contains(view, "HTTP 429: id busy - generate a new download link if stuck") {
+		t.Fatalf("expected error message in View(), got:\n%s", view)
 	}
 }

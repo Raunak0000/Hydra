@@ -169,8 +169,12 @@ func TestInstallerScript_UserInstallAndUninstall(t *testing.T) {
 		t.Fatalf("install.sh failed: %v\noutput:\n%s", err, string(out))
 	}
 
-	expectedBin := filepath.Join(prefix, "bin", "hydra-daemon")
-	for _, binName := range []string{"hydra-daemon", "hydra", "hydra-tui"} {
+	expectedDaemon := filepath.Join(prefix, "bin", "hydra-daemon")
+	expectedTUI := filepath.Join(prefix, "bin", "hydra-tui")
+	expectedTray := filepath.Join(prefix, "bin", "hydra-tray")
+	expectedCLI := filepath.Join(prefix, "bin", "hydra")
+
+	for _, binName := range []string{"hydra-daemon", "hydra", "hydra-tui", "hydra-tray"} {
 		info, err := os.Stat(filepath.Join(prefix, "bin", binName))
 		if err != nil {
 			t.Fatalf("installed binary %s missing: %v", binName, err)
@@ -185,8 +189,8 @@ func TestInstallerScript_UserInstallAndUninstall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read installed hydra.service: %v", err)
 	}
-	if !strings.Contains(string(serviceData), "ExecStart="+expectedBin) {
-		t.Fatalf("hydra.service does not reference %q:\n%s", expectedBin, string(serviceData))
+	if !strings.Contains(string(serviceData), "ExecStart="+expectedDaemon) {
+		t.Fatalf("hydra.service does not reference %q:\n%s", expectedDaemon, string(serviceData))
 	}
 
 	autostartPath := filepath.Join(cfgHome, "autostart", "hydra-daemon.desktop")
@@ -194,12 +198,38 @@ func TestInstallerScript_UserInstallAndUninstall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read installed autostart desktop entry: %v", err)
 	}
-	if !strings.Contains(string(autostartData), "Exec="+expectedBin+" --autostart") {
-		t.Fatalf("autostart desktop entry does not reference %q:\n%s", expectedBin, string(autostartData))
+	if !strings.Contains(string(autostartData), "Exec="+expectedDaemon+" --autostart") {
+		t.Fatalf("autostart desktop entry does not reference %q:\n%s", expectedDaemon, string(autostartData))
+	}
+
+	trayAutostartPath := filepath.Join(cfgHome, "autostart", "hydra-tray.desktop")
+	trayAutostartData, err := os.ReadFile(trayAutostartPath)
+	if err != nil {
+		t.Fatalf("read installed tray autostart desktop entry: %v", err)
+	}
+	if !strings.Contains(string(trayAutostartData), "Exec="+expectedTray+" --autostart") {
+		t.Fatalf("tray autostart desktop entry does not reference %q:\n%s", expectedTray, string(trayAutostartData))
+	}
+
+	launcherPath := filepath.Join(dataHome, "applications", "hydra.desktop")
+	launcherData, err := os.ReadFile(launcherPath)
+	if err != nil {
+		t.Fatalf("read installed launcher desktop entry: %v", err)
+	}
+	launcherText := string(launcherData)
+	for _, want := range []string{
+		"Exec=" + expectedTUI + " --ensure-daemon",
+		"Exec=" + expectedTray,
+		"Exec=" + expectedCLI + " pause-all",
+		"Exec=" + expectedCLI + " resume-all",
+	} {
+		if !strings.Contains(launcherText, want) {
+			t.Fatalf("installed hydra.desktop missing %q:\n%s", want, launcherText)
+		}
 	}
 
 	for _, p := range []string{
-		filepath.Join(dataHome, "applications", "hydra.desktop"),
+		launcherPath,
 		filepath.Join(dataHome, "icons", "hicolor", "scalable", "apps", "hydra.svg"),
 		filepath.Join(cfgHome, "hydra", "api.token"),
 	} {
@@ -231,17 +261,55 @@ func TestInstallerScript_UserInstallAndUninstall(t *testing.T) {
 	}
 
 	for _, removed := range []string{
-		expectedBin,
-		filepath.Join(prefix, "bin", "hydra"),
-		filepath.Join(prefix, "bin", "hydra-tui"),
+		expectedDaemon,
+		expectedCLI,
+		expectedTUI,
+		expectedTray,
 		servicePath,
 		autostartPath,
-		filepath.Join(dataHome, "applications", "hydra.desktop"),
+		trayAutostartPath,
+		launcherPath,
 		filepath.Join(dataHome, "icons", "hicolor", "scalable", "apps", "hydra.svg"),
 	} {
 		if _, err := os.Stat(removed); !os.IsNotExist(err) {
 			t.Fatalf("expected file %s to be removed on uninstall", removed)
 		}
 	}
+
+	// Verify --no-tray skips tray autostart while installing binaries.
+	noTrayCmd := exec.Command(
+		installScript,
+		"--user",
+		"--skip-build",
+		"--no-start",
+		"--no-tray",
+		"--bin-src", binSrc,
+		"--prefix", prefix,
+		"--xdg-config-home", cfgHome,
+		"--xdg-data-home", dataHome,
+	)
+	out, err = noTrayCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("install.sh --no-tray failed: %v\noutput:\n%s", err, string(out))
+	}
+	if _, err := os.Stat(trayAutostartPath); !os.IsNotExist(err) {
+		t.Fatalf("expected %s to not exist with --no-tray", trayAutostartPath)
+	}
 }
 
+func TestHydraTrayController_UnitAndHeadlessAutostart(t *testing.T) {
+	pythonBin, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 unavailable; skipping tray controller tests")
+	}
+
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	unitCmd := exec.Command(pythonBin, "-B", "-m", "unittest", "discover", "-s", filepath.Join(repoRoot, "packaging", "tray"), "-p", "test_*.py")
+	if out, err := unitCmd.CombinedOutput(); err != nil {
+		t.Fatalf("tray unit tests failed: %v\n%s", err, string(out))
+	}
+}

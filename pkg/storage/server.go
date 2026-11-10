@@ -106,6 +106,8 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 	s.Router.HandleFunc("/api/download/update-url", sameOriginOnly(s.handleUpdateJobURL))
 	s.Router.HandleFunc("/api/download/delete", sameOriginOnly(s.handleDeleteJob))
 	s.Router.HandleFunc("/api/jobs", s.handleJobsAPI)
+	s.Router.HandleFunc("/api/jobs/pause-all", s.handlePauseAllJobs)
+	s.Router.HandleFunc("/api/jobs/resume-all", s.handleResumeAllJobs)
 	s.Router.HandleFunc("/api/jobs/", s.handleJobAPI)
 	s.Router.HandleFunc("/api/settings", sameOriginOnly(s.handleSettings))
 	s.Router.HandleFunc("/api/rules", s.handleRulesAPI)
@@ -255,6 +257,40 @@ func (s *Server) handleJobAPI(w http.ResponseWriter, r *http.Request) {
 			"method not allowed",
 		)
 	}
+}
+
+func (s *Server) handlePauseAllJobs(w http.ResponseWriter, r *http.Request) {
+	if !requireAPIToken(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		return
+	}
+
+	paused := PauseAllJobs(s.db)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status": "ok",
+		"paused": paused,
+	})
+}
+
+func (s *Server) handleResumeAllJobs(w http.ResponseWriter, r *http.Request) {
+	if !requireAPIToken(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		return
+	}
+
+	resumed := ResumeAllJobs(s.db)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":  "ok",
+		"resumed": resumed,
+	})
 }
 
 func (s *Server) handleBrowseDirectory(w http.ResponseWriter, r *http.Request) {
@@ -597,10 +633,12 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 			job.Status = "SCHEDULED"
 			job.ScheduledAt = parsedScheduledAt
 			_ = s.db.SaveJob(&job)
+			NotifyDownloadScheduled(jobDisplayName(job.FileName, job.SavePath), parsedScheduledAt.Format(time.RFC822))
 
 		} else {
 			job.Status = "QUEUED"
 			_ = s.db.SaveJob(&job)
+			NotifyDownloadQueued(jobDisplayName(job.FileName, job.SavePath), job.SavePath)
 
 			if GetQueueManager() != nil {
 				GetQueueManager().ProcessNext()
@@ -780,8 +818,18 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 	_ = s.db.SaveJob(&newJob)
 	GetBroker().BroadcastQueueState(s.db.GetAllJobs())
 
-	if status == "QUEUED" && GetQueueManager() != nil {
-		GetQueueManager().ProcessNext()
+	switch status {
+	case "QUEUED":
+		NotifyDownloadQueued(jobDisplayName(filename, securedPath), securedPath)
+		if GetQueueManager() != nil {
+			GetQueueManager().ProcessNext()
+		}
+	case "SCHEDULED":
+		scheduledStr := ""
+		if parsedScheduledAt != nil {
+			scheduledStr = parsedScheduledAt.Format(time.RFC822)
+		}
+		NotifyDownloadScheduled(jobDisplayName(filename, securedPath), scheduledStr)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -879,6 +927,7 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 
 	batchID := fmt.Sprintf("batch_%d", time.Now().UnixNano())
 	dispatchedJobIDs := make([]string, 0, len(payload.URLs))
+	var firstFileName, firstFilePath string
 
 	for _, rawURL := range payload.URLs {
 		trimmedURL := strings.TrimSpace(rawURL)
@@ -944,10 +993,20 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 		}
 
 		_ = s.db.SaveJob(&newJob)
+		if len(dispatchedJobIDs) == 0 {
+			firstFileName = urlFilename
+			firstFilePath = finalFilePath
+		}
 		dispatchedJobIDs = append(dispatchedJobIDs, jobID)
 	}
 
 	GetBroker().BroadcastQueueState(s.db.GetAllJobs())
+
+	if len(dispatchedJobIDs) == 1 {
+		NotifyDownloadQueued(firstFileName, firstFilePath)
+	} else if len(dispatchedJobIDs) > 1 {
+		NotifyBatchQueued(len(dispatchedJobIDs), resolvedBase)
+	}
 
 	if GetQueueManager() != nil {
 		GetQueueManager().ProcessNext()
@@ -990,6 +1049,11 @@ func (s *Server) handlePauseJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.db != nil {
+		_ = s.db.UpdateStatus(jobID, "PAUSED")
+		GetBroker().BroadcastQueueState(s.db.GetAllJobs())
+	}
+
 	if GlobalCancelMutex != nil && GlobalCancelMap != nil {
 		GlobalCancelMutex.Lock()
 
@@ -998,11 +1062,6 @@ func (s *Server) handlePauseJob(w http.ResponseWriter, r *http.Request) {
 		}
 
 		GlobalCancelMutex.Unlock()
-	}
-
-	if s.db != nil {
-		_ = s.db.UpdateStatus(jobID, "PAUSED")
-		GetBroker().BroadcastQueueState(s.db.GetAllJobs())
 	}
 
 	if GetQueueManager() != nil {

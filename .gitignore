@@ -54,3 +54,5 @@ downloaded_result.html
 coverage.out
 coverage.html
 .env.local
+__pycache__/
+*.py[cod]

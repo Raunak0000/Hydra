@@ -1,0 +1,836 @@
+#!/usr/bin/env python3
+"""Optional Linux system-tray and menu-bar controller for Hydra Downloader."""
+
+from __future__ import annotations
+
+import argparse
+import fcntl
+import json
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import threading
+import urllib.error
+import urllib.request
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+
+DEFAULT_DAEMON_URL = "http://127.0.0.1:9000"
+
+TERMINAL_CANDIDATES: List[Tuple[str, List[str]]] = [
+    ("xdg-terminal-exec", []),
+    ("x-terminal-emulator", ["-e"]),
+    ("gnome-terminal", ["--"]),
+    ("kgx", ["--"]),
+    ("konsole", ["-e"]),
+    ("xfce4-terminal", ["-x"]),
+    ("kitty", ["--"]),
+    ("alacritty", ["-e"]),
+    ("foot", ["--"]),
+    ("wezterm", ["start", "--"]),
+    ("tilix", ["-e"]),
+    ("mate-terminal", ["-x"]),
+    ("lxterminal", ["-e"]),
+    ("terminator", ["-x"]),
+    ("urxvt", ["-e"]),
+    ("xterm", ["-e"]),
+]
+
+
+def has_graphical_display(env: Optional[Dict[str, str]] = None) -> bool:
+    source = env if env is not None else os.environ
+    return bool(source.get("DISPLAY") or source.get("WAYLAND_DISPLAY"))
+
+
+def probe_tray_backend(env: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """Detect whether a GUI display and GTK / AppIndicator backend are available."""
+    if not has_graphical_display(env):
+        return {
+            "available": False,
+            "backend": None,
+            "reason": "no graphical session (DISPLAY and WAYLAND_DISPLAY are unset)",
+        }
+
+    try:
+        import gi  # type: ignore
+    except ImportError:
+        return {
+            "available": False,
+            "backend": None,
+            "reason": "PyGObject (python3-gi) is not installed",
+        }
+
+    try:
+        gi.require_version("Gtk", "3.0")
+        from gi.repository import Gtk  # type: ignore # noqa: F401
+    except (ImportError, ValueError) as exc:
+        return {
+            "available": False,
+            "backend": None,
+            "reason": f"GTK 3.0 GObject bindings unavailable: {exc}",
+        }
+
+    for namespace in ("AyatanaAppIndicator3", "AppIndicator3"):
+        try:
+            gi.require_version(namespace, "0.1")
+            __import__("gi.repository", fromlist=[namespace])
+            return {
+                "available": True,
+                "backend": namespace,
+                "reason": "ok",
+            }
+        except (ImportError, ValueError):
+            continue
+
+    return {
+        "available": True,
+        "backend": "GtkStatusIcon",
+        "reason": "ok (using Gtk.StatusIcon fallback)",
+    }
+
+
+def resolve_config_dir(env: Optional[Dict[str, str]] = None) -> Path:
+    source = env if env is not None else os.environ
+    cfg_home = source.get("XDG_CONFIG_HOME")
+    if cfg_home:
+        return Path(cfg_home) / "hydra"
+    return Path.home() / ".config" / "hydra"
+
+
+def resolve_token(explicit_token: str = "", env: Optional[Dict[str, str]] = None) -> str:
+    if explicit_token.strip():
+        return explicit_token.strip()
+
+    source = env if env is not None else os.environ
+    env_tok = source.get("HYDRA_API_TOKEN", "").strip()
+    if env_tok:
+        return env_tok
+
+    token_file = resolve_config_dir(source) / "api.token"
+    try:
+        if token_file.is_symlink():
+            return ""
+        if token_file.is_file():
+            return token_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    return ""
+
+
+def expand_path(raw_path: str) -> str:
+    if not raw_path:
+        return ""
+    if raw_path == "~":
+        return str(Path.home())
+    if raw_path.startswith("~/"):
+        return str(Path.home() / raw_path[2:])
+    return raw_path
+
+
+def resolve_downloads_dir(
+    client: Optional["HydraClient"] = None,
+    env: Optional[Dict[str, str]] = None,
+) -> Path:
+    source = env if env is not None else os.environ
+
+    if client is not None:
+        settings = client.get_settings()
+        if settings and settings.get("default_save_path"):
+            candidate = Path(expand_path(str(settings["default_save_path"])))
+            if candidate.is_dir():
+                return candidate
+
+    cfg_file = resolve_config_dir(source) / "config.json"
+    try:
+        if cfg_file.is_file():
+            data = json.loads(cfg_file.read_text(encoding="utf-8"))
+            raw = str(data.get("default_save_path", "")).strip()
+            if raw:
+                candidate = Path(expand_path(raw))
+                if candidate.is_dir():
+                    return candidate
+    except (OSError, ValueError):
+        pass
+
+    xdg_dl = source.get("XDG_DOWNLOAD_DIR", "").strip()
+    if xdg_dl and Path(xdg_dl).is_dir():
+        return Path(xdg_dl)
+
+    default_dl = Path.home() / "Downloads"
+    if default_dl.is_dir():
+        return default_dl
+
+    return Path.home()
+
+
+def resolve_icon_paths(script_path: Optional[Path] = None, env: Optional[Dict[str, str]] = None) -> Tuple[str, Optional[str], Optional[str]]:
+    """Return (icon_name, svg_file_path_or_none, hicolor_theme_dir_or_none)."""
+    source = env if env is not None else os.environ
+    data_home = source.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+
+    candidates = [
+        Path(data_home) / "icons" / "hicolor" / "scalable" / "apps" / "hydra.svg",
+        Path.home() / ".local" / "share" / "icons" / "hicolor" / "scalable" / "apps" / "hydra.svg",
+        Path("/usr/share/icons/hicolor/scalable/apps/hydra.svg"),
+    ]
+
+    if script_path is not None:
+        resolved = script_path.resolve()
+        candidates.append(resolved.parent.parent / "icons" / "hydra.svg")
+        candidates.append(resolved.parent / "icons" / "hydra.svg")
+
+    for svg in candidates:
+        try:
+            if svg.is_file():
+                # AppIndicator looks for <theme_dir>/<size>/apps/<name>.svg OR <dir>/<name>.svg
+                theme_root = None
+                if svg.parent.name == "apps" and svg.parent.parent.name == "scalable":
+                    theme_root = str(svg.parent.parent.parent)
+                else:
+                    theme_root = str(svg.parent)
+                return ("hydra", str(svg), theme_root)
+        except OSError:
+            continue
+
+    return ("hydra", None, None)
+
+
+def resolve_sibling_binary(binary_name: str, script_path: Optional[Path] = None) -> Optional[str]:
+    if script_path is not None:
+        try:
+            sibling = script_path.resolve().parent / binary_name
+            if sibling.is_file() and os.access(sibling, os.X_OK):
+                return str(sibling)
+        except OSError:
+            pass
+    return shutil.which(binary_name)
+
+
+def build_terminal_command(
+    command_args: List[str],
+    which_fn: Callable[[str], Optional[str]] = shutil.which,
+) -> Optional[List[str]]:
+    for term_bin, separator_args in TERMINAL_CANDIDATES:
+        resolved = which_fn(term_bin)
+        if resolved:
+            return [resolved, *separator_args, *command_args]
+    return None
+
+
+def summarize_jobs(jobs: List[Dict[str, Any]], online: bool) -> Dict[str, Any]:
+    """Build status text, badge label, counts, and actionable job list."""
+    if not online:
+        return {
+            "status_text": "Engine: Offline",
+            "tooltip": "Hydra Downloader — Background engine is offline",
+            "badge": "",
+            "active": 0,
+            "queued": 0,
+            "paused": 0,
+            "completed": 0,
+            "failed": 0,
+            "pending": 0,
+            "actionable": [],
+        }
+
+    counts = {
+        "DOWNLOADING": 0,
+        "QUEUED": 0,
+        "SCHEDULED": 0,
+        "PAUSED": 0,
+        "COMPLETED": 0,
+        "FAILED": 0,
+        "PENDING_PATH": 0,
+    }
+    actionable: List[Dict[str, Any]] = []
+
+    for job in jobs:
+        status = str(job.get("status", "")).upper()
+        if status in counts:
+            counts[status] += 1
+        if status in {"DOWNLOADING", "QUEUED", "PAUSED", "FAILED", "SCHEDULED", "PENDING_PATH"}:
+            actionable.append(job)
+
+    active = counts["DOWNLOADING"]
+    queued = counts["QUEUED"] + counts["SCHEDULED"]
+    paused = counts["PAUSED"]
+    completed = counts["COMPLETED"]
+    failed = counts["FAILED"]
+    pending = counts["PENDING_PATH"]
+
+    if active > 0:
+        parts = [f"Active: {active} downloading"]
+        if queued > 0:
+            parts.append(f"{queued} queued")
+        status_text = " • ".join(parts)
+        tooltip = f"Hydra Downloader — {status_text}"
+        badge = str(active)
+    elif queued > 0:
+        status_text = f"Queued: {queued} waiting"
+        tooltip = f"Hydra Downloader — {status_text}"
+        badge = str(queued)
+    elif pending > 0:
+        status_text = f"Action needed: {pending} waiting for destination"
+        tooltip = f"Hydra Downloader — {status_text}"
+        badge = ""
+    elif paused > 0:
+        status_text = f"Paused: {paused} download(s)"
+        tooltip = f"Hydra Downloader — {status_text}"
+        badge = ""
+    elif failed > 0 and completed == 0:
+        status_text = f"Idle • {failed} failed"
+        tooltip = f"Hydra Downloader — {status_text}"
+        badge = ""
+    elif completed > 0:
+        status_text = f"Idle • {completed} completed"
+        tooltip = f"Hydra Downloader — {status_text}"
+        badge = ""
+    else:
+        status_text = "Idle • Ready"
+        tooltip = "Hydra Downloader — Ready"
+        badge = ""
+
+    return {
+        "status_text": status_text,
+        "tooltip": tooltip,
+        "badge": badge,
+        "active": active,
+        "queued": queued,
+        "paused": paused,
+        "completed": completed,
+        "failed": failed,
+        "pending": pending,
+        "actionable": actionable[:8],
+    }
+
+
+def format_job_menu_label(job: Dict[str, Any]) -> str:
+    name = str(job.get("file_name") or job.get("url") or job.get("id") or "Download")
+    if len(name) > 36:
+        name = name[:33] + "..."
+
+    status = str(job.get("status", "")).upper()
+    progress = float(job.get("progress") or 0.0)
+    speed = str(job.get("speed") or "").strip()
+
+    if status == "DOWNLOADING":
+        if speed and speed != "0.00 KB/s":
+            return f"Pause  [{progress:.0f}% • {speed}] {name}"
+        return f"Pause  [{progress:.0f}%] {name}"
+    if status == "PAUSED":
+        return f"Resume [{progress:.0f}% • Paused] {name}"
+    if status == "FAILED":
+        return f"Retry  [Failed] {name}"
+    if status == "QUEUED":
+        return f"Pause  [Queued] {name}"
+    if status == "SCHEDULED":
+        return f"Pause  [Scheduled] {name}"
+    if status == "PENDING_PATH":
+        return f"Open TUI [Pending path] {name}"
+    return f"{status} {name}"
+
+
+class HydraClient:
+    """Minimal HTTP client talking to hydra-daemon's local API."""
+
+    def __init__(self, base_url: str, token: str = "") -> None:
+        self.base_url = base_url.rstrip("/")
+        self.explicit_token = token
+
+    def current_token(self) -> str:
+        return resolve_token(self.explicit_token)
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        require_auth: bool = True,
+        timeout: float = 2.0,
+    ) -> Tuple[bool, Any]:
+        headers = {"User-Agent": "Hydra-Tray/1.0"}
+        if require_auth:
+            token = self.current_token()
+            if not token:
+                return False, "missing API token"
+            headers["X-Hydra-Token"] = token
+
+        req = urllib.request.Request(
+            self.base_url + path,
+            method=method,
+            headers=headers,
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                raw = resp.read().decode("utf-8")
+                return True, json.loads(raw) if raw else {}
+        except urllib.error.HTTPError as exc:
+            return False, f"HTTP {exc.code}"
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+            return False, str(exc)
+
+    def get_jobs(self) -> Tuple[bool, List[Dict[str, Any]]]:
+        ok, payload = self._request("GET", "/api/jobs", require_auth=True)
+        if not ok or not isinstance(payload, list):
+            return False, []
+        return True, payload
+
+    def get_settings(self) -> Optional[Dict[str, Any]]:
+        ok, payload = self._request("GET", "/api/settings", require_auth=False)
+        if ok and isinstance(payload, dict):
+            return payload
+        return None
+
+    def pause_job(self, job_id: str) -> bool:
+        ok, _ = self._request("POST", f"/api/jobs/{job_id}/pause", require_auth=True)
+        return ok
+
+    def resume_job(self, job_id: str) -> bool:
+        ok, _ = self._request("POST", f"/api/jobs/{job_id}/resume", require_auth=True)
+        return ok
+
+    def pause_all(self) -> bool:
+        ok, _ = self._request("POST", "/api/jobs/pause-all", require_auth=True)
+        return ok
+
+    def resume_all(self) -> bool:
+        ok, _ = self._request("POST", "/api/jobs/resume-all", require_auth=True)
+        return ok
+
+
+def acquire_tray_lock() -> Tuple[Optional[Any], bool]:
+    """Acquire non-blocking exclusive flock; returns (handle, already_running)."""
+    candidates: List[Path] = []
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "").strip()
+    if runtime_dir and os.path.isdir(runtime_dir):
+        candidates.append(Path(runtime_dir) / "hydra-tray.lock")
+
+    data_home = os.environ.get("XDG_DATA_HOME", "").strip() or str(Path.home() / ".local" / "share")
+    candidates.append(Path(data_home) / "hydra" / "hydra-tray.lock")
+    candidates.append(Path(f"/tmp/hydra-tray-{os.getuid()}.lock"))
+
+    for lock_path in candidates:
+        handle = None
+        try:
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            handle = open(lock_path, "a+", encoding="utf-8")
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                handle.close()
+                return None, True
+
+            handle.seek(0)
+            handle.truncate()
+            handle.write(f"{os.getpid()}\n")
+            handle.flush()
+            return handle, False
+        except OSError:
+            if handle is not None:
+                try:
+                    handle.close()
+                except OSError:
+                    pass
+            continue
+
+    return None, False
+
+
+def systemd_user_available() -> bool:
+    if not shutil.which("systemctl"):
+        return False
+    res = subprocess.run(
+        ["systemctl", "--user", "show-environment"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=2,
+    )
+    return res.returncode == 0
+
+
+def start_daemon_engine(script_path: Path) -> None:
+    if systemd_user_available():
+        subprocess.run(
+            ["systemctl", "--user", "start", "hydra.service"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        )
+        return
+
+    daemon_bin = resolve_sibling_binary("hydra-daemon", script_path)
+    if daemon_bin:
+        subprocess.Popen(
+            [daemon_bin, "--autostart"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+
+def restart_daemon_engine(script_path: Path) -> None:
+    if systemd_user_available():
+        subprocess.run(
+            ["systemctl", "--user", "restart", "hydra.service"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        )
+        return
+
+    stop_daemon_engine()
+    start_daemon_engine(script_path)
+
+
+def stop_daemon_engine() -> None:
+    if systemd_user_available():
+        subprocess.run(
+            ["systemctl", "--user", "stop", "hydra.service"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        )
+        return
+
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+    lock_file = Path(runtime_dir) / "hydra.lock" if runtime_dir else Path(f"/tmp/hydra-{os.getuid()}.lock")
+    try:
+        if lock_file.is_file():
+            pid = int(lock_file.read_text(encoding="utf-8").strip())
+            if pid > 0:
+                os.kill(pid, signal.SIGTERM)
+    except (OSError, ValueError):
+        pass
+
+
+def open_tui_window(script_path: Path, client: HydraClient) -> None:
+    tui_bin = resolve_sibling_binary("hydra-tui", script_path)
+    if not tui_bin:
+        notify_fallback("Hydra TUI Missing", "Could not locate hydra-tui executable.")
+        return
+
+    cmd_args = [tui_bin, "--daemon-url", client.base_url, "--ensure-daemon"]
+    term_cmd = build_terminal_command(cmd_args)
+    if not term_cmd:
+        notify_fallback("Terminal Not Found", "Install a terminal emulator to open Hydra Manager.")
+        return
+
+    env = os.environ.copy()
+    tok = client.current_token()
+    if tok:
+        env["HYDRA_API_TOKEN"] = tok
+
+    subprocess.Popen(
+        term_cmd,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
+def open_downloads_folder(client: Optional[HydraClient] = None) -> int:
+    target = str(resolve_downloads_dir(client))
+    xdg_open = shutil.which("xdg-open")
+    if not xdg_open:
+        return 1
+    subprocess.Popen(
+        [xdg_open, target],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    return 0
+
+
+def notify_fallback(title: str, body: str) -> None:
+    ns = shutil.which("notify-send")
+    if not ns:
+        return
+    try:
+        subprocess.Popen(
+            [ns, "-a", "Hydra Downloader", "-i", "hydra", title, body],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        pass
+
+
+def run_tray_app(args: argparse.Namespace, lock_handle: Any) -> int:
+    backend_info = probe_tray_backend()
+    if not backend_info["available"]:
+        if args.autostart:
+            return 0
+        print(f"hydra-tray: {backend_info['reason']}", file=sys.stderr)
+        return 1
+
+    import gi  # type: ignore
+
+    gi.require_version("Gtk", "3.0")
+    from gi.repository import GLib, Gtk  # type: ignore
+
+    backend = backend_info["backend"]
+    app_indicator_mod = None
+    if backend in ("AyatanaAppIndicator3", "AppIndicator3"):
+        gi.require_version(backend, "0.1")
+        app_indicator_mod = getattr(__import__("gi.repository", fromlist=[backend]), backend)
+
+    script_path = Path(__file__)
+    client = HydraClient(args.daemon_url, args.token)
+    icon_name, icon_svg, theme_dir = resolve_icon_paths(script_path)
+
+    class TrayController:
+        def __init__(self) -> None:
+            self.last_signature: Optional[Any] = None
+            self.indicator = None
+            self.status_icon = None
+
+            self.menu = Gtk.Menu()
+
+            self.status_item = Gtk.MenuItem(label="Hydra: Connecting...")
+            self.status_item.set_sensitive(False)
+            self.menu.append(self.status_item)
+            self.menu.append(Gtk.SeparatorMenuItem())
+
+            open_item = Gtk.MenuItem(label="Open Hydra Manager")
+            open_item.connect("activate", lambda *_: open_tui_window(script_path, client))
+            self.menu.append(open_item)
+
+            downloads_item = Gtk.MenuItem(label="Open Downloads Folder")
+            downloads_item.connect("activate", lambda *_: open_downloads_folder(client))
+            self.menu.append(downloads_item)
+
+            self.menu.append(Gtk.SeparatorMenuItem())
+
+            self.jobs_parent = Gtk.MenuItem(label="Active & Queued Jobs")
+            self.jobs_submenu = Gtk.Menu()
+            self.jobs_parent.set_submenu(self.jobs_submenu)
+            self.menu.append(self.jobs_parent)
+
+            self.pause_all_item = Gtk.MenuItem(label="Pause All Downloads")
+            self.pause_all_item.connect("activate", lambda *_: self._run_async(client.pause_all))
+            self.menu.append(self.pause_all_item)
+
+            self.resume_all_item = Gtk.MenuItem(label="Resume All Downloads")
+            self.resume_all_item.connect("activate", lambda *_: self._run_async(client.resume_all))
+            self.menu.append(self.resume_all_item)
+
+            self.menu.append(Gtk.SeparatorMenuItem())
+
+            engine_parent = Gtk.MenuItem(label="Background Engine")
+            engine_submenu = Gtk.Menu()
+
+            self.engine_start_item = Gtk.MenuItem(label="Start Engine")
+            self.engine_start_item.connect("activate", lambda *_: self._run_async(lambda: start_daemon_engine(script_path)))
+            engine_submenu.append(self.engine_start_item)
+
+            self.engine_restart_item = Gtk.MenuItem(label="Restart Engine")
+            self.engine_restart_item.connect("activate", lambda *_: self._run_async(lambda: restart_daemon_engine(script_path)))
+            engine_submenu.append(self.engine_restart_item)
+
+            self.engine_stop_item = Gtk.MenuItem(label="Stop Engine")
+            self.engine_stop_item.connect("activate", lambda *_: self._run_async(stop_daemon_engine))
+            engine_submenu.append(self.engine_stop_item)
+
+            engine_parent.set_submenu(engine_submenu)
+            self.menu.append(engine_parent)
+
+            quit_item = Gtk.MenuItem(label="Quit Tray")
+            quit_item.connect("activate", lambda *_: Gtk.main_quit())
+            self.menu.append(quit_item)
+
+            self.menu.show_all()
+
+            if app_indicator_mod is not None:
+                self.indicator = app_indicator_mod.Indicator.new(
+                    "hydra-downloader",
+                    icon_name,
+                    app_indicator_mod.IndicatorCategory.APPLICATION_STATUS,
+                )
+                if theme_dir:
+                    self.indicator.set_icon_theme_path(theme_dir)
+                self.indicator.set_status(app_indicator_mod.IndicatorStatus.ACTIVE)
+                self.indicator.set_icon_full(icon_name, "Hydra Downloader")
+                self.indicator.set_title("Hydra Downloader")
+                self.indicator.set_menu(self.menu)
+            else:
+                self.status_icon = Gtk.StatusIcon()
+                if icon_svg:
+                    self.status_icon.set_from_file(icon_svg)
+                else:
+                    self.status_icon.set_from_icon_name(icon_name)
+                self.status_icon.set_tooltip_text("Hydra Downloader")
+                self.status_icon.set_visible(True)
+                self.status_icon.connect("activate", lambda *_: open_tui_window(script_path, client))
+                self.status_icon.connect("popup-menu", self._on_status_icon_popup)
+
+            self._schedule_refresh()
+            GLib.timeout_add(max(500, int(args.poll_interval * 1000)), self._on_timer)
+
+        def _on_status_icon_popup(self, icon: Any, button: int, activate_time: int) -> None:
+            self.menu.popup(None, None, Gtk.StatusIcon.position_menu, icon, button, activate_time)
+
+        def _run_async(self, fn: Callable[[], Any]) -> None:
+            def worker() -> None:
+                fn()
+                self._schedule_refresh()
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def _on_timer(self) -> bool:
+            self._schedule_refresh()
+            return True
+
+        def _schedule_refresh(self) -> None:
+            def worker() -> None:
+                online, jobs = client.get_jobs()
+                summary = summarize_jobs(jobs, online)
+                GLib.idle_add(self._apply_summary, online, summary)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def _apply_summary(self, online: bool, summary: Dict[str, Any]) -> bool:
+            sig = (
+                online,
+                summary["status_text"],
+                summary["badge"],
+                [
+                    (j.get("id"), j.get("status"), round(float(j.get("progress") or 0.0), 1), j.get("speed"))
+                    for j in summary["actionable"]
+                ],
+            )
+            if sig == self.last_signature:
+                return False
+            self.last_signature = sig
+
+            self.status_item.set_label(summary["status_text"])
+
+            if self.indicator is not None:
+                self.indicator.set_label(summary["badge"], "99")
+                self.indicator.set_icon_full(icon_name, summary["tooltip"])
+            elif self.status_icon is not None:
+                self.status_icon.set_tooltip_text(summary["tooltip"])
+
+            can_pause = online and (summary["active"] + summary["queued"] > 0)
+            can_resume = online and summary["paused"] > 0
+            self.pause_all_item.set_sensitive(can_pause)
+            self.resume_all_item.set_sensitive(can_resume)
+            self.engine_start_item.set_sensitive(not online)
+            self.engine_restart_item.set_sensitive(online)
+            self.engine_stop_item.set_sensitive(online)
+
+            for child in list(self.jobs_submenu.get_children()):
+                self.jobs_submenu.remove(child)
+
+            actionable = summary["actionable"]
+            if not actionable:
+                empty_item = Gtk.MenuItem(label="No active or paused jobs" if online else "Engine offline")
+                empty_item.set_sensitive(False)
+                self.jobs_submenu.append(empty_item)
+            else:
+                for job in actionable:
+                    item = Gtk.MenuItem(label=format_job_menu_label(job))
+                    job_id = str(job.get("id", ""))
+                    status = str(job.get("status", "")).upper()
+                    if status in {"DOWNLOADING", "QUEUED", "SCHEDULED"}:
+                        item.connect("activate", lambda _, jid=job_id: self._run_async(lambda: client.pause_job(jid)))
+                    elif status in {"PAUSED", "FAILED"}:
+                        item.connect("activate", lambda _, jid=job_id: self._run_async(lambda: client.resume_job(jid)))
+                    else:
+                        item.connect("activate", lambda *_: open_tui_window(script_path, client))
+                    self.jobs_submenu.append(item)
+
+            self.jobs_submenu.show_all()
+            return False
+
+    TrayController()
+    signal.signal(signal.SIGINT, lambda *_: Gtk.main_quit())
+    signal.signal(signal.SIGTERM, lambda *_: Gtk.main_quit())
+    Gtk.main()
+    if lock_handle is not None:
+        lock_handle.close()
+    return 0
+
+
+def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="hydra-tray",
+        description="Optional system-tray/menu-bar controller for Hydra Downloader.",
+    )
+    parser.add_argument(
+        "--daemon-url",
+        default=DEFAULT_DAEMON_URL,
+        help="Hydra daemon HTTP API base URL (default: http://127.0.0.1:9000)",
+    )
+    parser.add_argument(
+        "--token",
+        default="",
+        help="Hydra daemon API token override",
+    )
+    parser.add_argument(
+        "--poll-interval",
+        type=float,
+        default=1.5,
+        help="Polling interval in seconds (default: 1.5)",
+    )
+    parser.add_argument(
+        "--autostart",
+        action="store_true",
+        help="Exit cleanly if headless, tray backend missing, or another instance is running",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Inspect desktop tray support and exit (prints JSON status)",
+    )
+    parser.add_argument(
+        "--open-downloads",
+        action="store_true",
+        help="Open Hydra's configured downloads folder and exit",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    args = parse_args(argv)
+
+    if args.check:
+        info = probe_tray_backend()
+        print(json.dumps(info))
+        return 0 if info["available"] else 1
+
+    if args.open_downloads:
+        client = HydraClient(args.daemon_url, args.token)
+        return open_downloads_folder(client)
+
+    backend_info = probe_tray_backend()
+    if not backend_info["available"]:
+        if args.autostart:
+            return 0
+        print(f"hydra-tray: {backend_info['reason']}", file=sys.stderr)
+        return 1
+
+    lock_handle, already_running = acquire_tray_lock()
+    if already_running:
+        if args.autostart:
+            return 0
+        print("hydra-tray: another tray controller instance is already running", file=sys.stderr)
+        return 1
+    if lock_handle is None:
+        if args.autostart:
+            return 0
+        print("hydra-tray: failed to create tray instance lock", file=sys.stderr)
+        return 1
+
+    return run_tray_app(args, lock_handle)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

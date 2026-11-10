@@ -1,6 +1,7 @@
 package downloader
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,7 +16,38 @@ type HandshakeResult struct {
 	FinalURL     string
 }
 
-const metadataRateLimitRetries = 3
+const (
+	metadataRateLimitRetries = 3
+	maxMetadataRetryDelay    = 5 * time.Second
+	maxErrorBodySnippet      = 512
+)
+
+func readBodySnippet(body io.Reader) string {
+	if body == nil {
+		return ""
+	}
+	raw, err := io.ReadAll(io.LimitReader(body, maxErrorBodySnippet))
+	if err != nil && len(raw) == 0 {
+		return ""
+	}
+	return strings.Join(strings.Fields(string(raw)), " ")
+}
+
+func isHardRateLimitMessage(msg string) bool {
+	lower := strings.ToLower(msg)
+	return strings.Contains(lower, "id busy") ||
+		strings.Contains(lower, "generate a new") ||
+		strings.Contains(lower, "link expired")
+}
+
+func formatRateLimitError(bodySnippet string) error {
+	if bodySnippet != "" {
+		return fmt.Errorf("HTTP 429: %s", bodySnippet)
+	}
+	return fmt.Errorf(
+		"HTTP 429: Host rate limit exceeded; provide the browser Cookie header in download options if the link only works in your browser",
+	)
+}
 
 func newMetadataClient() *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
@@ -34,22 +66,34 @@ func newMetadataClient() *http.Client {
 	}
 }
 
-func doMetadataRequest(client *http.Client, req *http.Request) (*http.Response, error) {
+func doMetadataRequest(ctx context.Context, client *http.Client, req *http.Request) (*http.Response, string, error) {
 	for attempt := 0; ; attempt++ {
-		response, err := client.Do(req)
-		if err != nil || response.StatusCode != http.StatusTooManyRequests ||
-			attempt >= metadataRateLimitRetries {
-			return response, err
+		response, err := client.Do(req.Clone(ctx))
+		if err != nil || response.StatusCode != http.StatusTooManyRequests {
+			return response, "", err
 		}
 
+		snippet := readBodySnippet(response.Body)
 		retryAfter := parseRetryAfter(response.Header.Get("Retry-After"))
+		if attempt >= metadataRateLimitRetries ||
+			retryAfter > maxMetadataRetryDelay ||
+			isHardRateLimitMessage(snippet) {
+			return response, snippet, nil
+		}
+
 		response.Body.Close()
 
 		if retryAfter <= 0 {
 			retryAfter = time.Duration(attempt+1) * time.Second
 		}
 
-		time.Sleep(retryAfter)
+		timer := time.NewTimer(retryAfter)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, "", ctx.Err()
+		case <-timer.C:
+		}
 	}
 }
 
@@ -94,16 +138,7 @@ func parseRetryAfter(value string) time.Duration {
 	return delay
 }
 
-func GetMetadata(url string, headers map[string]string) (HandshakeResult, error) {
-	client := newMetadataClient()
-
-	// First try a small ranged GET.
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return HandshakeResult{}, fmt.Errorf("create metadata request: %w", err)
-	}
-
-	req.Header.Set("Range", "bytes=0-0")
+func applyMetadataHeaders(req *http.Request, headers map[string]string) {
 	req.Header.Set("Connection", "keep-alive")
 	setBrowserHeaders(req)
 
@@ -118,24 +153,46 @@ func GetMetadata(url string, headers map[string]string) (HandshakeResult, error)
 				"(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
 		)
 	}
+}
 
-	response, err := doMetadataRequest(client, req)
+func GetMetadata(url string, headers map[string]string) (HandshakeResult, error) {
+	return GetMetadataContext(context.Background(), url, headers)
+}
+
+func GetMetadataContext(ctx context.Context, url string, headers map[string]string) (HandshakeResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	client := newMetadataClient()
+
+	// First try a small ranged GET.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
+		return HandshakeResult{}, fmt.Errorf("create metadata request: %w", err)
+	}
+
+	req.Header.Set("Range", "bytes=0-0")
+	applyMetadataHeaders(req, headers)
+
+	response, rateLimitSnippet, err := doMetadataRequest(ctx, client, req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return HandshakeResult{}, ctx.Err()
+		}
 		// Some servers behave badly with Range requests.
 		// Try a normal request before giving up.
-		return getMetadataFallback(client, url, headers, err)
+		return getMetadataFallback(ctx, client, url, headers, err)
 	}
 
 	defer response.Body.Close()
 
+	if response.StatusCode == http.StatusTooManyRequests {
+		return HandshakeResult{}, formatRateLimitError(rateLimitSnippet)
+	}
+
 	// Read a tiny amount so the connection is properly consumed.
 	_, _ = io.CopyN(io.Discard, response.Body, 1)
-
-	if response.StatusCode == http.StatusTooManyRequests {
-		return HandshakeResult{}, fmt.Errorf(
-			"HTTP 429: Host rate limit exceeded; provide the browser Cookie header in download options if the link only works in your browser",
-		)
-	}
 
 	if response.StatusCode == http.StatusForbidden ||
 		response.StatusCode == http.StatusUnauthorized ||
@@ -158,7 +215,7 @@ func GetMetadata(url string, headers map[string]string) (HandshakeResult, error)
 	if response.StatusCode == http.StatusBadRequest ||
 		response.StatusCode == http.StatusRequestedRangeNotSatisfiable {
 
-		return getMetadataFallback(client, url, headers, nil)
+		return getMetadataFallback(ctx, client, url, headers, nil)
 	}
 
 	contentType := strings.ToLower(response.Header.Get("Content-Type"))
@@ -232,13 +289,14 @@ func GetMetadata(url string, headers map[string]string) (HandshakeResult, error)
 }
 
 func getMetadataFallback(
+	ctx context.Context,
 	client *http.Client,
 	url string,
 	headers map[string]string,
 	originalErr error,
 ) (HandshakeResult, error) {
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return HandshakeResult{}, fmt.Errorf(
 			"create fallback request: %w",
@@ -246,24 +304,13 @@ func getMetadataFallback(
 		)
 	}
 
-	req.Header.Set("Accept", "*/*")
-	req.Header.Set("Connection", "keep-alive")
-	setBrowserHeaders(req)
+	applyMetadataHeaders(req, headers)
 
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
-
-	if req.Header.Get("User-Agent") == "" {
-		req.Header.Set(
-			"User-Agent",
-			"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "+
-				"(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-		)
-	}
-
-	response, err := doMetadataRequest(client, req)
+	response, rateLimitSnippet, err := doMetadataRequest(ctx, client, req)
 	if err != nil {
+		if ctx.Err() != nil {
+			return HandshakeResult{}, ctx.Err()
+		}
 		if originalErr != nil {
 			return HandshakeResult{}, fmt.Errorf(
 				"network connection error: %w (fallback also failed: %v)",
@@ -281,9 +328,7 @@ func getMetadataFallback(
 	defer response.Body.Close()
 
 	if response.StatusCode == http.StatusTooManyRequests {
-		return HandshakeResult{}, fmt.Errorf(
-			"HTTP 429: Host rate limit exceeded; provide the browser Cookie header in download options if the link only works in your browser",
-		)
+		return HandshakeResult{}, formatRateLimitError(rateLimitSnippet)
 	}
 
 	if response.StatusCode == http.StatusForbidden ||

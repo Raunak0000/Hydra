@@ -8,10 +8,12 @@ import (
 	"log"
 	"math"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -168,13 +170,11 @@ func main() {
 
 		}()
 
-		meta, err := downloader.GetMetadata(url, headers)
+		meta, err := downloader.GetMetadataContext(ctx, url, headers)
 
 		if err != nil {
 
 			_ = dbStore.UpdateErrorMessage(jobID, err.Error())
-
-			storage.NotifyDownloadFailed(filepathBase(savePath), err.Error())
 
 			return err
 
@@ -312,7 +312,6 @@ func main() {
 			if err != nil {
 				errMsg := fmt.Sprintf("disk space check failed: %v", err)
 				_ = dbStore.UpdateErrorMessage(jobID, errMsg)
-				storage.NotifyDownloadFailed(filepathBase(savePath), errMsg)
 				return fmt.Errorf("%s", errMsg)
 			}
 			if !diskInfo.EnoughSpace {
@@ -322,7 +321,6 @@ func main() {
 					float64(diskInfo.AvailableBytes)/(1024*1024*1024),
 				)
 				_ = dbStore.UpdateErrorMessage(jobID, errMsg)
-				storage.NotifyDownloadFailed(filepathBase(savePath), errMsg)
 				return fmt.Errorf("%s", errMsg)
 			}
 		}
@@ -332,7 +330,6 @@ func main() {
 		if !resuming {
 			if err := storage.PreallocateFile(file, meta.Size); err != nil {
 				_ = dbStore.UpdateErrorMessage(jobID, err.Error())
-				storage.NotifyDownloadFailed(filepathBase(savePath), err.Error())
 				return fmt.Errorf("preallocating destination: %w", err)
 			}
 		}
@@ -340,20 +337,7 @@ func main() {
 		initializationComplete = true
 
 		cfg := storage.GetConfig()
-
-		numThreads := cfg.DefaultThreads
-		if numThreads <= 0 {
-			numThreads = 8
-		}
-		if cfg.MaxThreads > 0 && numThreads > cfg.MaxThreads {
-			numThreads = cfg.MaxThreads
-		}
-
-		if !meta.AcceptRanges || meta.Size <= 0 {
-
-			numThreads = 1
-
-		}
+		numThreads := resolveWorkerThreads(url, cfg.DefaultThreads, cfg.MaxThreads, meta.AcceptRanges, meta.Size)
 
 		var chunks []downloader.Chunk
 
@@ -387,8 +371,6 @@ func main() {
 				}
 
 			}
-
-			numThreads = len(chunks)
 
 		} else {
 
@@ -510,13 +492,24 @@ func main() {
 
 		stateChan := make(chan downloader.Chunk, 1024)
 
-		for i := range chunks {
+		workerCtx, cancelWorkers := context.WithCancel(ctx)
+		defer cancelWorkers()
+
+		numWorkers := numThreads
+		if numWorkers > len(chunks) {
+			numWorkers = len(chunks)
+		}
+		if numWorkers < 1 {
+			numWorkers = 1
+		}
+
+		for i := 0; i < numWorkers; i++ {
 
 			wg.Add(1)
 
 			go downloader.DownloadChunkParallel(
 
-				ctx,
+				workerCtx,
 
 				url,
 
@@ -700,7 +693,26 @@ func main() {
 
 		}()
 
-		wg.Wait()
+		workersDone := make(chan struct{})
+		go func() {
+			wg.Wait()
+			close(workersDone)
+		}()
+
+		var workerErr error
+
+	waitWorkersLoop:
+		for {
+			select {
+			case e := <-errChan:
+				if e != nil && workerErr == nil {
+					workerErr = e
+					cancelWorkers()
+				}
+			case <-workersDone:
+				break waitWorkersLoop
+			}
+		}
 
 		close(done)
 
@@ -709,8 +721,6 @@ func main() {
 		close(progressChan)
 
 		close(stateChan)
-
-		var workerErr error
 
 		for {
 
@@ -775,12 +785,19 @@ func main() {
 		}
 
 		if ctx.Err() != nil {
+			pausedPct := 0.0
+			if meta.Size > 0 {
+				pausedPct = float64(finalDownloaded) / float64(meta.Size) * 100
+				if pausedPct > 100 {
+					pausedPct = 100
+				}
+			}
 
 			_ = dbStore.UpdateProgress(
 
 				jobID,
 
-				0,
+				pausedPct,
 
 				formatBytes(finalDownloaded),
 
@@ -805,8 +822,6 @@ func main() {
 
 			_ = dbStore.UpdateStatus(jobID, "FAILED")
 
-			storage.NotifyDownloadFailed(filepathBase(savePath), workerErr.Error())
-
 			return workerErr
 
 		}
@@ -830,8 +845,6 @@ func main() {
 
 					_ = dbStore.UpdateStatus(jobID, "FAILED")
 
-					storage.NotifyDownloadFailed(filepathBase(savePath), err.Error())
-
 					return err
 
 				}
@@ -850,8 +863,6 @@ func main() {
 				_ = dbStore.UpdateErrorMessage(jobID, err.Error())
 
 				_ = dbStore.UpdateStatus(jobID, "FAILED")
-
-				storage.NotifyDownloadFailed(filepathBase(savePath), err.Error())
 
 				return err
 
@@ -877,8 +888,6 @@ func main() {
 				_ = dbStore.UpdateErrorMessage(jobID, err.Error())
 
 				_ = dbStore.UpdateStatus(jobID, "FAILED")
-
-				storage.NotifyDownloadFailed(filepathBase(savePath), err.Error())
 
 				return err
 
@@ -991,6 +1000,25 @@ func main() {
 		if err := executeDownloadJob(url, savePath, jobID, nil); err != nil {
 
 			log.Printf("IPC download job %s failed: %v", jobID, err)
+
+			currentJob, exists := dbStore.GetJob(jobID)
+			if !exists || currentJob.Status == "PAUSED" || errors.Is(err, context.Canceled) {
+				return
+			}
+
+			_ = dbStore.UpdateErrorMessage(jobID, err.Error())
+			_ = dbStore.UpdateStatus(jobID, "FAILED")
+			storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
+
+			name := filepathBase(savePath)
+			if exists && currentJob.FileName != "" {
+				name = currentJob.FileName
+			}
+			if strings.Contains(strings.ToLower(err.Error()), "checksum mismatch") {
+				storage.NotifyChecksumFailed(name)
+			} else {
+				storage.NotifyDownloadFailed(name, err.Error())
+			}
 
 		}
 
@@ -1302,4 +1330,32 @@ func formatETA(seconds float64) string {
 
 	return fmt.Sprintf("%dh %dm", hours, mins)
 
+}
+
+// resolveWorkerThreads picks the safe parallel stream count for a target URL,
+// capping Cloudflare Workers hosts (*.workers.dev) to 2 streams to avoid HTTP 429 "id busy" locks.
+func resolveWorkerThreads(rawURL string, defaultThreads, maxThreads int, acceptRanges bool, size int64) int {
+	if !acceptRanges || size <= 0 {
+		return 1
+	}
+
+	numThreads := defaultThreads
+	if numThreads <= 0 {
+		numThreads = 8
+	}
+	if maxThreads > 0 && numThreads > maxThreads {
+		numThreads = maxThreads
+	}
+
+	if parsedURL, parseErr := neturl.Parse(rawURL); parseErr == nil {
+		hostname := strings.ToLower(parsedURL.Hostname())
+		if strings.HasSuffix(hostname, ".workers.dev") || hostname == "workers.dev" {
+			if numThreads > 2 {
+				log.Printf("[Downloader] Detected Cloudflare Workers host %s: capping concurrent streams to 2 to prevent HTTP 429 rate limits", hostname)
+				numThreads = 2
+			}
+		}
+	}
+
+	return numThreads
 }

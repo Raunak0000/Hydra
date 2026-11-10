@@ -128,3 +128,60 @@ func TestValidateChunkStates(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveWorkerThreads(t *testing.T) {
+	tests := []struct {
+		name         string
+		url          string
+		defThreads   int
+		maxThreads   int
+		acceptRanges bool
+		size         int64
+		want         int
+	}{
+		{
+			name:         "workers.dev subdomain caps to 2",
+			url:          "https://dark-moon-cd30.wstnjewyeaykmdg.workers.dev/d/abc/file.mkv",
+			defThreads:   8,
+			maxThreads:   32,
+			acceptRanges: true,
+			size:         2381299484,
+			want:         2,
+		},
+		{
+			name:         "normal CDN uses default threads",
+			url:          "https://cdn.example.com/archive.tar.gz",
+			defThreads:   8,
+			maxThreads:   32,
+			acceptRanges: true,
+			size:         1024 * 1024,
+			want:         8,
+		},
+		{
+			name:         "workers.dev respects explicit lower default",
+			url:          "https://proxy.workers.dev/file.zip",
+			defThreads:   1,
+			maxThreads:   32,
+			acceptRanges: true,
+			size:         1024,
+			want:         1,
+		},
+		{
+			name:         "no range falls back to 1 thread",
+			url:          "https://cdn.example.com/stream.bin",
+			defThreads:   8,
+			maxThreads:   32,
+			acceptRanges: false,
+			size:         1024,
+			want:         1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveWorkerThreads(tt.url, tt.defThreads, tt.maxThreads, tt.acceptRanges, tt.size); got != tt.want {
+				t.Fatalf("resolveWorkerThreads() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}

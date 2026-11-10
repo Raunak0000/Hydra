@@ -62,6 +62,10 @@ func main() {
 	switch action {
 	case "status":
 		executeStatusRequest(conn)
+	case "pause-all":
+		executeBulkActionRequest(conn, "PAUSE_ALL")
+	case "resume-all":
+		executeBulkActionRequest(conn, "RESUME_ALL")
 	case "pause", "resume", "delete":
 		if len(os.Args) < 3 {
 			fmt.Printf("[X] Error: The '%s' subcommand requires a target Job ID parameter.\n", action)
@@ -141,6 +145,23 @@ func executeActionRequest(conn net.Conn, action string, jobID string) {
 	reply = strings.TrimSpace(reply)
 	if strings.HasPrefix(reply, "SUCCESS") {
 		fmt.Printf("[✓] Command accepted: Job %s has been successfully %sd.\n", jobID, action)
+	} else {
+		fmt.Printf("[X] Daemon rejected command: %s\n", reply)
+	}
+}
+
+func executeBulkActionRequest(conn net.Conn, command string) {
+	_, _ = conn.Write([]byte(command + "\n"))
+
+	reply, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil {
+		fmt.Printf("[X] Error: Failed to read daemon confirmation for %s.\n", command)
+		return
+	}
+
+	reply = strings.TrimSpace(reply)
+	if strings.HasPrefix(reply, "SUCCESS|") {
+		fmt.Printf("[✓] %s\n", strings.TrimPrefix(reply, "SUCCESS|"))
 	} else {
 		fmt.Printf("[X] Daemon rejected command: %s\n", reply)
 	}
@@ -239,7 +260,9 @@ func printUsage() {
 	fmt.Println("Usage:")
 	fmt.Println("  hydra status                   - Display live progress text grids for all managed tracking tasks")
 	fmt.Println("  hydra pause [id]               - Contextually freeze parallel downloader channel pools for a job")
+	fmt.Println("  hydra pause-all                - Pause all active and queued downloads")
 	fmt.Println("  hydra resume [id]              - Reload serialization snapshots and resume a specific job")
+	fmt.Println("  hydra resume-all               - Resume all paused downloads")
 	fmt.Println("  hydra update-url [id] [new_url] - Update download URL for a job (e.g. after link expires)")
 	fmt.Println("  hydra delete [id]              - Purge structural job trace files and records from the queue server")
 	fmt.Println("  hydra rules                    - View all file category routing rules and target folders")

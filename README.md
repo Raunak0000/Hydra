@@ -37,6 +37,7 @@ Hydra CLI -----------+
 - `hydra-daemon` - headless download service and HTTP server.
 - `hydra-tui` - interactive terminal interface built with Bubble Tea.
 - `hydra` - CLI client for status and job control through the Unix socket.
+- `hydra-tray` - optional GTK/AppIndicator system-tray and menu-bar controller.
 
 ### Project layout
 
@@ -68,13 +69,24 @@ The TUI itself does not require GTK, Qt, a graphical desktop, or systemd.
 ## Install
 
 Install Hydra for your user with a single command (builds binaries, installs the
-desktop launcher and icon, configures login autostart via `systemd --user` and
-XDG autostart, provisions a per-user API token, and starts the background
-engine):
+desktop launcher, icon, and optional system-tray controller, configures login
+autostart via `systemd --user` and XDG autostart, provisions a per-user API
+token, and starts the background engine):
 
 ```bash
 ./install.sh
 ```
+
+Pass `--no-tray` to omit the optional tray login autostart entry.
+
+Launching **Hydra Downloader** from your desktop application menu opens
+`hydra-tui --ensure-daemon` (starting the local background engine if needed)
+and provides desktop quick actions for the system tray controller, downloads
+folder, **Pause All**, and **Resume All**.
+
+Native desktop notifications (`notify-send` / `org.freedesktop.Notifications`)
+report queued, scheduled, completed, failed, checksum-mismatch, and pending-path
+download events.
 
 Or install system-wide via native `.deb`/`.rpm` packaging:
 
@@ -165,7 +177,16 @@ Start the CLI:
 go run ./cmd/hydra-cli status
 go run ./cmd/hydra-cli pause JOB_ID
 go run ./cmd/hydra-cli resume JOB_ID
+go run ./cmd/hydra-cli pause-all
+go run ./cmd/hydra-cli resume-all
 go run ./cmd/hydra-cli delete JOB_ID
+```
+
+Start the optional system-tray controller manually (or check desktop tray support):
+
+```bash
+./packaging/tray/hydra-tray --check
+./packaging/tray/hydra-tray
 ```
 
 ## TUI Controls
@@ -340,8 +361,9 @@ The repository includes `nfpm.yaml`, desktop integration, icons, maintainer
 scripts, XDG autostart, and a systemd user service. `build.sh` creates `.deb`
 and `.rpm` packages when `nfpm` is installed.
 
-The package definition installs `hydra-daemon`, `hydra`, `hydra-tui`, the
-desktop launcher and icon, `/etc/xdg/autostart/hydra-daemon.desktop`, and
+The package definition installs `hydra-daemon`, `hydra`, `hydra-tui`, `hydra-tray`,
+the desktop launcher and icon, `/etc/xdg/autostart/hydra-daemon.desktop`,
+`/etc/xdg/autostart/hydra-tray.desktop`, and
 `/usr/lib/systemd/user/hydra.service` (enabled globally so the background
 engine starts automatically after user login).
 

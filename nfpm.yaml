@@ -26,6 +26,11 @@ contents:
     file_info:
       mode: 0755
 
+  - src: ./packaging/tray/hydra-tray
+    dst: /usr/bin/hydra-tray
+    file_info:
+      mode: 0755
+
   - src: ./packaging/systemd/hydra.service
     dst: /usr/lib/systemd/user/hydra.service
     file_info:
@@ -38,6 +43,11 @@ contents:
 
   - src: ./packaging/autostart/hydra-daemon.desktop
     dst: /etc/xdg/autostart/hydra-daemon.desktop
+    file_info:
+      mode: 0644
+
+  - src: ./packaging/autostart/hydra-tray.desktop
+    dst: /etc/xdg/autostart/hydra-tray.desktop
     file_info:
       mode: 0644
 

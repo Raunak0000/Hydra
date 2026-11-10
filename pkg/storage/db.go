@@ -202,10 +202,11 @@ func (s *DBStore) UpdateStatus(jobID string, status string) error {
 	query := `
 	UPDATE jobs 
 	SET status = ?,
+	    error_message = CASE WHEN ? IN ('QUEUED', 'DOWNLOADING', 'COMPLETED') THEN '' ELSE error_message END,
 	    completed_at = CASE WHEN ? = 'COMPLETED' THEN CURRENT_TIMESTAMP ELSE completed_at END,
 	    updated_at = CURRENT_TIMESTAMP 
 	WHERE id = ?;`
-	_, err := s.db.Exec(query, status, status, jobID)
+	_, err := s.db.Exec(query, status, status, status, jobID)
 	return err
 }
 
