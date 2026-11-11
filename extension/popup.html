@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Hydra Download Manager</title>
+<style>
+  :root {
+    --bg:        #181825;
+    --surface:   #242438;
+    --surface2:  #2e2e46;
+    --border:    #3c3c58;
+    --accent:    #5b8dee;
+    --accent-hv: #4a7cdd;
+    --danger:    #f38ba8;
+    --warn:      #f9e2af;
+    --ok:        #a6e3a1;
+    --text:      #cdd6f4;
+    --muted:     #9399b2;
+    --radius:    8px;
+    --mono:      "JetBrains Mono", "Fira Mono", ui-monospace, monospace;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 16px;
+    min-width: 500px;
+    max-width: 560px;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .hidden { display: none !important; }
+
+  /* ── Header ── */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .header h1 { font-size: 15px; font-weight: 700; }
+  .header .sub { font-size: 11.5px; color: var(--muted); }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    white-space: nowrap;
+  }
+  .pill.ok      { color: var(--ok); border-color: rgba(166, 227, 161, 0.35); background: rgba(166, 227, 161, 0.1); }
+  .pill.warn    { color: var(--warn); border-color: rgba(249, 226, 175, 0.35); background: rgba(249, 226, 175, 0.1); }
+  .pill.error   { color: var(--danger); border-color: rgba(243, 139, 168, 0.4); background: rgba(243, 139, 168, 0.1); }
+  .pill.muted   { color: var(--muted); }
+
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    margin-bottom: 11px;
+  }
+
+  /* ── Banners (Recovery / Error) ── */
+  .banner {
+    border-radius: var(--radius);
+    padding: 11px 13px;
+    margin-bottom: 11px;
+    border: 1px solid;
+    font-size: 12px;
+  }
+  .banner.warn {
+    background: rgba(249, 226, 175, 0.08);
+    border-color: rgba(249, 226, 175, 0.4);
+    color: var(--text);
+  }
+  .banner.error {
+    background: rgba(243, 139, 168, 0.1);
+    border-color: rgba(243, 139, 168, 0.45);
+    color: var(--text);
+  }
+  .banner-title { font-weight: 700; margin-bottom: 3px; }
+  .banner.warn .banner-title  { color: var(--warn); }
+  .banner.error .banner-title { color: var(--danger); }
+  .banner-detail { color: var(--muted); margin-bottom: 8px; }
+  .banner-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    align-items: center;
+  }
+
+  /* ── Info rows ── */
+  .info-rows { display: flex; flex-direction: column; gap: 6px; }
+  .info-row { display: flex; gap: 8px; font-size: 12px; align-items: baseline; }
+  .info-row .label { color: var(--muted); min-width: 66px; flex-shrink: 0; }
+  .info-row .value {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    word-break: break-all;
+    color: var(--text);
+  }
+  .info-row .value.url { color: var(--accent); }
+
+  .tag-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  /* ── Form controls ── */
+  .field { margin-bottom: 10px; }
+  .field:last-child { margin-bottom: 0; }
+  .field-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--muted);
+    margin-bottom: 5px;
+  }
+
+  .input-row {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+  }
+
+  input[type="text"],
+  input[type="password"],
+  input[type="number"],
+  input[type="datetime-local"],
+  select {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 12.5px;
+    padding: 7px 10px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  input.mono { font-family: var(--mono); font-size: 12px; }
+  input:focus, select:focus { border-color: var(--accent); }
+  input:disabled, select:disabled { opacity: 0.55; }
+
+  .hint-line {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+    font-family: var(--mono);
+    word-break: break-all;
+  }
+  .hint-line.ok    { color: var(--ok); }
+  .hint-line.warn  { color: var(--warn); }
+  .hint-line.error { color: var(--danger); }
+
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    color: var(--text);
+    cursor: pointer;
+    user-select: none;
+    margin-top: 6px;
+  }
+  .checkbox-row input[type="checkbox"] {
+    width: auto;
+    accent-color: var(--accent);
+  }
+
+  /* ── Folder Browser Drawer ── */
+  .dir-drawer {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px;
+    margin-top: 7px;
+  }
+  .dir-drawer-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .dir-list {
+    max-height: 130px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .dir-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 7px;
+    border-radius: 4px;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+    width: 100%;
+    font-family: var(--mono);
+  }
+  .dir-item:hover { background: var(--surface2); }
+
+  /* ── Options Expander ── */
+  details.options-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 9px 13px;
+    margin-bottom: 11px;
+  }
+  details.options-box summary {
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 12.5px;
+    color: var(--text);
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  details.options-box summary::after {
+    content: "▾";
+    color: var(--muted);
+  }
+  details.options-box[open] summary::after {
+    content: "▴";
+  }
+  .options-grid {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  /* ── Buttons ── */
+  button.btn {
+    padding: 7px 12px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--surface2);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+    white-space: nowrap;
+  }
+  button.btn:hover:not(:disabled) { border-color: var(--muted); }
+  button.btn:disabled { opacity: 0.5; cursor: default; }
+  button.btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  button.btn-primary:hover:not(:disabled) { background: var(--accent-hv); border-color: var(--accent-hv); }
+  button.btn-sm { padding: 5px 9px; font-size: 11.5px; }
+  button.btn-danger {
+    border-color: rgba(243, 139, 168, 0.5);
+    color: var(--danger);
+  }
+
+  .actions-footer {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .actions-footer .spacer { flex: 1; }
+  .actions-footer .btn-main { flex: 1.4; padding: 9px 14px; font-size: 13px; }
+  .actions-footer .btn-sec  { padding: 9px 12px; font-size: 12.5px; }
+
+  #dialog-status {
+    font-size: 12px;
+    min-height: 18px;
+    margin-bottom: 9px;
+    text-align: center;
+  }
+  #dialog-status.error   { color: var(--danger); }
+  #dialog-status.success { color: var(--ok); }
+
+  /* ── Status View (Toolbar Mode) ── */
+  .switch-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 0;
+  }
+  .switch-row + .switch-row {
+    border-top: 1px solid var(--border);
+  }
+  .switch-title { font-size: 12.5px; font-weight: 600; }
+  .switch-sub   { font-size: 11px; color: var(--muted); }
+
+  .diag-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 11px;
+  }
+  .diag-tile {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 9px 11px;
+  }
+  .diag-k { font-size: 11px; color: var(--muted); }
+  .diag-v { font-size: 12.5px; font-weight: 700; margin-top: 2px; }
+
+  .events-list {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    max-height: 185px;
+    overflow-y: auto;
+  }
+  .event-row {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 9px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .event-name {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    font-weight: 600;
+    word-break: break-all;
+  }
+  .event-meta {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .event-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .spinner {
+    display: none;
+    width: 13px;
+    height: 13px;
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<!-- =========================================================================
+     MODE 1: CONFIRMATION & DOWNLOAD OPTIONS DIALOG (?pending=<id>)
+     ========================================================================= -->
+<div id="confirm-view" class="hidden">
+  <div class="header">
+    <div class="header-left">
+      <svg width="30" height="30" viewBox="0 0 32 32" fill="none">
+        <rect width="32" height="32" rx="8" fill="#1e1e2e" stroke="#3c3c58"/>
+        <path d="M8 8h4v7h8V8h4v16h-4v-6H12v6H8V8z" fill="#5b8dee"/>
+      </svg>
+      <div>
+        <h1>Download with Hydra</h1>
+        <div class="sub">Select destination, filename, and transfer options.</div>
+      </div>
+    </div>
+    <span id="dlg-health-pill" class="pill muted"><span class="dot"></span>Checking…</span>
+  </div>
+
+  <!-- Integration / Auth / Failure Recovery Banner -->
+  <div id="dlg-recovery-banner" class="banner warn hidden">
+    <div id="dlg-recovery-title" class="banner-title"></div>
+    <div id="dlg-recovery-detail" class="banner-detail"></div>
+    <div id="dlg-token-inline" class="input-row hidden" style="margin-bottom:8px;">
+      <input type="password" id="dlg-inp-token" class="mono" placeholder="Paste token from ~/.config/hydra/api.token" />
+      <button type="button" id="dlg-btn-save-token" class="btn btn-sm btn-primary">Save &amp; Verify</button>
+    </div>
+    <div class="banner-actions">
+      <button type="button" id="dlg-btn-start-daemon" class="btn btn-sm btn-primary hidden">Start Hydra Daemon</button>
+      <button type="button" id="dlg-btn-auto-pair" class="btn btn-sm btn-primary hidden">Auto-Pair Token</button>
+      <button type="button" id="dlg-btn-reprobe" class="btn btn-sm">Retry Check</button>
+      <button type="button" id="dlg-btn-open-settings" class="btn btn-sm">Settings</button>
+    </div>
+  </div>
+
+  <!-- Source Summary -->
+  <div class="card">
+    <div class="info-rows">
+      <div class="info-row">
+        <span class="label">Size</span>
+        <span class="value" id="info-size">Unknown</span>
+      </div>
+      <div class="info-row">
+        <span class="label">Source URL</span>
+        <span class="value url" id="info-url">—</span>
+      </div>
+    </div>
+    <div class="tag-row">
+      <span id="tag-host" class="pill muted"></span>
+      <span id="tag-headers" class="pill muted"></span>
+    </div>
+  </div>
+
+  <!-- Filename + Destination Picker -->
+  <div class="card">
+    <div class="field">
+      <div class="field-label">
+        <label for="inp-filename">Save As (Filename)</label>
+      </div>
+      <input type="text" id="inp-filename" class="mono" placeholder="downloaded_file.bin" spellcheck="false" />
+      <div id="filename-validation" class="hint-line error hidden"></div>
+    </div>
+
+    <div class="field">
+      <div class="field-label">
+        <label for="sel-preset">Destination Preset</label>
+      </div>
+      <select id="sel-preset"></select>
+    </div>
+
+    <div class="field">
+      <div class="field-label">
+        <label for="inp-dest-dir">Destination Folder</label>
+      </div>
+      <div class="input-row">
+        <input type="text" id="inp-dest-dir" class="mono" placeholder="~/Downloads" spellcheck="false" />
+        <button type="button" id="btn-browse" class="btn">Browse…</button>
+      </div>
+      <label class="checkbox-row">
+        <input type="checkbox" id="chk-pending-path" />
+        <span>Choose destination later inside Hydra (Pending Path)</span>
+      </label>
+
+      <!-- Inline directory drawer fallback when native chooser unavailable -->
+      <div id="dir-drawer" class="dir-drawer hidden">
+        <div class="dir-drawer-bar">
+          <span id="dir-drawer-path">/</span>
+          <div style="display:flex;gap:4px;">
+            <button type="button" id="btn-dir-up" class="btn btn-sm">Up</button>
+            <button type="button" id="btn-dir-select" class="btn btn-sm btn-primary">Use Folder</button>
+            <button type="button" id="btn-dir-close" class="btn btn-sm">Close</button>
+          </div>
+        </div>
+        <div id="dir-drawer-list" class="dir-list"></div>
+      </div>
+
+      <div id="path-preview" class="hint-line">Target: —</div>
+      <div id="disk-space-hint" class="hint-line">Free disk space: checking…</div>
+    </div>
+  </div>
+
+  <!-- Download Options -->
+  <details class="options-box" id="options-details">
+    <summary>Download Options (Start Mode, Speed Limit, Checksum, Session)</summary>
+    <div class="options-grid">
+      <div class="two-col">
+        <div class="field">
+          <div class="field-label"><label for="sel-start-mode">Start Mode</label></div>
+          <select id="sel-start-mode">
+            <option value="now">Start Immediately</option>
+            <option value="paused">Add to Queue Paused</option>
+            <option value="schedule">Schedule Start</option>
+          </select>
+        </div>
+        <div class="field">
+          <div class="field-label"><label for="inp-speed-kbps">Speed Limit (KB/s)</label></div>
+          <input type="number" id="inp-speed-kbps" min="0" step="128" value="0" placeholder="0 = unlimited" />
+        </div>
+      </div>
+
+      <div id="schedule-field" class="field hidden">
+        <div class="field-label"><label for="inp-schedule-at">Schedule Date &amp; Time</label></div>
+        <input type="datetime-local" id="inp-schedule-at" />
+      </div>
+
+      <div class="two-col">
+        <div class="field">
+          <div class="field-label"><label for="sel-checksum-algo">Checksum</label></div>
+          <select id="sel-checksum-algo">
+            <option value="">None</option>
+            <option value="sha256">SHA-256</option>
+            <option value="md5">MD5</option>
+            <option value="crc32">CRC32</option>
+          </select>
+        </div>
+        <div class="field">
+          <div class="field-label"><label for="inp-checksum-hex">Expected Hash (Hex)</label></div>
+          <input type="text" id="inp-checksum-hex" class="mono" placeholder="Optional digest" spellcheck="false" />
+        </div>
+      </div>
+
+      <label class="checkbox-row" style="margin-top:0;">
+        <input type="checkbox" id="chk-include-headers" checked />
+        <span>Forward browser cookies, referer &amp; session auth headers</span>
+      </label>
+    </div>
+  </details>
+
+  <div id="dialog-status"></div>
+
+  <div class="actions-footer">
+    <button type="button" id="btn-discard" class="btn btn-sec btn-danger" title="Abort without downloading">Discard</button>
+    <button type="button" id="btn-browser-fallback" class="btn btn-sec">Let Browser Download</button>
+    <button type="button" id="btn-confirm" class="btn btn-primary btn-main">
+      Download with Hydra
+      <span class="spinner" id="confirm-spinner"></span>
+    </button>
+  </div>
+</div>
+
+<!-- =========================================================================
+     MODE 2: TOOLBAR INTEGRATION STATUS & RECOVERY DASHBOARD (no ?pending=)
+     ========================================================================= -->
+<div id="status-view" class="hidden">
+  <div class="header">
+    <div class="header-left">
+      <svg width="30" height="30" viewBox="0 0 32 32" fill="none">
+        <rect width="32" height="32" rx="8" fill="#1e1e2e" stroke="#3c3c58"/>
+        <path d="M8 8h4v7h8V8h4v16h-4v-6H12v6H8V8z" fill="#5b8dee"/>
+      </svg>
+      <div>
+        <h1>Hydra Browser Integration</h1>
+        <div class="sub">Capture status, daemon health, and recovery tools.</div>
+      </div>
+    </div>
+    <span id="tb-health-pill" class="pill muted"><span class="dot"></span>Checking…</span>
+  </div>
+
+  <!-- Recovery Banner in Toolbar Popup -->
+  <div id="tb-recovery-banner" class="banner warn hidden">
+    <div id="tb-recovery-title" class="banner-title"></div>
+    <div id="tb-recovery-detail" class="banner-detail"></div>
+    <div class="banner-actions">
+      <button type="button" id="tb-btn-start-daemon" class="btn btn-sm btn-primary hidden">Start Hydra Daemon</button>
+      <button type="button" id="tb-btn-auto-pair" class="btn btn-sm btn-primary hidden">Auto-Pair Token</button>
+      <button type="button" id="tb-btn-retry" class="btn btn-sm">Retry Check</button>
+      <button type="button" id="tb-btn-settings" class="btn btn-sm">Open Settings</button>
+    </div>
+  </div>
+
+  <!-- Diagnostics -->
+  <div class="diag-grid">
+    <div class="diag-tile">
+      <div class="diag-k">Daemon Engine</div>
+      <div class="diag-v" id="diag-daemon">Checking…</div>
+    </div>
+    <div class="diag-tile">
+      <div class="diag-k">API Authentication</div>
+      <div class="diag-v" id="diag-auth">Checking…</div>
+    </div>
+    <div class="diag-tile">
+      <div class="diag-k">Native Desktop Bridge</div>
+      <div class="diag-v" id="diag-bridge">Checking…</div>
+    </div>
+    <div class="diag-tile">
+      <div class="diag-k">Daemon Queue</div>
+      <div class="diag-v" id="diag-queue">—</div>
+    </div>
+  </div>
+
+  <!-- Quick Capture Switches -->
+  <div class="card">
+    <div class="switch-row">
+      <div>
+        <div class="switch-title">Automatic Download Capture</div>
+        <div class="switch-sub">Intercept supported browser downloads for Hydra</div>
+      </div>
+      <input type="checkbox" id="tb-chk-autocapture" style="width:18px;height:18px;accent-color:#5b8dee;" />
+    </div>
+    <div class="switch-row">
+      <div>
+        <div class="switch-title">Show Confirmation Dialog</div>
+        <div class="switch-sub">Select destination, filename &amp; options before starting</div>
+      </div>
+      <input type="checkbox" id="tb-chk-confirm" style="width:18px;height:18px;accent-color:#5b8dee;" />
+    </div>
+  </div>
+
+  <!-- Recent Captures & Recovery Feed -->
+  <div class="card">
+    <div class="field-label" style="margin-bottom:8px;">
+      <span>Recent Captures &amp; Recovery History</span>
+      <button type="button" id="tb-btn-clear-events" class="btn btn-sm">Clear</button>
+    </div>
+    <div id="events-list" class="events-list">
+      <div class="hint-line">No browser downloads captured yet.</div>
+    </div>
+  </div>
+
+  <div class="actions-footer">
+    <button type="button" id="tb-btn-open-gui" class="btn btn-primary" style="flex:1;">Open Hydra Manager</button>
+    <button type="button" id="tb-btn-refresh" class="btn">Refresh</button>
+    <button type="button" id="tb-btn-open-options" class="btn">Settings</button>
+  </div>
+</div>
+
+<script type="module" src="popup.js"></script>
+</body>
+</html>

@@ -1,25 +1,56 @@
 {
-    "manifest_version": 2,
-    "name": "Hydra Advanced Download Interceptor",
-    "version": "4.0.0",
-    "description": "Native download sniffer and session interceptor for Hydra Core Daemon.",
+    "manifest_version": 3,
+    "name": "Hydra Download Manager",
+    "version": "4.1.0",
+    "description": "IDM-style download interceptor, option picker, and recovery workflow for Hydra Download Manager.",
     "permissions": [
+        "downloads",
+        "storage",
+        "notifications",
+        "tabs",
+        "cookies",
         "webRequest",
         "webRequestBlocking",
-        "cookies",
-        "tabs",
-        "downloads",
-        "<all_urls>"
+        "nativeMessaging"
+    ],
+    "host_permissions": [
+        "<all_urls>",
+        "http://127.0.0.1:9000/*",
+        "http://localhost:9000/*"
     ],
     "background": {
         "scripts": [
             "background.js"
         ],
-        "persistent": true
+        "service_worker": "background.js",
+        "type": "module"
+    },
+    "action": {
+        "default_popup": "popup.html",
+        "default_icon": {
+            "16": "icons/icon16.png",
+            "32": "icons/icon32.png",
+            "48": "icons/icon48.png",
+            "64": "icons/icon64.png",
+            "128": "icons/icon128.png"
+        },
+        "default_title": "Hydra Download Manager"
+    },
+    "options_ui": {
+        "page": "settings.html",
+        "open_in_tab": true
+    },
+    "icons": {
+        "16": "icons/icon16.png",
+        "32": "icons/icon32.png",
+        "48": "icons/icon48.png",
+        "64": "icons/icon64.png",
+        "128": "icons/icon128.png"
     },
     "browser_specific_settings": {
         "gecko": {
             "id": "hydra-core-sniffer@hydra.app",
+            "strict_min_version": "109.0",
             "data_collection_permissions": {
                 "required": [
                     "none"
