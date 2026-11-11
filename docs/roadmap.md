@@ -235,11 +235,11 @@ user-facing service that users must operate manually.
 
 ### Week 26: IDM-style browser workflow
 
-- [ ] Automatically capture supported browser downloads.
-- [ ] Add a confirmation dialog before starting a browser download.
-- [ ] Allow users to select destination, filename, and download options.
-- [ ] Add browser integration status and recovery feedback.
-- [ ] **Milestone:** Clicking a browser download opens a Hydra-managed
+- [x] Automatically capture supported browser downloads.
+- [x] Add a confirmation dialog before starting a browser download.
+- [x] Allow users to select destination, filename, and download options.
+- [x] Add browser integration status and recovery feedback.
+- [x] **Milestone:** Clicking a browser download opens a Hydra-managed
   download flow.
 
 ### Week 27: Settings and desktop polish

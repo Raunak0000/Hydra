@@ -259,15 +259,20 @@ category directory. Browser-supplied filenames are preserved.
 
 ## Firefox Extension
 
-The extension is a persistent Firefox Manifest V2 WebExtension. It detects
-download responses, preserves authenticated browser request headers, cancels
-Firefox's native transfer, and creates a Hydra job.
+The extension is a Manifest V3 Firefox WebExtension (`extension/`) that pairs
+with `hydra-daemon` (including optional native messaging via `hydra-native-host`
+for zero-terminal token pairing, daemon startup recovery, and GUI launch). When a
+supported download is clicked, Hydra captures session headers, cancels the
+native browser transfer, and opens an IDM-style confirmation dialog where you
+can edit the filename, select a destination folder or category preset, inspect
+free disk space, configure speed/checksum/schedule/pause options, or fall back
+to the browser cleanly. Clicking the toolbar icon opens the live Browser
+Integration Status & Recovery dashboard.
 
 Package it:
 
 ```bash
-zip -j /home/$USER/Projects/extension.zip \
-   extension/background.js extension/manifest.json
+(cd extension && zip -r ../extension.zip . -x "package.json" "test_extension.mjs")
 ```
 
 Install it temporarily:
@@ -276,13 +281,14 @@ Install it temporarily:
 2. Select **This Firefox**.
 3. Remove any older Hydra temporary extension.
 4. Click **Load Temporary Add-on**.
-5. Select `extension.zip`.
-6. Click **Inspect** to view the background script logs.
+5. Select `extension/manifest.json` (or `extension.zip`).
+6. Click the Hydra toolbar icon to verify connection/token status (or run
+   `./install.sh` so `org.hydra.downloader.json` enables automatic token pairing).
 
-The extension console should show:
+Validate the extension:
 
-```text
-[Hydra] background interceptor started
+```bash
+node --test extension/test_extension.mjs
 ```
 
 For authenticated services such as Overleaf, load a fresh download link while
@@ -356,7 +362,8 @@ go vet ./...
 Validate the extension:
 
 ```bash
-node --check extension/background.js
+for f in extension/*.js; do node --check "$f"; done
+node --test extension/test_extension.mjs
 python3 -m json.tool extension/manifest.json >/dev/null
 ```
 
@@ -385,9 +392,7 @@ configuration, certificates, and init system.
 
 ## Current Limitations
 
-- The current browser integration targets Firefox.
-- The extension uses Manifest V2 for a persistent background script; Firefox's
-   future Manifest V2 support may change.
+- The primary browser extension targets Firefox Manifest V3 (supporting `webRequestBlocking` and native messaging auto-pairing via `org.hydra.downloader`); unpacked Chromium MV3 usage requires omitting `webRequestBlocking` from `extension/manifest.json`.
 - The TUI shows jobs tracked in Hydra's database, not arbitrary files already
    present in a download directory.
 - Browser interception depends on the extension being loaded and active.
