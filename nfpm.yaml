@@ -101,6 +101,16 @@ contents:
     file_info:
       mode: 0644
 
+  - src: ./packaging/extension/hydra-native-host
+    dst: /usr/bin/hydra-native-host
+    file_info:
+      mode: 0755
+
+  - src: ./packaging/extension/org.hydra.downloader.json
+    dst: /usr/lib/mozilla/native-messaging-hosts/org.hydra.downloader.json
+    file_info:
+      mode: 0644
+
 scripts:
   postinstall: ./packaging/scripts/postinst
   preremove: ./packaging/scripts/prerm

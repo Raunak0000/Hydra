@@ -14,6 +14,7 @@ PREFIX=""
 BIN_SRC="$SCRIPT_DIR/bin"
 XDG_CONFIG_BASE="${XDG_CONFIG_HOME:-$HOME/.config}"
 XDG_DATA_BASE="${XDG_DATA_HOME:-$HOME/.local/share}"
+MOZILLA_NATIVE_DIR="${HYDRA_MOZILLA_NATIVE_DIR:-}"
 
 usage() {
     cat <<'EOF'
@@ -34,6 +35,7 @@ Options:
   --bin-src DIR           Source directory for compiled binaries (default: ./bin)
   --xdg-config-home DIR   Override XDG config home (default: $XDG_CONFIG_HOME or ~/.config)
   --xdg-data-home DIR     Override XDG data home (default: $XDG_DATA_HOME or ~/.local/share)
+  --mozilla-native-dir D  Override Firefox native-messaging-hosts dir
   --skip-build            Use existing binaries in ./bin without running go build
   --no-start              Do not interact with systemd or start daemon immediately
   --no-tray               Do not install login autostart entry for optional hydra-tray
@@ -83,6 +85,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --xdg-data-home)
             XDG_DATA_BASE="$2"
+            shift 2
+            ;;
+        --mozilla-native-dir)
+            MOZILLA_NATIVE_DIR="$2"
             shift 2
             ;;
         --skip-build)
@@ -271,6 +277,7 @@ configure_paths_for_mode() {
         else
             AUTOSTART_DIR="$sys_prefix/etc/xdg/autostart"
         fi
+        NATIVE_HOST_DIR="${MOZILLA_NATIVE_DIR:-$sys_prefix/lib/mozilla/native-messaging-hosts}"
     else
         local usr_prefix="${PREFIX:-$HOME/.local}"
         BIN_DIR="$usr_prefix/bin"
@@ -279,6 +286,7 @@ configure_paths_for_mode() {
         ICON_DIR="$XDG_DATA_BASE/icons/hicolor/scalable/apps"
         SYSTEMD_USER_DIR="$XDG_CONFIG_BASE/systemd/user"
         AUTOSTART_DIR="$XDG_CONFIG_BASE/autostart"
+        NATIVE_HOST_DIR="${MOZILLA_NATIVE_DIR:-$HOME/.mozilla/native-messaging-hosts}"
     fi
 }
 
@@ -301,12 +309,14 @@ install_files_mode() {
             "$BIN_DIR/hydra-tui" \
             "$BIN_DIR/hydra-tray" \
             "$BIN_DIR/hydra-gui" \
+            "$BIN_DIR/hydra-native-host" \
             "$SYSTEMD_USER_DIR/hydra.service" \
             "$AUTOSTART_DIR/hydra-daemon.desktop" \
             "$AUTOSTART_DIR/hydra-tray.desktop" \
             "$APP_DIR/hydra.desktop" \
             "$APP_DIR/hydra-gui.desktop" \
-            "$ICON_DIR/hydra.svg"
+            "$ICON_DIR/hydra.svg" \
+            "$NATIVE_HOST_DIR/org.hydra.downloader.json"
 
         if command -v update-desktop-database >/dev/null 2>&1; then
             update-desktop-database -q "$APP_DIR" >/dev/null 2>&1 || true
@@ -332,6 +342,19 @@ install_files_mode() {
     install -m 755 packaging/tray/hydra-tray "$BIN_DIR/hydra-tray"
     install -m 755 packaging/gui/hydra-gui "$BIN_DIR/hydra-gui"
     install -m 644 packaging/gui/hydra_gui/*.py "$GUI_DATA_DIR/hydra_gui/"
+
+    sed "s|/usr/bin/hydra|$BIN_DIR/hydra|g" packaging/extension/hydra-native-host \
+        > "$BIN_DIR/hydra-native-host"
+    chmod 755 "$BIN_DIR/hydra-native-host"
+
+    if mkdir -p "$NATIVE_HOST_DIR" 2>/dev/null && [[ -w "$NATIVE_HOST_DIR" ]]; then
+        sed "s|/usr/bin/hydra-native-host|$BIN_DIR/hydra-native-host|g" \
+            packaging/extension/org.hydra.downloader.json \
+            > "$NATIVE_HOST_DIR/org.hydra.downloader.json"
+        chmod 644 "$NATIVE_HOST_DIR/org.hydra.downloader.json"
+    else
+        echo "  ⚠ Skipped Firefox native messaging manifest ($NATIVE_HOST_DIR is not writable)."
+    fi
 
     sed -e "s|/usr/bin/hydra-daemon|$BIN_DIR/hydra-daemon|g" \
         -e "s|/usr/bin/hydra-tui|$BIN_DIR/hydra-tui|g" \
@@ -411,6 +434,7 @@ install_files_mode() {
         echo "   Tray Auto:  $AUTOSTART_DIR/hydra-tray.desktop"
     fi
     echo "   Launchers:  $APP_DIR/{hydra.desktop,hydra-gui.desktop}"
+    echo "   Browser:    $NATIVE_HOST_DIR/org.hydra.downloader.json"
     echo ""
     echo "   Quick commands:"
     echo "     hydra status    # Check background download engine"

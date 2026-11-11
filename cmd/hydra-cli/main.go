@@ -43,6 +43,15 @@ func getSocketPath() string {
 }
 
 func main() {
+	if strings.HasSuffix(filepath.Base(os.Args[0]), "hydra-native-host") ||
+		(len(os.Args) >= 2 && os.Args[1] == "native-host") {
+		if err := storage.ServeNativeMessaging(os.Stdin, os.Stdout, storage.DefaultNativeHostDeps()); err != nil {
+			fmt.Fprintf(os.Stderr, "hydra native-host error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	if len(os.Args) < 2 {
 		printUsage()
 		return
@@ -268,4 +277,5 @@ func printUsage() {
 	fmt.Println("  hydra rules                    - View all file category routing rules and target folders")
 	fmt.Println("  hydra set-rule <name> <path> <exts> - Configure target destination for file extensions")
 	fmt.Println("  hydra delete-rule <name>       - Remove a file category routing rule")
+	fmt.Println("  hydra native-host              - Run browser WebExtension native messaging host over stdio")
 }

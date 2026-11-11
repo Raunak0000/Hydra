@@ -34,6 +34,8 @@ func TestPackagingConfiguration(t *testing.T) {
 		"/etc/xdg/autostart/hydra-daemon.desktop",
 		"/etc/xdg/autostart/hydra-tray.desktop",
 		"/usr/share/icons/hicolor/scalable/apps/hydra.svg",
+		"/usr/bin/hydra-native-host",
+		"/usr/lib/mozilla/native-messaging-hosts/org.hydra.downloader.json",
 		"postinstall: ./packaging/scripts/postinst",
 		"preremove: ./packaging/scripts/prerm",
 	}
@@ -64,6 +66,8 @@ func TestPackagingFilesExist(t *testing.T) {
 		"packaging/gui/hydra_gui/dialogs.py",
 		"packaging/systemd/hydra.service",
 		"packaging/icons/hydra.svg",
+		"packaging/extension/hydra-native-host",
+		"packaging/extension/org.hydra.downloader.json",
 		"packaging/scripts/postinst",
 		"packaging/scripts/prerm",
 		"scripts/validate-package.sh",

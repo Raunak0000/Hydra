@@ -1,0 +1,10 @@
+{
+  "name": "org.hydra.downloader",
+  "description": "Hydra Download Manager Native Messaging Bridge",
+  "path": "/usr/bin/hydra-native-host",
+  "type": "stdio",
+  "allowed_extensions": [
+    "hydra-core-sniffer@hydra.app"
+  ]
+}
+

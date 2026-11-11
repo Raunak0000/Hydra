@@ -143,6 +143,7 @@ func TestInstallerScript_UserInstallAndUninstall(t *testing.T) {
 	prefix := filepath.Join(root, "local")
 	cfgHome := filepath.Join(root, "config")
 	dataHome := filepath.Join(root, "share")
+	nativeDir := filepath.Join(root, "mozilla-native-hosts")
 
 	if err := os.MkdirAll(binSrc, 0755); err != nil {
 		t.Fatal(err)
@@ -163,6 +164,7 @@ func TestInstallerScript_UserInstallAndUninstall(t *testing.T) {
 		"--prefix", prefix,
 		"--xdg-config-home", cfgHome,
 		"--xdg-data-home", dataHome,
+		"--mozilla-native-dir", nativeDir,
 	)
 	out, err := installCmd.CombinedOutput()
 	if err != nil {
@@ -174,8 +176,10 @@ func TestInstallerScript_UserInstallAndUninstall(t *testing.T) {
 	expectedTray := filepath.Join(prefix, "bin", "hydra-tray")
 	expectedGUI := filepath.Join(prefix, "bin", "hydra-gui")
 	expectedCLI := filepath.Join(prefix, "bin", "hydra")
+	expectedNativeHost := filepath.Join(prefix, "bin", "hydra-native-host")
+	expectedNativeManifest := filepath.Join(nativeDir, "org.hydra.downloader.json")
 
-	for _, binName := range []string{"hydra-daemon", "hydra", "hydra-tui", "hydra-tray", "hydra-gui"} {
+	for _, binName := range []string{"hydra-daemon", "hydra", "hydra-tui", "hydra-tray", "hydra-gui", "hydra-native-host"} {
 		info, err := os.Stat(filepath.Join(prefix, "bin", binName))
 		if err != nil {
 			t.Fatalf("installed binary %s missing: %v", binName, err)
@@ -183,6 +187,14 @@ func TestInstallerScript_UserInstallAndUninstall(t *testing.T) {
 		if info.Mode().Perm()&0111 == 0 {
 			t.Fatalf("installed binary %s not executable: %o", binName, info.Mode().Perm())
 		}
+	}
+
+	nativeManifestData, err := os.ReadFile(expectedNativeManifest)
+	if err != nil {
+		t.Fatalf("read installed native messaging manifest: %v", err)
+	}
+	if !strings.Contains(string(nativeManifestData), expectedNativeHost) {
+		t.Fatalf("native messaging manifest does not reference %q:\n%s", expectedNativeHost, string(nativeManifestData))
 	}
 
 	guiModulePath := filepath.Join(dataHome, "hydra", "gui", "hydra_gui", "window.py")
@@ -270,6 +282,7 @@ func TestInstallerScript_UserInstallAndUninstall(t *testing.T) {
 		"--prefix", prefix,
 		"--xdg-config-home", cfgHome,
 		"--xdg-data-home", dataHome,
+		"--mozilla-native-dir", nativeDir,
 	)
 	out, err = uninstallCmd.CombinedOutput()
 	if err != nil {
@@ -282,6 +295,8 @@ func TestInstallerScript_UserInstallAndUninstall(t *testing.T) {
 		expectedTUI,
 		expectedTray,
 		expectedGUI,
+		expectedNativeHost,
+		expectedNativeManifest,
 		guiModulePath,
 		servicePath,
 		autostartPath,
@@ -306,6 +321,7 @@ func TestInstallerScript_UserInstallAndUninstall(t *testing.T) {
 		"--prefix", prefix,
 		"--xdg-config-home", cfgHome,
 		"--xdg-data-home", dataHome,
+		"--mozilla-native-dir", nativeDir,
 	)
 	out, err = noTrayCmd.CombinedOutput()
 	if err != nil {

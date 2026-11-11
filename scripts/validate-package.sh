@@ -37,6 +37,8 @@ declare -a REQUIRED_FILES=(
     "-rw-r--r-- .* \./etc/xdg/autostart/hydra-daemon\.desktop"
     "-rw-r--r-- .* \./etc/xdg/autostart/hydra-tray\.desktop"
     "-rw-r--r-- .* \./usr/share/icons/hicolor/scalable/apps/hydra\.svg"
+    "-rwxr-xr-x .* \./usr/bin/hydra-native-host"
+    "-rw-r--r-- .* \./usr/lib/mozilla/native-messaging-hosts/org\.hydra\.downloader\.json"
 )
 
 for pattern in "${REQUIRED_FILES[@]}"; do
@@ -67,6 +69,8 @@ test -f "$TEST_ROOT/usr/share/applications/hydra-gui.desktop" || { echo "❌ Mis
 test -f "$TEST_ROOT/etc/xdg/autostart/hydra-daemon.desktop" || { echo "❌ Missing autostart desktop file"; exit 1; }
 test -f "$TEST_ROOT/etc/xdg/autostart/hydra-tray.desktop" || { echo "❌ Missing tray autostart desktop file"; exit 1; }
 test -f "$TEST_ROOT/usr/share/icons/hicolor/scalable/apps/hydra.svg" || { echo "❌ Missing icon"; exit 1; }
+test -x "$TEST_ROOT/usr/bin/hydra-native-host" || { echo "❌ Missing hydra-native-host wrapper"; exit 1; }
+test -f "$TEST_ROOT/usr/lib/mozilla/native-messaging-hosts/org.hydra.downloader.json" || { echo "❌ Missing Firefox native messaging manifest"; exit 1; }
 
 if command -v desktop-file-validate >/dev/null 2>&1; then
     desktop-file-validate \

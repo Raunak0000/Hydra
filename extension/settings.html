@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Hydra — Extension Settings</title>
+<style>
+  :root {
+    --bg:      #181825;
+    --surface: #242438;
+    --border:  #3c3c58;
+    --accent:  #5b8dee;
+    --danger:  #f38ba8;
+    --warn:    #f9e2af;
+    --ok:      #a6e3a1;
+    --text:    #cdd6f4;
+    --muted:   #9399b2;
+    --radius:  8px;
+    --mono:    "JetBrains Mono", "Fira Mono", ui-monospace, monospace;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 28px;
+    max-width: 640px;
+    margin: 0 auto;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  h1 { font-size: 19px; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { font-size: 12.5px; color: var(--muted); margin-bottom: 20px; }
+
+  .section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+  .section h2 {
+    font-size: 13.5px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    color: var(--accent);
+  }
+
+  .field { margin-bottom: 13px; }
+  .field:last-child { margin-bottom: 0; }
+  .field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    margin-bottom: 5px;
+  }
+  .field input[type="text"],
+  .field input[type="password"],
+  .field input[type="number"],
+  .field select {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 12.5px;
+    padding: 8px 10px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .field input.mono { font-family: var(--mono); font-size: 12px; }
+  .field input:focus, .field select:focus { border-color: var(--accent); }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .checkbox-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    margin-bottom: 11px;
+    cursor: pointer;
+  }
+  .checkbox-row:last-child { margin-bottom: 0; }
+  .checkbox-row input[type="checkbox"] {
+    margin-top: 3px;
+    accent-color: var(--accent);
+  }
+  .chk-title { font-weight: 600; font-size: 12.5px; }
+  .chk-sub   { font-size: 11.5px; color: var(--muted); }
+
+  .hint {
+    font-size: 11.5px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+  code {
+    background: #11111b;
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+  }
+
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+    align-items: center;
+  }
+
+  button {
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: #2e2e46;
+    color: var(--text);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  button:hover:not(:disabled) { opacity: 0.9; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  #status {
+    font-size: 12.5px;
+    min-height: 20px;
+    margin-top: 10px;
+  }
+  #status.error   { color: var(--danger); }
+  #status.success { color: var(--ok); }
+  #status.warn    { color: var(--warn); }
+
+  .diag-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 11px 13px;
+    font-size: 12px;
+    margin-bottom: 12px;
+  }
+  .diag-headline { font-weight: 700; margin-bottom: 3px; }
+  .diag-headline.ok    { color: var(--ok); }
+  .diag-headline.warn  { color: var(--warn); }
+  .diag-headline.error { color: var(--danger); }
+</style>
+</head>
+<body>
+
+<h1>Hydra Browser Integration Settings</h1>
+<p class="subtitle">Configure daemon pairing, download capture rules, and recovery options.</p>
+
+<div class="section">
+  <h2>Live Integration Status</h2>
+  <div class="diag-box">
+    <div id="diag-headline" class="diag-headline">Checking connection…</div>
+    <div id="diag-detail" class="hint" style="margin-top:0;"></div>
+  </div>
+  <div class="row">
+    <button type="button" id="btn-test" class="primary">Test Connection</button>
+    <button type="button" id="btn-auto-pair">Auto-Pair Token via Bridge</button>
+    <button type="button" id="btn-start-daemon">Start Hydra Daemon</button>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Daemon Connection &amp; Token</h2>
+
+  <div class="field">
+    <label for="inp-daemon-url">Daemon HTTP URL</label>
+    <input type="text" id="inp-daemon-url" class="mono" value="http://127.0.0.1:9000" spellcheck="false" />
+    <p class="hint">Loopback URL for hydra-daemon (default: <code>http://127.0.0.1:9000</code>).</p>
+  </div>
+
+  <div class="field">
+    <label for="inp-token">API Token</label>
+    <input type="password" id="inp-token" class="mono" placeholder="Auto-paired or paste from ~/.config/hydra/api.token" spellcheck="false" autocomplete="off" />
+    <p class="hint">
+      If the native desktop bridge is installed via <code>./install.sh</code>, click <strong>Auto-Pair Token via Bridge</strong> above.
+      Otherwise run <code>cat ~/.config/hydra/api.token</code> and paste the token here.
+    </p>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Download Capture &amp; Dialog Options</h2>
+
+  <label class="checkbox-row">
+    <input type="checkbox" id="chk-auto-capture" checked />
+    <div>
+      <div class="chk-title">Automatically capture supported browser downloads</div>
+      <div class="chk-sub">Intercept archives, media, installers, disk images, and attachment responses.</div>
+    </div>
+  </label>
+
+  <label class="checkbox-row">
+    <input type="checkbox" id="chk-confirm-dialog" checked />
+    <div>
+      <div class="chk-title">Show confirmation dialog before starting downloads</div>
+      <div class="chk-sub">Lets you pick destination folder, filename, speed limit, checksum, and schedule. If disabled, falls back to dialog on error.</div>
+    </div>
+  </label>
+
+  <label class="checkbox-row">
+    <input type="checkbox" id="chk-include-headers" checked />
+    <div>
+      <div class="chk-title">Forward browser cookies &amp; session headers by default</div>
+      <div class="chk-sub">Preserves login sessions and referers for authenticated links.</div>
+    </div>
+  </label>
+
+  <label class="checkbox-row">
+    <input type="checkbox" id="chk-notifications" checked />
+    <div>
+      <div class="chk-title">Show browser notifications for queued/paused/scheduled transfers</div>
+      <div class="chk-sub">Daemon also emits desktop notifications independently.</div>
+    </div>
+  </label>
+
+  <div class="two-col" style="margin-top:12px;">
+    <div class="field">
+      <label for="inp-min-kb">Minimum Intercept Size (KB)</label>
+      <input type="number" id="inp-min-kb" min="0" step="64" value="512" />
+      <p class="hint">Applies to generic binary streams &amp; URL-only extension matches (<code>0</code> captures all).</p>
+    </div>
+    <div class="field">
+      <label for="sel-default-start">Default Start Mode</label>
+      <select id="sel-default-start">
+        <option value="now">Start Immediately</option>
+        <option value="paused">Add Paused</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="inp-custom-exts">Additional File Extensions (comma-separated)</label>
+    <input type="text" id="inp-custom-exts" class="mono" placeholder="e.g. zst, nsp, dmg, tar.zst" spellcheck="false" />
+  </div>
+
+  <div class="field">
+    <label for="inp-excluded-hosts">Excluded Domains / Hosts (comma-separated)</label>
+    <input type="text" id="inp-excluded-hosts" class="mono" placeholder="127.0.0.1, localhost" spellcheck="false" />
+    <p class="hint">Downloads from these hosts stay in the browser automatically.</p>
+  </div>
+</div>
+
+<div class="row">
+  <button type="button" id="btn-save" class="primary">Save Settings</button>
+</div>
+<div id="status"></div>
+
+<script type="module" src="settings.js"></script>
+</body>
+</html>
