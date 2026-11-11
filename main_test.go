@@ -3,6 +3,7 @@ package main
 import (
 	"testing"
 
+	"github.com/Raunak0000/Hydra/pkg/downloader"
 	"github.com/Raunak0000/Hydra/pkg/models"
 )
 
@@ -183,5 +184,23 @@ func TestResolveWorkerThreads(t *testing.T) {
 				t.Fatalf("resolveWorkerThreads() = %d, want %d", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSingleThreadChunksPassValidateChunkStates(t *testing.T) {
+	const fileSize = int64(10 * 1024 * 1024)
+	chunks := downloader.CalculateChunks(fileSize, 1)
+	if len(chunks) != 1 {
+		t.Fatalf("expected 1 chunk, got %d", len(chunks))
+	}
+
+	persisted := []models.ChunkState{{
+		Index:         chunks[0].Index,
+		Start:         chunks[0].Start,
+		CurrentOffset: chunks[0].Start,
+		End:           chunks[0].End,
+	}}
+	if err := validateChunkStates(persisted, fileSize); err != nil {
+		t.Fatalf("single-thread chunks failed validateChunkStates: %v (chunks=%+v)", err, persisted)
 	}
 }

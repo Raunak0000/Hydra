@@ -82,8 +82,8 @@ func AllTrackersCompleted(trackers []*AdaptiveTracker) bool {
 }
 
 func CalculateChunks(fileSize int64, numThreads int) []Chunk {
-	// If file size is unknown or single-thread fallback, return an open-ended chunk
-	if fileSize <= 0 || numThreads <= 1 {
+	// Only return an open-ended chunk when the total size is unknown.
+	if fileSize <= 0 {
 		return []Chunk{
 			{
 				Index: 0,
@@ -91,6 +91,10 @@ func CalculateChunks(fileSize int64, numThreads int) []Chunk {
 				End:   fileSize, // 0 or -1 represents open stream
 			},
 		}
+	}
+
+	if numThreads <= 1 {
+		numThreads = 1
 	}
 
 	var chunks []Chunk

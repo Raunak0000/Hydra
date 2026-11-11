@@ -468,3 +468,115 @@ func TestDownloadChunkParallel_FailsCleanlyOnPersistent429Lock(t *testing.T) {
 		t.Fatalf("workers stalled until context timeout (%v) instead of failing cleanly", ctx.Err())
 	}
 }
+
+func TestSingleThreadKnownSizeNonRangeServer(t *testing.T) {
+	fileSize := int64(512 * 1024)
+	payload := make([]byte, fileSize)
+	if _, err := rand.Read(payload); err != nil {
+		t.Fatalf("rand.Read: %v", err)
+	}
+
+	// Simulate servers like python3 -m http.server that ignore Range headers and always serve 200 OK.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.FormatInt(fileSize, 10))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+
+	meta, err := GetMetadataContext(context.Background(), server.URL, nil)
+	if err != nil {
+		t.Fatalf("GetMetadataContext failed: %v", err)
+	}
+	if meta.Size != fileSize {
+		t.Fatalf("meta.Size = %d, want %d", meta.Size, fileSize)
+	}
+	if meta.AcceptRanges {
+		t.Fatalf("expected meta.AcceptRanges=false for HTTP 200 server")
+	}
+
+	chunks := CalculateChunks(meta.Size, 1)
+	if len(chunks) != 1 || chunks[0].Start != 0 || chunks[0].End != fileSize-1 {
+		t.Fatalf("unexpected single-thread chunks: %+v (want [0..%d])", chunks, fileSize-1)
+	}
+
+	tmpFile, err := os.CreateTemp("", "hydra_nonrange_test_*.bin")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+
+	if err := tmpFile.Truncate(fileSize); err != nil {
+		t.Fatalf("Truncate: %v", err)
+	}
+
+	trackers := []*AdaptiveTracker{{
+		Index:       0,
+		StartByte:   chunks[0].Start,
+		CurrentPtr:  chunks[0].Start,
+		EndBoundary: chunks[0].End,
+	}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, 1)
+	progressChan := make(chan int64, 64)
+	stateChan := make(chan Chunk, 64)
+
+	wg.Add(1)
+	go DownloadChunkParallel(
+		ctx,
+		server.URL,
+		0,
+		trackers,
+		tmpFile,
+		&wg,
+		errChan,
+		progressChan,
+		stateChan,
+		nil,
+		nil,
+	)
+
+	doneDrain := make(chan struct{})
+	go func() {
+		defer close(doneDrain)
+		for {
+			select {
+			case _, ok := <-progressChan:
+				if !ok {
+					return
+				}
+			case <-stateChan:
+			}
+		}
+	}()
+
+	wg.Wait()
+	close(progressChan)
+	close(stateChan)
+	<-doneDrain
+
+	select {
+	case wErr := <-errChan:
+		if wErr != nil {
+			t.Fatalf("unexpected worker error on non-range HTTP 200 stream: %v", wErr)
+		}
+	default:
+	}
+
+	if !AllTrackersCompleted(trackers) {
+		t.Fatalf("tracker did not complete: %+v", trackers[0])
+	}
+
+	got, err := os.ReadFile(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("downloaded bytes differ from non-range payload")
+	}
+}

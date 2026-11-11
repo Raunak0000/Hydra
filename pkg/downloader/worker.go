@@ -213,8 +213,11 @@ func DownloadChunkParallel(
 			/*
 				Set the correct Range header after caller headers so the
 				worker always owns the byte window.
+				Skip Range when a single worker starts from byte 0 so servers
+				without byte-range support can stream HTTP 200 OK cleanly.
 			*/
-			if endBoundary > 0 {
+			useRange := len(trackers) > 1 || writeOffset > 0
+			if useRange && endBoundary > 0 {
 				req.Header.Set(
 					"Range",
 					fmt.Sprintf(
@@ -225,7 +228,7 @@ func DownloadChunkParallel(
 				)
 
 				hasRange = true
-			} else if writeOffset > 0 {
+			} else if useRange && writeOffset > 0 {
 				req.Header.Set(
 					"Range",
 					fmt.Sprintf(
