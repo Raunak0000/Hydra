@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -52,7 +53,7 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 	withCORS := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "POST, GET, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Hydra-Token")
 
 			if r.Method == http.MethodOptions {
@@ -64,11 +65,19 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 		}
 	}
 
+	isLocalOrigin := func(origin string) bool {
+		return origin == "http://127.0.0.1:9000" || origin == "http://localhost:9000"
+	}
+
+	isExtensionOrigin := func(origin string) bool {
+		return (strings.HasPrefix(origin, "moz-extension://") && len(origin) > len("moz-extension://")) ||
+			(strings.HasPrefix(origin, "chrome-extension://") && len(origin) > len("chrome-extension://"))
+	}
+
 	sameOriginOnly := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if origin := r.Header.Get("Origin"); origin != "" {
-				if origin != "http://127.0.0.1:9000" &&
-					origin != "http://localhost:9000" {
+				if !isLocalOrigin(origin) {
 					writeJSONError(
 						w,
 						http.StatusForbidden,
@@ -96,8 +105,59 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 		}
 	}
 
+	sameOriginOrExtension := func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
+			if origin != "" {
+				if !isLocalOrigin(origin) && !isExtensionOrigin(origin) {
+					writeJSONError(
+						w,
+						http.StatusForbidden,
+						"FORBIDDEN_ORIGIN",
+						"Forbidden: Cross-Origin Request Blocked",
+					)
+					return
+				}
+
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Vary", "Origin")
+				w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Hydra-Token")
+
+				if r.Method == http.MethodOptions {
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+
+				if isExtensionOrigin(origin) && !requireAPIToken(w, r) {
+					return
+				}
+			}
+
+			if referer := r.Header.Get("Referer"); referer != "" {
+				if strings.HasPrefix(referer, "moz-extension://") || strings.HasPrefix(referer, "chrome-extension://") {
+					if !isExtensionOrigin(origin) && !requireAPIToken(w, r) {
+						return
+					}
+				} else if !strings.HasPrefix(referer, "http://127.0.0.1:9000") &&
+					!strings.HasPrefix(referer, "http://localhost:9000") {
+					writeJSONError(
+						w,
+						http.StatusForbidden,
+						"FORBIDDEN_REFERER",
+						"Forbidden: Cross-Origin Request Blocked",
+					)
+					return
+				}
+			}
+
+			next(w, r)
+		}
+	}
+
 	s.Router.HandleFunc("/download", withCORS(s.handleDownloadTrigger))
 	s.Router.HandleFunc("/api/batch/download", withCORS(s.handleBatchDownloadTrigger))
+	s.Router.HandleFunc("/api/health", withCORS(s.handleHealth))
 	s.Router.HandleFunc("/", sameOriginOnly(s.handleRenderDashboard))
 	s.Router.HandleFunc("/api/queue", sameOriginOnly(s.handleGetQueueSnippet))
 	s.Router.HandleFunc("/api/queue/json", sameOriginOnly(s.handleGetQueueJSON))
@@ -105,15 +165,15 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 	s.Router.HandleFunc("/api/download/resume", sameOriginOnly(s.handleResumeJob))
 	s.Router.HandleFunc("/api/download/update-url", sameOriginOnly(s.handleUpdateJobURL))
 	s.Router.HandleFunc("/api/download/delete", sameOriginOnly(s.handleDeleteJob))
-	s.Router.HandleFunc("/api/jobs", s.handleJobsAPI)
-	s.Router.HandleFunc("/api/jobs/pause-all", s.handlePauseAllJobs)
-	s.Router.HandleFunc("/api/jobs/resume-all", s.handleResumeAllJobs)
-	s.Router.HandleFunc("/api/jobs/", s.handleJobAPI)
-	s.Router.HandleFunc("/api/settings", sameOriginOnly(s.handleSettings))
-	s.Router.HandleFunc("/api/rules", s.handleRulesAPI)
-	s.Router.HandleFunc("/api/browse-directory", sameOriginOnly(s.handleBrowseDirectory))
-	s.Router.HandleFunc("/api/list-directory", sameOriginOnly(s.handleListDirectory))
-	s.Router.HandleFunc("/api/disk-space", sameOriginOnly(s.handleDiskSpace))
+	s.Router.HandleFunc("/api/jobs", withCORS(s.handleJobsAPI))
+	s.Router.HandleFunc("/api/jobs/pause-all", withCORS(s.handlePauseAllJobs))
+	s.Router.HandleFunc("/api/jobs/resume-all", withCORS(s.handleResumeAllJobs))
+	s.Router.HandleFunc("/api/jobs/", withCORS(s.handleJobAPI))
+	s.Router.HandleFunc("/api/settings", sameOriginOrExtension(s.handleSettings))
+	s.Router.HandleFunc("/api/rules", withCORS(s.handleRulesAPI))
+	s.Router.HandleFunc("/api/browse-directory", sameOriginOrExtension(s.handleBrowseDirectory))
+	s.Router.HandleFunc("/api/list-directory", sameOriginOrExtension(s.handleListDirectory))
+	s.Router.HandleFunc("/api/disk-space", sameOriginOrExtension(s.handleDiskSpace))
 	s.Router.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
 		if !requireAPIToken(w, r) {
 			return
@@ -139,8 +199,15 @@ func writeJSONError(w http.ResponseWriter, status int, code string, message stri
 	})
 }
 
+func tokensMatch(provided string, expected string) bool {
+	if expected == "" || provided == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
+}
+
 func requireAPIToken(w http.ResponseWriter, r *http.Request) bool {
-	if r.Header.Get("X-Hydra-Token") != hydraAPIToken {
+	if !tokensMatch(r.Header.Get("X-Hydra-Token"), hydraAPIToken) {
 		writeJSONError(
 			w,
 			http.StatusUnauthorized,
@@ -151,6 +218,27 @@ func requireAPIToken(w http.ResponseWriter, r *http.Request) bool {
 	}
 
 	return true
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(
+			w,
+			http.StatusMethodNotAllowed,
+			"METHOD_NOT_ALLOWED",
+			"method not allowed",
+		)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":         "ok",
+		"app":            "Hydra",
+		"daemon_running": true,
+		"auth_required":  true,
+		"authenticated":  tokensMatch(r.Header.Get("X-Hydra-Token"), hydraAPIToken),
+	})
 }
 
 // handleJobsAPI exposes the stable API used by the TUI and other local clients.
@@ -490,7 +578,7 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Header.Get("X-Hydra-Token") != hydraAPIToken {
+	if !tokensMatch(r.Header.Get("X-Hydra-Token"), hydraAPIToken) {
 		writeJSONError(
 			w,
 			http.StatusUnauthorized,
@@ -506,6 +594,7 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		SavePath         string            `json:"save_path"`
 		Filename         string            `json:"filename"`
 		ScheduledAt      string            `json:"scheduled_at"`
+		StartPaused      bool              `json:"start_paused"`
 		Headers          map[string]string `json:"headers"`
 		MaxSpeedBytes    int64             `json:"max_speed_bytes"`
 		ExpectedChecksum string            `json:"expected_checksum"`
@@ -844,6 +933,8 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		if parsedScheduledAt != nil &&
 			parsedScheduledAt.After(time.Now()) {
 			status = "SCHEDULED"
+		} else if payload.StartPaused {
+			status = "PAUSED"
 		} else {
 			status = "QUEUED"
 		}
@@ -916,7 +1007,7 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if r.Header.Get("X-Hydra-Token") != hydraAPIToken {
+	if !tokensMatch(r.Header.Get("X-Hydra-Token"), hydraAPIToken) {
 		writeJSONError(
 			w,
 			http.StatusUnauthorized,

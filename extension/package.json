@@ -1,0 +1,10 @@
+{
+  "name": "hydra-browser-extension",
+  "version": "4.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test_extension.mjs"
+  }
+}
+
