@@ -37,6 +37,7 @@ var bufferPool = sync.Pool{
 
 // SharedHTTPClient is tuned for high-speed multi-threaded downloads.
 var SharedHTTPClient = &http.Client{
+	CheckRedirect: SafeCheckRedirect,
 	Transport: &http.Transport{
 		MaxIdleConns:          200,
 		MaxIdleConnsPerHost:   64,
@@ -196,7 +197,8 @@ func DownloadChunkParallel(
 			*/
 			for key, value := range headers {
 				if strings.EqualFold(key, "Range") ||
-					strings.EqualFold(key, "Content-Length") {
+					strings.EqualFold(key, "Content-Length") ||
+					strings.EqualFold(key, "X-Hydra-Token") {
 					continue
 				}
 				req.Header.Set(key, value)

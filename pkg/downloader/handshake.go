@@ -2,9 +2,11 @@ package downloader
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -49,6 +51,76 @@ func formatRateLimitError(bodySnippet string) error {
 	)
 }
 
+const maxHTTPRedirects = 10
+
+func normalizedURLPort(u *neturl.URL) string {
+	if u == nil {
+		return ""
+	}
+	if p := u.Port(); p != "" {
+		return p
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+		return "443"
+	case "http":
+		return "80"
+	default:
+		return ""
+	}
+}
+
+func sameHTTPOrigin(a, b *neturl.URL) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	return strings.EqualFold(a.Scheme, b.Scheme) &&
+		strings.EqualFold(a.Hostname(), b.Hostname()) &&
+		normalizedURLPort(a) == normalizedURLPort(b)
+}
+
+func isSensitiveAuthHeader(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	switch lower {
+	case "authorization", "proxy-authorization", "cookie", "cookie2",
+		"x-api-key", "x-auth-token", "x-access-token", "x-hydra-token":
+		return true
+	}
+	return strings.Contains(lower, "token") ||
+		strings.Contains(lower, "secret") ||
+		strings.Contains(lower, "cookie") ||
+		strings.Contains(lower, "auth")
+}
+
+// StripSensitiveAuthHeaders removes credential-bearing headers before forwarding a request cross-origin.
+func StripSensitiveAuthHeaders(h http.Header) {
+	for key := range h {
+		if isSensitiveAuthHeader(key) {
+			h.Del(key)
+		}
+	}
+}
+
+// SafeCheckRedirect enforces a redirect hop limit and strips credential headers on cross-origin or HTTPS->HTTP downgrade redirects.
+func SafeCheckRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= maxHTTPRedirects {
+		return errors.New("stopped after 10 redirects")
+	}
+	if req == nil || req.URL == nil || len(via) == 0 {
+		return nil
+	}
+
+	initial := via[0].URL
+	prev := via[len(via)-1].URL
+	downgraded := (initial != nil && strings.EqualFold(initial.Scheme, "https") && strings.EqualFold(req.URL.Scheme, "http")) ||
+		(prev != nil && strings.EqualFold(prev.Scheme, "https") && strings.EqualFold(req.URL.Scheme, "http"))
+
+	if downgraded || !sameHTTPOrigin(initial, req.URL) || !sameHTTPOrigin(prev, req.URL) {
+		StripSensitiveAuthHeaders(req.Header)
+	}
+	return nil
+}
+
 func newMetadataClient() *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 
@@ -57,12 +129,9 @@ func newMetadataClient() *http.Client {
 	transport.DisableCompression = true
 
 	return &http.Client{
-		Transport: transport,
-		Timeout:   30 * time.Second,
-
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return nil
-		},
+		Transport:     transport,
+		Timeout:       30 * time.Second,
+		CheckRedirect: SafeCheckRedirect,
 	}
 }
 
@@ -143,6 +212,11 @@ func applyMetadataHeaders(req *http.Request, headers map[string]string) {
 	setBrowserHeaders(req)
 
 	for key, value := range headers {
+		if strings.EqualFold(key, "Range") ||
+			strings.EqualFold(key, "Content-Length") ||
+			strings.EqualFold(key, "X-Hydra-Token") {
+			continue
+		}
 		req.Header.Set(key, value)
 	}
 

@@ -210,6 +210,62 @@ func tokensMatch(provided string, expected string) bool {
 	return subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
 }
 
+func sanitizeSubmittedHeaders(headers map[string]string) map[string]string {
+	if len(headers) == 0 {
+		return nil
+	}
+	cleaned := make(map[string]string, len(headers))
+	for k, v := range headers {
+		trimmed := strings.TrimSpace(k)
+		if trimmed == "" ||
+			strings.EqualFold(trimmed, "X-Hydra-Token") ||
+			strings.EqualFold(trimmed, "Range") ||
+			strings.EqualFold(trimmed, "Content-Length") {
+			continue
+		}
+		cleaned[trimmed] = v
+	}
+	if len(cleaned) == 0 {
+		return nil
+	}
+	return cleaned
+}
+
+func isSensitiveHeaderKey(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	switch lower {
+	case "authorization", "proxy-authorization", "cookie", "cookie2",
+		"x-api-key", "x-auth-token", "x-access-token", "x-hydra-token":
+		return true
+	}
+	return strings.Contains(lower, "token") ||
+		strings.Contains(lower, "secret") ||
+		strings.Contains(lower, "cookie") ||
+		strings.Contains(lower, "auth")
+}
+
+func cloneJobsWithRedactedHeaders(jobs []models.UIJob) []models.UIJob {
+	if len(jobs) == 0 {
+		return jobs
+	}
+	cloned := make([]models.UIJob, len(jobs))
+	for i, job := range jobs {
+		cloned[i] = job
+		if len(job.Headers) > 0 {
+			safeHeaders := make(map[string]string, len(job.Headers))
+			for k, v := range job.Headers {
+				if isSensitiveHeaderKey(k) {
+					safeHeaders[k] = "[REDACTED]"
+				} else {
+					safeHeaders[k] = v
+				}
+			}
+			cloned[i].Headers = safeHeaders
+		}
+	}
+	return cloned
+}
+
 func requireAPIToken(w http.ResponseWriter, r *http.Request) bool {
 	if !tokensMatch(r.Header.Get("X-Hydra-Token"), hydraAPIToken) {
 		writeJSONError(
@@ -860,8 +916,8 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		if parsedScheduledAt != nil {
 			job.ScheduledAt = parsedScheduledAt
 		}
-		if len(payload.Headers) > 0 {
-			job.Headers = payload.Headers
+		if cleanHeaders := sanitizeSubmittedHeaders(payload.Headers); len(cleanHeaders) > 0 {
+			job.Headers = cleanHeaders
 		}
 		if payload.ResetSpeedLimit {
 			job.MaxSpeedBytes = 0
@@ -1065,7 +1121,7 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		ETA:              "--",
 		Status:           status,
 		ScheduledAt:      parsedScheduledAt,
-		Headers:          payload.Headers,
+		Headers:          sanitizeSubmittedHeaders(payload.Headers),
 		MaxSpeedBytes:    payload.MaxSpeedBytes,
 		ExpectedChecksum: payload.ExpectedChecksum,
 		ChecksumAlgo:     payload.ChecksumAlgo,
@@ -1253,7 +1309,7 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 			ETA:         "--",
 			Status:      status,
 			ScheduledAt: parsedScheduledAt,
-			Headers:     payload.Headers,
+			Headers:     sanitizeSubmittedHeaders(payload.Headers),
 		}
 
 		_ = s.db.SaveJob(&newJob)
@@ -1497,7 +1553,13 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetQueueJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	jobs := s.db.GetAllJobs()
+	var jobs []models.UIJob
+	if s.db != nil {
+		jobs = s.db.GetAllJobs()
+	}
+	if !tokensMatch(r.Header.Get("X-Hydra-Token"), hydraAPIToken) {
+		jobs = cloneJobsWithRedactedHeaders(jobs)
+	}
 
 	_ = json.NewEncoder(w).Encode(jobs)
 }
