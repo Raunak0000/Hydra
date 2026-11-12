@@ -5,7 +5,13 @@ echo "============================================="
 echo "🧪 Hydra Package Validation Suite (Week 20)"
 echo "============================================="
 
-DEB_PKG="dist/hydra_1.0.0_amd64.deb"
+VERSION=$(awk -F'"' '/^version:/ {print $2}' nfpm.yaml | sed 's/^v//')
+if [[ -z "$VERSION" ]]; then
+    echo "❌ Error: Could not determine version from nfpm.yaml"
+    exit 1
+fi
+
+DEB_PKG="dist/hydra_${VERSION}_amd64.deb"
 
 if [[ ! -f "$DEB_PKG" ]]; then
     echo "❌ Error: $DEB_PKG not found! Run ./build.sh first."
@@ -17,7 +23,7 @@ dpkg-deb -I "$DEB_PKG" > /tmp/hydra_deb_info.txt
 
 grep -q "Package: hydra" /tmp/hydra_deb_info.txt || { echo "❌ Failed: Package name mismatch"; exit 1; }
 grep -q "Architecture: amd64" /tmp/hydra_deb_info.txt || { echo "❌ Failed: Architecture mismatch"; exit 1; }
-grep -qE "Version: (v)?1\.0\.0" /tmp/hydra_deb_info.txt || { echo "❌ Failed: Version mismatch"; exit 1; }
+grep -qE "Version: (v)?${VERSION//./\\.}" /tmp/hydra_deb_info.txt || { echo "❌ Failed: Version mismatch"; exit 1; }
 echo "  ✓ Package metadata valid."
 
 echo "📂 [2/5] Validating payload contents and file permissions..."
@@ -95,7 +101,7 @@ echo "🔄 [4/5] Simulating package upgrade cycle..."
 # Overwrite installation to ensure upgrade replaces files idempotently
 dpkg-deb -x "$DEB_PKG" "$TEST_ROOT"
 if [[ -f "$TEST_ROOT/DEBIAN/postinst" ]]; then
-    "$TEST_ROOT/DEBIAN/postinst" configure "v1.0.0"
+    "$TEST_ROOT/DEBIAN/postinst" configure "v${VERSION}"
     echo "  ✓ Package upgrade simulated successfully."
 fi
 
