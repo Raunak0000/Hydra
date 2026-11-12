@@ -40,8 +40,9 @@ export const BINARY_MIME_PATTERNS = [
 
 export const WEBPAGE_MIME_PATTERNS = [
     "text/html", "text/css", "text/javascript", "application/javascript",
-    "application/json", "application/xml", "text/xml", "text/plain",
-    "image/svg+xml", "application/xhtml+xml",
+    "application/json", "+json", "application/xml", "text/xml", "+xml",
+    "text/plain", "image/svg+xml", "application/xhtml+xml",
+    "application/x-www-form-urlencoded", "application/wasm",
 ];
 
 export const DEFAULT_SETTINGS = Object.freeze({
@@ -194,7 +195,14 @@ export function getResponseHeader(responseHeaders, name) {
     return responseHeaders.find((h) => h?.name?.toLowerCase() === lower)?.value || "";
 }
 
-export function evaluateResponseForInterception({ url, responseHeaders = [], settings = {} }) {
+export function evaluateResponseForInterception({
+    url,
+    statusCode = 0,
+    method = "",
+    resourceType = "",
+    responseHeaders = [],
+    settings = {},
+}) {
     const merged = { ...DEFAULT_SETTINGS, ...settings };
     if (merged.autoCapture === false) {
         return { intercept: false, reason: "autoCapture_disabled" };
@@ -209,6 +217,13 @@ export function evaluateResponseForInterception({ url, responseHeaders = [], set
         return { intercept: false, reason: "excluded_host" };
     }
 
+    // Never hijack redirects (3xx login/SSO hops), 204/304 empty responses, or 4xx/5xx error pages.
+    if (Number.isFinite(statusCode) && statusCode > 0) {
+        if (statusCode < 200 || statusCode >= 300 || statusCode === 204 || statusCode === 205) {
+            return { intercept: false, reason: "non_download_status" };
+        }
+    }
+
     const minInterceptBytes = Math.max(0, Number(merged.minInterceptKB ?? 512)) * 1024;
     const extensions = getEffectiveExtensions(merged);
 
@@ -217,24 +232,31 @@ export function evaluateResponseForInterception({ url, responseHeaders = [], set
     const rawLength = parseInt(getResponseHeader(responseHeaders, "content-length") || "0", 10);
     const contentLength = Number.isFinite(rawLength) && rawLength > 0 ? rawLength : 0;
 
-    // 1. Explicit attachment Content-Disposition always wins.
-    if (contentDisposition) {
-        const cdl = contentDisposition.toLowerCase();
-        if (cdl.includes("attachment") || cdl.includes("filename")) {
-            const cdName = parseContentDispositionFilename(contentDisposition);
-            return {
-                intercept: true,
-                reason: "content_disposition",
-                filename: cdName || filenameFromURL(url),
-                contentLength,
-                contentType,
-            };
-        }
+    // 1. Explicit attachment Content-Disposition always wins (ignore "inline" dispositions).
+    if (contentDisposition && /\battachment\b/i.test(contentDisposition)) {
+        const cdName = parseContentDispositionFilename(contentDisposition);
+        return {
+            intercept: true,
+            reason: "content_disposition",
+            filename: cdName || filenameFromURL(url),
+            contentLength,
+            contentType,
+        };
     }
 
     // Never hijack webpages/API responses unless explicit attachment was requested above.
     if (contentType && WEBPAGE_MIME_PATTERNS.some((pat) => contentType.includes(pat))) {
         return { intercept: false, reason: "webpage_mime" };
+    }
+
+    // Form submissions (e.g., AWS/OAuth POST sign-in) and hidden iframes without explicit
+    // attachment headers should navigate normally; genuine downloads still trigger downloads.onCreated.
+    const normMethod = String(method || "").trim().toUpperCase();
+    if (normMethod && normMethod !== "GET") {
+        return { intercept: false, reason: "non_get_heuristic" };
+    }
+    if (resourceType === "sub_frame") {
+        return { intercept: false, reason: "subframe_heuristic" };
     }
 
     const urlName = filenameFromURL(url);
@@ -253,9 +275,11 @@ export function evaluateResponseForInterception({ url, responseHeaders = [], set
         }
     }
 
-    // 3. application/octet-stream without extension (GoFile / MediaFire / generic storage).
+    // 3. Extensionless application/octet-stream: only intercept upfront when Content-Length
+    // meets minInterceptBytes; unknown-size streams fall through to browser downloads.onCreated
+    // so auth/redirect endpoints without extensions are never misidentified as downloads.
     if (contentType.includes("application/octet-stream")) {
-        if (contentLength >= minInterceptBytes || contentLength === 0) {
+        if (contentLength >= minInterceptBytes) {
             return {
                 intercept: true,
                 reason: "octet_stream",

@@ -125,6 +125,72 @@ test("response and download interception filters webpages, excludes hosts, and m
     assert.equal(itemRes.intercept, true);
     assert.equal(itemRes.filename, "app.AppImage");
     assert.equal(itemRes.contentLength, 85_000_000);
+
+    // AWS login / web navigation with extensionless octet-stream + unknown length is NOT hijacked upfront
+    const awsHome = evaluateResponseForInterception({
+        url: "https://eu-north-1.console.aws.amazon.com/console/home",
+        statusCode: 200,
+        method: "GET",
+        resourceType: "main_frame",
+        responseHeaders: [{ name: "Content-Type", value: "application/octet-stream" }],
+    });
+    assert.equal(awsHome.intercept, false);
+
+    // 302 redirects, POST form logins, inline dispositions, and hidden iframes are NOT hijacked
+    const redirect = evaluateResponseForInterception({
+        url: "https://signin.aws.amazon.com/oauth",
+        statusCode: 302,
+        method: "GET",
+        resourceType: "main_frame",
+        responseHeaders: [{ name: "Content-Type", value: "application/octet-stream" }],
+    });
+    assert.equal(redirect.intercept, false);
+    assert.equal(redirect.reason, "non_download_status");
+
+    const postLogin = evaluateResponseForInterception({
+        url: "https://signin.aws.amazon.com/authenticate",
+        statusCode: 200,
+        method: "POST",
+        resourceType: "main_frame",
+        responseHeaders: [
+            { name: "Content-Type", value: "application/octet-stream" },
+            { name: "Content-Length", value: "1048576" },
+        ],
+    });
+    assert.equal(postLogin.intercept, false);
+    assert.equal(postLogin.reason, "non_get_heuristic");
+
+    const inlineDisp = evaluateResponseForInterception({
+        url: "https://eu-north-1.console.aws.amazon.com/console/home",
+        statusCode: 200,
+        method: "GET",
+        resourceType: "main_frame",
+        responseHeaders: [
+            { name: "Content-Type", value: "text/html; charset=utf-8" },
+            { name: "Content-Disposition", value: 'inline; filename="home.html"' },
+        ],
+    });
+    assert.equal(inlineDisp.intercept, false);
+
+    const subframe = evaluateResponseForInterception({
+        url: "https://auth.example.com/session",
+        statusCode: 200,
+        method: "GET",
+        resourceType: "sub_frame",
+        responseHeaders: [
+            { name: "Content-Type", value: "application/octet-stream" },
+            { name: "Content-Length", value: "1048576" },
+        ],
+    });
+    assert.equal(subframe.intercept, false);
+    assert.equal(subframe.reason, "subframe_heuristic");
+
+    // True unknown-size extensionless octet-stream still gets captured if browser fires downloads.onCreated
+    const trueOctetDownload = evaluateDownloadItemForInterception({
+        item: { url: "https://storage.example.com/blob/abc123", mime: "application/octet-stream", totalBytes: 0 },
+    });
+    assert.equal(trueOctetDownload.intercept, true);
+    assert.equal(trueOctetDownload.reason, "download_item_mime");
 });
 
 test("destination presets, validation, and payload builder support folder, pending, speed cap, checksum, pause, and schedule", () => {

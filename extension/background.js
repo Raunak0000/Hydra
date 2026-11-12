@@ -588,6 +588,9 @@ async function processHeadersReceived(details, allowBlockingCancel) {
     const settings = await loadSettings();
     const decision = evaluateResponseForInterception({
         url: details.url,
+        statusCode: details.statusCode,
+        method: details.method,
+        resourceType: details.type,
         responseHeaders: details.responseHeaders || [],
         settings,
     });
