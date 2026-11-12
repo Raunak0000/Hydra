@@ -27,9 +27,15 @@ func NewRateLimiter(bytesPerSec int64) *RateLimiter {
 func (rl *RateLimiter) SetLimit(bytesPerSec int64) {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
+	prev := rl.bytesPerSec
 	rl.bytesPerSec = bytesPerSec
+	rl.lastCheck = time.Now()
 	if bytesPerSec <= 0 {
 		rl.tokens = 0
+		return
+	}
+	if prev <= 0 {
+		rl.tokens = float64(bytesPerSec)
 		return
 	}
 	maxTokens := float64(bytesPerSec) * rl.maxBurstSecs

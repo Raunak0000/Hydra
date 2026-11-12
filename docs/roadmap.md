@@ -244,7 +244,7 @@ user-facing service that users must operate manually.
 
 ### Week 27: Settings and desktop polish
 
-- [ ] Add settings for folders, limits, connections, scheduling, and rules.
+- [x] Add settings for folders, limits, connections, scheduling, and rules.
 - [ ] Add global/default download rules by file type and destination.
 - [ ] Make the TUI and CLI optional advanced interfaces.
 - [ ] Ensure the complete lifecycle is manageable from the desktop.
