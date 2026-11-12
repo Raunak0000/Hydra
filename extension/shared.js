@@ -336,18 +336,51 @@ export function evaluateDownloadItemForInterception({ item = {}, cachedMeta = nu
     return { intercept: false, reason: "no_match" };
 }
 
+function filenameMatchesExt(lowerBase, ext) {
+    if (!lowerBase || !ext) return false;
+    const suffix = `.${ext}`;
+    return lowerBase.length > suffix.length && lowerBase.endsWith(suffix);
+}
+
 export function resolveCategoryDestination(filename, daemonSettings = null, fallbackDir = "~/Downloads") {
-    const ext = extractExtension(filename);
     const defaultDir = String(daemonSettings?.default_save_path || "").trim() || fallbackDir;
+    if (daemonSettings?.disable_auto_categorize) {
+        return { category: "Default", path: defaultDir };
+    }
+
+    const baseName = String(filename || "").split("/").pop()?.split("?")[0]?.trim().toLowerCase() || "";
     const categories = daemonSettings?.categories;
 
-    if (ext && categories && typeof categories === "object") {
-        for (const [catName, rule] of Object.entries(categories)) {
-            if (!rule || !Array.isArray(rule.extensions)) continue;
-            const hit = rule.extensions.some((e) => String(e || "").replace(/^\.+/, "").toLowerCase() === ext);
-            if (hit && rule.path) {
-                return { category: catName, path: String(rule.path).trim() };
+    if (baseName && baseName !== "." && baseName !== ".." && categories && typeof categories === "object") {
+        const matches = [];
+        for (const catName of Object.keys(categories).sort()) {
+            const rule = categories[catName];
+            if (!rule || rule.disabled || !Array.isArray(rule.extensions) || !String(rule.path || "").trim()) {
+                continue;
             }
+            let bestExt = "";
+            for (const rawExt of rule.extensions) {
+                const norm = String(rawExt || "").trim().replace(/^\.+/, "").toLowerCase();
+                if (filenameMatchesExt(baseName, norm) && norm.length > bestExt.length) {
+                    bestExt = norm;
+                }
+            }
+            if (bestExt) {
+                matches.push({
+                    category: catName,
+                    path: String(rule.path).trim(),
+                    priority: Number(rule.priority || 0),
+                    extLen: bestExt.length,
+                });
+            }
+        }
+        if (matches.length > 0) {
+            matches.sort((a, b) => {
+                if (a.priority !== b.priority) return b.priority - a.priority;
+                if (a.extLen !== b.extLen) return b.extLen - a.extLen;
+                return a.category < b.category ? -1 : a.category > b.category ? 1 : 0;
+            });
+            return { category: matches[0].category, path: matches[0].path };
         }
     }
     return { category: "Default", path: defaultDir };
@@ -373,7 +406,7 @@ export function buildDestinationPresets(filename, daemonSettings = null, recentD
     const categories = daemonSettings?.categories;
     if (categories && typeof categories === "object") {
         for (const [name, rule] of Object.entries(categories)) {
-            if (rule?.path) {
+            if (rule && !rule.disabled && rule.path) {
                 addPreset(`${name} (${rule.path})`, rule.path, "category");
             }
         }

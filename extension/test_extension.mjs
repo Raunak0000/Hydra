@@ -278,3 +278,38 @@ test("browser fallback bypass permits both webRequest and downloads hooks once i
     pruneBypassMap(map3, 4_000);
     assert.equal(map3[url], undefined);
 });
+
+test("resolveCategoryDestination respects priority, compound extensions, disabled rules, and auto-categorize toggle", () => {
+    const settings = {
+        default_save_path: "~/Downloads",
+        disable_auto_categorize: false,
+        categories: {
+            Compressed: { extensions: ["gz", "zip"], path: "~/Downloads/Compressed", priority: 0 },
+            ZZ_TarGz: { extensions: ["tar.gz"], path: "~/Archives/Tar", priority: 0 },
+            SpecialISO: { extensions: ["zip"], path: "~/Archives/Special", priority: 25 },
+            PausedRule: { extensions: ["mkv"], path: "~/Videos/Alt", priority: 100, disabled: true },
+            Video: { extensions: ["mkv"], path: "~/Videos", priority: 0 },
+        },
+    };
+
+    assert.deepEqual(resolveCategoryDestination("hydra-src.tar.gz", settings), {
+        category: "ZZ_TarGz",
+        path: "~/Archives/Tar",
+    });
+    assert.deepEqual(resolveCategoryDestination("bundle.zip", settings), {
+        category: "SpecialISO",
+        path: "~/Archives/Special",
+    });
+    assert.deepEqual(resolveCategoryDestination("clip.mkv", settings), {
+        category: "Video",
+        path: "~/Videos",
+    });
+
+    const disabledPresets = buildDestinationPresets("clip.mkv", settings);
+    assert.ok(!disabledPresets.some((p) => p.path === "~/Videos/Alt"));
+
+    assert.deepEqual(
+        resolveCategoryDestination("bundle.zip", { ...settings, disable_auto_categorize: true }),
+        { category: "Default", path: "~/Downloads" }
+    );
+});
