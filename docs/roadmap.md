@@ -262,11 +262,11 @@ user-facing service that users must operate manually.
 
 ### Week 29: Security and operational review
 
-- [ ] Review API token configuration and remove development defaults.
-- [ ] Validate browser authentication-header handling.
-- [ ] Test path traversal, symlinks, conflicts, and unusual filenames.
-- [ ] Validate package startup, upgrade, removal, and background recovery.
-- [ ] **Milestone:** Hydra is safe for real Linux desktop users.
+- [x] Review API token configuration and remove development defaults.
+- [x] Validate browser authentication-header handling.
+- [x] Test path traversal, symlinks, conflicts, and unusual filenames.
+- [x] Validate package startup, upgrade, removal, and background recovery.
+- [x] **Milestone:** Hydra is safe for real Linux desktop users.
 
 ### Week 30: Release
 
