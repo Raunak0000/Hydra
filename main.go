@@ -60,7 +60,12 @@ func main() {
 
 	storage.GlobalCancelMutex = &sync.Mutex{}
 
-	executeDownloadJob := func(url, savePath, jobID string, headers map[string]string) error {
+	executeDownloadJob := newExecuteDownloadJob(dbStore)
+	runDaemon(dbStore, executeDownloadJob)
+}
+
+func newExecuteDownloadJob(dbStore *storage.DBStore) func(url, savePath, jobID string, headers map[string]string) error {
+	return func(url, savePath, jobID string, headers map[string]string) error {
 
 		job, exists := dbStore.GetJob(jobID)
 
@@ -984,7 +989,9 @@ func main() {
 		return nil
 
 	}
+}
 
+func runDaemon(dbStore *storage.DBStore, executeDownloadJob func(url, savePath, jobID string, headers map[string]string) error) {
 	maxConcurrent := 2
 	if cfg, cfgErr := storage.LoadConfig(); cfgErr != nil {
 		log.Printf("[Hydra-Daemon] Failed to load config (using defaults): %v", cfgErr)
@@ -1041,9 +1048,14 @@ func main() {
 
 	server := storage.NewServer(executeDownloadJob)
 
+	httpAddr := strings.TrimSpace(os.Getenv("HYDRA_HTTP_ADDR"))
+	if httpAddr == "" {
+		httpAddr = "127.0.0.1:9000"
+	}
+
 	httpServer := &http.Server{
 
-		Addr: "127.0.0.1:9000",
+		Addr: httpAddr,
 
 		Handler: server.Router,
 
@@ -1052,7 +1064,7 @@ func main() {
 
 	go func() {
 
-		log.Printf("[Hydra-Daemon] Starting HTTP server on 127.0.0.1:9000")
+		log.Printf("[Hydra-Daemon] Starting HTTP server on %s", httpAddr)
 
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 

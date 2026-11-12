@@ -3,6 +3,7 @@ package storage
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -32,7 +33,11 @@ func StartIPCServer(downloadTrigger func(string, string, string)) {
 	_ = os.Chmod(socketPath, 0600)
 
 	fmt.Printf("[⚙] Hydra IPC Server listening silently on %s\n", socketPath)
+	ServeIPCListener(listener, downloadTrigger)
+}
 
+// ServeIPCListener serves Hydra IPC commands on the supplied listener until it is closed.
+func ServeIPCListener(listener net.Listener, downloadTrigger func(string, string, string)) {
 	dbStore, err := GetDBStore()
 	if err != nil {
 		fmt.Printf("[X] IPC Server could not connect to SQLite: %v\n", err)
@@ -42,6 +47,9 @@ func StartIPCServer(downloadTrigger func(string, string, string)) {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
 			continue
 		}
 
