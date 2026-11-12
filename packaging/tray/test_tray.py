@@ -133,6 +133,33 @@ class TrayControllerLogicTest(unittest.TestCase):
         self.assertIn(("POST", "/api/jobs/job1/pause", "tray-tok"), requests_seen)
         self.assertIn(("POST", "/api/jobs/job1/resume", "tray-tok"), requests_seen)
 
+    def test_resolve_icon_paths_returns_svg_parent_for_hicolor_layout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            svg_dir = Path(tmp) / "icons" / "hicolor" / "scalable" / "apps"
+            svg_dir.mkdir(parents=True)
+            svg_file = svg_dir / "hydra.svg"
+            svg_file.write_text("<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64'></svg>", encoding="utf-8")
+
+            icon_name, icon_svg, theme_dir = tray.resolve_icon_paths(env={"XDG_DATA_HOME": tmp})
+            self.assertEqual(icon_name, "hydra")
+            self.assertEqual(icon_svg, str(svg_file))
+            self.assertEqual(theme_dir, str(svg_dir))
+
+            try:
+                import gi
+
+                gi.require_version("Gtk", "3.0")
+                from gi.repository import Gtk
+
+                theme = Gtk.IconTheme.new()
+                theme.set_search_path([theme_dir])
+                info = theme.lookup_icon(icon_name, 24, 0)
+                self.assertIsNotNone(info)
+                assert info is not None
+                self.assertEqual(info.get_filename(), str(svg_file))
+            except (ImportError, ValueError):
+                pass
+
 
 if __name__ == "__main__":
     unittest.main()

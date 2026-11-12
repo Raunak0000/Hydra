@@ -167,7 +167,7 @@ def resolve_downloads_dir(
 
 
 def resolve_icon_paths(script_path: Optional[Path] = None, env: Optional[Dict[str, str]] = None) -> Tuple[str, Optional[str], Optional[str]]:
-    """Return (icon_name, svg_file_path_or_none, hicolor_theme_dir_or_none)."""
+    """Return (icon_name, svg_file_path_or_none, icon_dir_or_none)."""
     source = env if env is not None else os.environ
     data_home = source.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
 
@@ -185,13 +185,10 @@ def resolve_icon_paths(script_path: Optional[Path] = None, env: Optional[Dict[st
     for svg in candidates:
         try:
             if svg.is_file():
-                # AppIndicator looks for <theme_dir>/<size>/apps/<name>.svg OR <dir>/<name>.svg
-                theme_root = None
-                if svg.parent.name == "apps" and svg.parent.parent.name == "scalable":
-                    theme_root = str(svg.parent.parent.parent)
-                else:
-                    theme_root = str(svg.parent)
-                return ("hydra", str(svg), theme_root)
+                # Pass the flat directory containing hydra.svg directly:
+                # passing .../hicolor breaks St.IconTheme / Gtk.IconTheme lookups
+                # because "hicolor" is a theme name, not a theme search root.
+                return ("hydra", str(svg), str(svg.parent))
         except OSError:
             continue
 
@@ -698,13 +695,21 @@ def run_tray_app(args: argparse.Namespace, lock_handle: Any) -> int:
             self.menu.show_all()
 
             if app_indicator_mod is not None:
-                self.indicator = app_indicator_mod.Indicator.new(
-                    "hydra-downloader",
-                    icon_name,
-                    app_indicator_mod.IndicatorCategory.APPLICATION_STATUS,
-                )
-                if theme_dir:
-                    self.indicator.set_icon_theme_path(theme_dir)
+                if theme_dir and hasattr(app_indicator_mod.Indicator, "new_with_path"):
+                    self.indicator = app_indicator_mod.Indicator.new_with_path(
+                        "hydra-downloader",
+                        icon_name,
+                        app_indicator_mod.IndicatorCategory.APPLICATION_STATUS,
+                        theme_dir,
+                    )
+                else:
+                    self.indicator = app_indicator_mod.Indicator.new(
+                        "hydra-downloader",
+                        icon_name,
+                        app_indicator_mod.IndicatorCategory.APPLICATION_STATUS,
+                    )
+                    if theme_dir:
+                        self.indicator.set_icon_theme_path(theme_dir)
                 self.indicator.set_status(app_indicator_mod.IndicatorStatus.ACTIVE)
                 self.indicator.set_icon_full(icon_name, "Hydra Downloader")
                 self.indicator.set_title("Hydra Downloader")
