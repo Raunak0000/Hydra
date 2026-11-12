@@ -173,11 +173,10 @@ func main() {
 		meta, err := downloader.GetMetadataContext(ctx, url, headers)
 
 		if err != nil {
-
-			_ = dbStore.UpdateErrorMessage(jobID, err.Error())
-
+			if ctx.Err() == nil {
+				_ = dbStore.UpdateErrorMessage(jobID, err.Error())
+			}
 			return err
-
 		}
 
 		totalSizeStr := "Unknown Size"
@@ -339,7 +338,12 @@ func main() {
 		initializationComplete = true
 
 		cfg := storage.GetConfig()
-		numThreads := resolveWorkerThreads(url, cfg.DefaultThreads, cfg.MaxThreads, meta.AcceptRanges, meta.Size)
+		ruleFileName := job.FileName
+		if ruleFileName == "" || ruleFileName == "Calculating..." || ruleFileName == "Pending path..." {
+			ruleFileName = filepathBase(savePath)
+		}
+		ruleMatch := storage.MatchDownloadRuleInConfig(cfg, ruleFileName)
+		numThreads := resolveWorkerThreads(url, ruleMatch.EffectiveThreads, cfg.MaxThreads, meta.AcceptRanges, meta.Size)
 
 		var chunks []downloader.Chunk
 
@@ -469,22 +473,17 @@ func main() {
 		}
 
 		cfg = storage.GetConfig()
+		ruleMatch = storage.MatchDownloadRuleInConfig(cfg, ruleFileName)
 
+		hasJobSpeedOverride := job.MaxSpeedBytes > 0
 		speedLimit := job.MaxSpeedBytes
-
-		if speedLimit <= 0 {
-
-			speedLimit = cfg.SpeedLimitBytes
-
+		if !hasJobSpeedOverride {
+			speedLimit = ruleMatch.EffectiveSpeedBps
 		}
 
-		var limiter *downloader.RateLimiter
-
-		if speedLimit > 0 {
-
-			limiter = downloader.NewRateLimiter(speedLimit)
-
-		}
+		limiter := downloader.NewRateLimiter(speedLimit)
+		storage.RegisterActiveLimiter(jobID, ruleFileName, hasJobSpeedOverride, limiter)
+		defer storage.UnregisterActiveLimiter(jobID)
 
 		var wg sync.WaitGroup
 
@@ -666,15 +665,17 @@ func main() {
 
 					}
 
-					if err := dbStore.UpdateProgress(
+					if ctx.Err() == nil {
+						if err := dbStore.UpdateProgress(
 
-						jobID, progressPct, formatBytes(cur),
+							jobID, progressPct, formatBytes(cur),
 
-						formatSpeed(smoothed), eta, "", "DOWNLOADING",
-					); err != nil {
+							formatSpeed(smoothed), eta, "", "DOWNLOADING",
+						); err != nil {
 
-						log.Printf("updating progress for job %s: %v", jobID, err)
+							log.Printf("updating progress for job %s: %v", jobID, err)
 
+						}
 					}
 
 					if now.Sub(lastChunkSave) >= 2*time.Second {
@@ -787,6 +788,8 @@ func main() {
 		}
 
 		if ctx.Err() != nil {
+			downloader.SharedHTTPClient.CloseIdleConnections()
+
 			pausedPct := 0.0
 			if meta.Size > 0 {
 				pausedPct = float64(finalDownloaded) / float64(meta.Size) * 100
@@ -795,24 +798,30 @@ func main() {
 				}
 			}
 
-			_ = dbStore.UpdateProgress(
+			if currentJob, exists := dbStore.GetJob(jobID); exists {
+				targetStatus := "PAUSED"
+				if currentJob.Status == "QUEUED" || currentJob.Status == "SCHEDULED" {
+					targetStatus = currentJob.Status
+				}
+				_ = dbStore.UpdateProgress(
 
-				jobID,
+					jobID,
 
-				pausedPct,
+					pausedPct,
 
-				formatBytes(finalDownloaded),
+					formatBytes(finalDownloaded),
 
-				"0.00 KB/s",
+					"0.00 KB/s",
 
-				"--",
+					"--",
 
-				"",
+					"",
 
-				"PAUSED",
-			)
+					targetStatus,
+				)
 
-			storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
+				storage.GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
+			}
 
 			return ctx.Err()
 
@@ -1008,7 +1017,7 @@ func main() {
 			log.Printf("IPC download job %s failed: %v", jobID, err)
 
 			currentJob, exists := dbStore.GetJob(jobID)
-			if !exists || currentJob.Status == "PAUSED" || errors.Is(err, context.Canceled) {
+			if !exists || currentJob.Status == "PAUSED" || currentJob.Status == "QUEUED" || errors.Is(err, context.Canceled) {
 				return
 			}
 

@@ -580,3 +580,103 @@ func TestSingleThreadKnownSizeNonRangeServer(t *testing.T) {
 		t.Fatalf("downloaded bytes differ from non-range payload")
 	}
 }
+
+func TestDownloadChunkParallel_FailsCleanlyOnZeroByteAnd503Stall(t *testing.T) {
+	cases := []struct {
+		name     string
+		handler  http.HandlerFunc
+		wantSub  string
+	}{
+		{
+			name: "persistent_503",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, "service busy", http.StatusServiceUnavailable)
+			},
+			wantSub: "HTTP 503",
+		},
+		{
+			name: "persistent_zero_byte_eof",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				var start int64
+				if rh := r.Header.Get("Range"); rh != "" {
+					_, _ = fmt.Sscanf(rh, "bytes=%d-", &start)
+				}
+				w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/2097152", start, start+1023))
+				w.Header().Set("Content-Length", "0")
+				w.WriteHeader(http.StatusPartialContent)
+			},
+			wantSub: "stalled with zero bytes",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(tc.handler)
+			defer server.Close()
+
+			fileSize := int64(2 * 1024 * 1024)
+			tmpFile, err := os.CreateTemp("", "hydra_stall_*.bin")
+			if err != nil {
+				t.Fatalf("CreateTemp failed: %v", err)
+			}
+			defer os.Remove(tmpFile.Name())
+			defer tmpFile.Close()
+			if err := tmpFile.Truncate(fileSize); err != nil {
+				t.Fatalf("Truncate failed: %v", err)
+			}
+
+			chunks := CalculateChunks(fileSize, 2)
+			trackers := make([]*AdaptiveTracker, len(chunks))
+			for i, ch := range chunks {
+				trackers[i] = &AdaptiveTracker{
+					Index:       i,
+					StartByte:   ch.Start,
+					CurrentPtr:  ch.Start,
+					EndBoundary: ch.End,
+				}
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+
+			var wg sync.WaitGroup
+			errChan := make(chan error, len(chunks))
+			progressChan := make(chan int64, 16)
+			stateChan := make(chan Chunk, 16)
+
+			for i := 0; i < len(chunks); i++ {
+				wg.Add(1)
+				go DownloadChunkParallel(
+					ctx,
+					server.URL,
+					i,
+					trackers,
+					tmpFile,
+					&wg,
+					errChan,
+					progressChan,
+					stateChan,
+					nil,
+					nil,
+				)
+			}
+
+			wg.Wait()
+			close(progressChan)
+			close(stateChan)
+
+			select {
+			case workerErr := <-errChan:
+				if workerErr == nil || !strings.Contains(workerErr.Error(), tc.wantSub) {
+					t.Fatalf("expected error containing %q, got %v", tc.wantSub, workerErr)
+				}
+			default:
+				t.Fatalf("expected worker error containing %q, got none", tc.wantSub)
+			}
+
+			if ctx.Err() != nil {
+				t.Fatalf("workers hung until context timeout (%v) instead of failing cleanly", ctx.Err())
+			}
+		})
+	}
+}

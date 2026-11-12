@@ -83,6 +83,22 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Pre-fill download URL when opening --new-download",
     )
     parser.add_argument(
+        "--batch-download",
+        action="store_true",
+        help="Open the Batch Download dialog immediately on launch",
+    )
+    parser.add_argument(
+        "--settings",
+        action="store_true",
+        help="Open Settings & Download Rules dialog immediately on launch",
+    )
+    parser.add_argument(
+        "--settings-tab",
+        default="folders",
+        choices=["folders", "limits", "scheduling", "rules"],
+        help="Select initial tab when opening --settings (default: folders)",
+    )
+    parser.add_argument(
         "--check",
         action="store_true",
         help="Inspect GTK 4 + Libadwaita GUI support and exit (prints JSON status)",
@@ -117,6 +133,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         poll_interval_sec=args.poll_interval,
         open_new_download=bool(args.new_download or args.url.strip()),
         initial_url=args.url,
+        open_batch_download=bool(args.batch_download),
+        open_settings=bool(args.settings),
+        initial_settings_tab=args.settings_tab,
     )
     return int(app.run(None))
 

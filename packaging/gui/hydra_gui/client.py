@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import threading
@@ -286,8 +287,146 @@ def ensure_local_daemon(
     return is_tcp_reachable(host, port)
 
 
+def _resolve_lock_candidates(env: Optional[Dict[str, str]] = None) -> List[Path]:
+    source = env if env is not None else os.environ
+    candidates: List[Path] = []
+    runtime_dir = source.get("XDG_RUNTIME_DIR", "").strip()
+    if runtime_dir:
+        candidates.append(Path(runtime_dir) / "hydra.lock")
+    data_home = source.get("XDG_DATA_HOME", "").strip() or str(Path.home() / ".local" / "share")
+    candidates.append(Path(data_home) / "hydra" / "hydra.lock")
+    candidates.append(Path(f"/tmp/hydra-{os.getuid()}.lock"))
+    return candidates
+
+
+def stop_local_daemon(
+    daemon_url: str = DEFAULT_DAEMON_URL,
+    env: Optional[Dict[str, str]] = None,
+    timeout: float = 4.0,
+) -> Tuple[bool, str]:
+    """Stop local hydra-daemon cleanly via systemd --user or instance lock PID."""
+    addr = daemon_address_from_url(daemon_url)
+    if addr is None:
+        return False, "Only local loopback daemons can be controlled from desktop."
+    host, port = addr
+
+    if systemd_user_available():
+        try:
+            res = subprocess.run(
+                ["systemctl", "--user", "stop", "hydra.service"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=4,
+            )
+            if res.returncode == 0:
+                deadline = time.monotonic() + max(0.5, timeout)
+                while time.monotonic() < deadline:
+                    if not is_tcp_reachable(host, port, timeout=0.15):
+                        return True, ""
+                    time.sleep(0.1)
+                if not is_tcp_reachable(host, port, timeout=0.15):
+                    return True, ""
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    signaled = False
+    for lock_path in _resolve_lock_candidates(env):
+        try:
+            if not lock_path.is_file() or lock_path.is_symlink():
+                continue
+            pid_text = lock_path.read_text(encoding="utf-8").strip()
+            if pid_text.isdigit():
+                pid = int(pid_text)
+                if pid > 0:
+                    os.kill(pid, signal.SIGTERM)
+                    signaled = True
+                    break
+        except (OSError, ValueError):
+            continue
+
+    if not signaled:
+        if not is_tcp_reachable(host, port, timeout=0.2):
+            return True, ""
+        return False, "Could not locate local daemon process lock or systemd service."
+
+    deadline = time.monotonic() + max(0.5, timeout)
+    while time.monotonic() < deadline:
+        if not is_tcp_reachable(host, port, timeout=0.15):
+            return True, ""
+        time.sleep(0.1)
+
+    return not is_tcp_reachable(host, port, timeout=0.15), "Timed out waiting for daemon shutdown."
+
+
+def restart_local_daemon(
+    daemon_url: str = DEFAULT_DAEMON_URL,
+    anchor_path: Optional[Path] = None,
+    timeout: float = 4.0,
+) -> bool:
+    """Restart local hydra-daemon via systemd --user or stop+start fallback."""
+    addr = daemon_address_from_url(daemon_url)
+    if addr is None:
+        return False
+
+    if systemd_user_available():
+        try:
+            res = subprocess.run(
+                ["systemctl", "--user", "restart", "hydra.service"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+            if res.returncode == 0:
+                host, port = addr
+                deadline = time.monotonic() + max(0.5, timeout)
+                while time.monotonic() < deadline:
+                    if is_tcp_reachable(host, port) and resolve_token():
+                        return True
+                    time.sleep(0.1)
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    stop_local_daemon(daemon_url, timeout=3.0)
+    return ensure_local_daemon(daemon_url, anchor_path=anchor_path, timeout=timeout)
+
+
+def find_tray_binary(anchor_path: Optional[Path] = None) -> Optional[str]:
+    if anchor_path is not None:
+        resolved = anchor_path.resolve()
+        candidates = [
+            resolved.parent / "hydra-tray",
+            resolved.parent.parent / "tray" / "hydra-tray",
+            resolved.parent.parent.parent / "tray" / "hydra-tray",
+        ]
+        for candidate in candidates:
+            try:
+                if candidate.is_file() and os.access(candidate, os.X_OK):
+                    return str(candidate)
+            except OSError:
+                continue
+    return shutil.which("hydra-tray")
+
+
+def launch_tray_controller(anchor_path: Optional[Path] = None, daemon_url: str = DEFAULT_DAEMON_URL) -> bool:
+    """Start optional system tray controller in background without blocking."""
+    tray_bin = find_tray_binary(anchor_path)
+    if not tray_bin:
+        return False
+    try:
+        subprocess.Popen(
+            [tray_bin, "--daemon-url", daemon_url],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return True
+    except OSError:
+        return False
+
+
 def open_path_in_desktop(target_path: str) -> bool:
-    """Open an existing file or folder via xdg-open cleanly without blocking."""
+    """Open an existing folder (or parent folder of a file) via xdg-open cleanly without blocking."""
     cleaned = expand_path((target_path or "").strip())
     if not cleaned or cleaned in {"PENDING", "DEFAULT"}:
         return False
@@ -304,6 +443,33 @@ def open_path_in_desktop(target_path: str) -> bool:
     try:
         subprocess.Popen(
             [xdg_open, target],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return True
+    except OSError:
+        return False
+
+
+def open_file_in_desktop(target_path: str) -> bool:
+    """Open a completed downloaded file itself with the desktop's default application."""
+    cleaned = expand_path((target_path or "").strip())
+    if not cleaned or cleaned in {"PENDING", "DEFAULT"}:
+        return False
+
+    path_obj = Path(cleaned)
+    if not path_obj.is_file():
+        return False
+
+    xdg_open = shutil.which("xdg-open")
+    if not xdg_open:
+        return False
+
+    try:
+        subprocess.Popen(
+            [xdg_open, str(path_obj)],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -381,6 +547,93 @@ class HydraGUIClient:
             return payload
         return None
 
+    def get_settings_with_status(self) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+        ok, payload, err = self._request("GET", "/api/settings", require_auth=False, timeout=2.0)
+        if ok and isinstance(payload, dict):
+            return True, payload, ""
+        return False, None, err or "could not load daemon settings"
+
+    def save_settings(self, settings: Dict[str, Any]) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+        ok, payload, err = self._request(
+            "POST",
+            "/api/settings",
+            require_auth=True,
+            timeout=3.0,
+            body=settings,
+        )
+        if not ok:
+            return False, None, err
+        saved = payload.get("settings") if isinstance(payload, dict) and isinstance(payload.get("settings"), dict) else settings
+        return True, saved, ""
+
+    def get_rules(self) -> Tuple[bool, Dict[str, Any], str]:
+        ok, payload, err = self._request("GET", "/api/rules", require_auth=True, timeout=2.0)
+        if not ok or not isinstance(payload, dict):
+            return False, {}, err
+        return True, payload, ""
+
+    def save_rule(
+        self,
+        name: str,
+        path: str,
+        extensions: List[str],
+        *,
+        disabled: bool = False,
+        priority: int = 0,
+        default_threads: int = 0,
+        speed_limit_bytes: int = 0,
+    ) -> Tuple[bool, str]:
+        ok, _, err = self._request(
+            "POST",
+            "/api/rules",
+            require_auth=True,
+            timeout=2.5,
+            body={
+                "name": name.strip(),
+                "path": path.strip(),
+                "extensions": list(extensions),
+                "disabled": bool(disabled),
+                "priority": int(priority),
+                "default_threads": int(default_threads),
+                "speed_limit_bytes": int(speed_limit_bytes),
+            },
+        )
+        return ok, err
+
+    def delete_rule(self, name: str) -> Tuple[bool, str]:
+        safe_name = quote(name.strip(), safe="")
+        ok, _, err = self._request(
+            "DELETE",
+            f"/api/rules?name={safe_name}",
+            require_auth=True,
+            timeout=2.5,
+        )
+        return ok, err
+
+    def reset_rules(self) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+        ok, payload, err = self._request(
+            "POST",
+            "/api/rules/reset",
+            require_auth=True,
+            timeout=2.5,
+        )
+        if not ok:
+            return False, None, err
+        cats = payload.get("categories") if isinstance(payload, dict) else None
+        return True, (cats if isinstance(cats, dict) else None), ""
+
+    def preview_rule_match(self, filename: str) -> Optional[Dict[str, Any]]:
+        safe_name = quote(filename.strip(), safe="")
+        ok, payload, _ = self._request(
+            "GET",
+            f"/api/rules/match?filename={safe_name}",
+            require_auth=False,
+            timeout=1.5,
+        )
+        if ok and isinstance(payload, dict):
+            return payload
+        return None
+
     def check_disk_space(self, path: str, required_bytes: int = 0) -> Optional[Dict[str, Any]]:
         ok, payload, _ = self._request(
             "POST",
@@ -403,6 +656,7 @@ class HydraGUIClient:
         expected_checksum: str = "",
         checksum_algo: str = "",
         scheduled_at: str = "",
+        start_paused: bool = False,
     ) -> Tuple[bool, Optional[str], str]:
         body: Dict[str, Any] = {
             "url": url.strip(),
@@ -419,6 +673,8 @@ class HydraGUIClient:
             body["checksum_algo"] = checksum_algo.strip()
         if scheduled_at.strip():
             body["scheduled_at"] = scheduled_at.strip()
+        if start_paused:
+            body["start_paused"] = True
 
         ok, payload, err = self._request("POST", "/api/jobs", require_auth=True, timeout=4.0, body=body)
         if not ok:
@@ -426,12 +682,39 @@ class HydraGUIClient:
         job_id = str(payload.get("job_id") or "") if isinstance(payload, dict) else ""
         return True, job_id or None, ""
 
+    def create_batch_download(
+        self,
+        urls: List[str],
+        save_path: str = "DEFAULT",
+        headers: Optional[Dict[str, str]] = None,
+        scheduled_at: str = "",
+        start_paused: bool = False,
+    ) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+        body: Dict[str, Any] = {
+            "urls": [u.strip() for u in urls if u.strip()],
+            "save_path": save_path.strip() or "DEFAULT",
+            "headers": headers or {},
+        }
+        if scheduled_at.strip():
+            body["scheduled_at"] = scheduled_at.strip()
+        if start_paused:
+            body["start_paused"] = True
+
+        ok, payload, err = self._request("POST", "/api/batch/download", require_auth=True, timeout=5.0, body=body)
+        if not ok:
+            return False, None, err
+        return True, (payload if isinstance(payload, dict) else {}), ""
+
     def update_job_destination(
         self,
         job_id: str,
         save_path: str,
         filename: str = "",
         scheduled_at: str = "",
+        clear_schedule: bool = False,
+        max_speed_bytes: Optional[int] = None,
+        reset_speed_limit: bool = False,
+        start_paused: bool = False,
     ) -> Tuple[bool, str]:
         body: Dict[str, Any] = {
             "job_id": job_id,
@@ -439,8 +722,16 @@ class HydraGUIClient:
         }
         if filename.strip():
             body["filename"] = filename.strip()
-        if scheduled_at.strip():
+        if clear_schedule:
+            body["clear_schedule"] = True
+        elif scheduled_at.strip():
             body["scheduled_at"] = scheduled_at.strip()
+        if reset_speed_limit:
+            body["reset_speed_limit"] = True
+        elif max_speed_bytes is not None and max_speed_bytes > 0:
+            body["max_speed_bytes"] = int(max_speed_bytes)
+        if start_paused:
+            body["start_paused"] = True
 
         ok, _, err = self._request("POST", "/api/jobs", require_auth=True, timeout=4.0, body=body)
         return ok, err
@@ -466,10 +757,18 @@ class HydraGUIClient:
         ok, _, err = self._request("POST", f"/api/jobs/{safe_id}/resume", require_auth=True, timeout=3.0)
         return ok, err
 
-    def delete_job(self, job_id: str) -> Tuple[bool, str]:
+    def delete_job(self, job_id: str, keep_file: bool = False) -> Tuple[bool, str]:
         safe_id = quote(job_id, safe="")
-        ok, _, err = self._request("DELETE", f"/api/jobs/{safe_id}", require_auth=True, timeout=3.0)
+        query = "?keep_file=true" if keep_file else ""
+        ok, _, err = self._request("DELETE", f"/api/jobs/{safe_id}{query}", require_auth=True, timeout=3.0)
         return ok, err
+
+    def clear_completed(self) -> Tuple[bool, int, str]:
+        ok, payload, err = self._request("POST", "/api/jobs/clear-completed", require_auth=True, timeout=3.0)
+        if not ok:
+            return False, 0, err
+        count = int(payload.get("cleared") or 0) if isinstance(payload, dict) else 0
+        return True, count, ""
 
     def pause_all(self) -> Tuple[bool, int, str]:
         ok, payload, err = self._request("POST", "/api/jobs/pause-all", require_auth=True, timeout=3.0)

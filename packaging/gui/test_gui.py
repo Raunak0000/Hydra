@@ -22,26 +22,36 @@ from hydra_gui.client import (  # noqa: E402
     resolve_token,
 )
 from hydra_gui.models import (  # noqa: E402
+    DEFAULT_SETTINGS_CONFIG,
     SpeedHistoryTracker,
     available_job_actions,
     compute_chunk_stats,
     compute_dashboard_stats,
+    describe_schedule_status,
     display_name_for_job,
     effective_total_size_str,
     filter_jobs,
     format_bytes,
     format_speed,
     infer_category,
+    is_within_schedule_window,
     mask_headers,
+    match_download_rule,
+    normalize_extensions_input,
+    parse_batch_urls_text,
     parse_byte_string,
+    parse_clock_minutes,
+    parse_headers_text,
     parse_speed_bps,
     parse_timestamp,
     resolve_category_destination,
     sanitize_url_for_display,
     sort_jobs,
     suggest_filename_from_url,
+    validate_category_rule,
     validate_download_url,
     validate_filename,
+    validate_settings_payload,
 )
 
 
@@ -542,6 +552,323 @@ class HydraGUIClientAndEntryTest(unittest.TestCase):
         self.assertFalse(struct_changed)
         self.assertEqual(prev, "DOWNLOADING")
         self.assertEqual(emitted, [75.0])
+
+        parsed = gui_entry.parse_args(["--settings", "--settings-tab", "rules"])
+        self.assertTrue(parsed.settings)
+        self.assertEqual(parsed.settings_tab, "rules")
+
+    def test_settings_validation_schedule_window_and_rule_matching(self):
+        import copy
+        from datetime import datetime
+
+        self.assertEqual(parse_clock_minutes("01:30"), 90)
+        self.assertIsNone(parse_clock_minutes("24:00"))
+        self.assertIsNone(parse_clock_minutes("9:30"))
+
+        overnight = {"enabled": True, "start_time": "23:00", "end_time": "06:30"}
+        self.assertTrue(is_within_schedule_window(overnight, datetime(2026, 11, 11, 23, 45)))
+        self.assertTrue(is_within_schedule_window(overnight, datetime(2026, 11, 11, 3, 0)))
+        self.assertFalse(is_within_schedule_window(overnight, datetime(2026, 11, 11, 14, 0)))
+
+        desc_open = describe_schedule_status(overnight, datetime(2026, 11, 11, 2, 0))
+        self.assertEqual(desc_open["state"], "open")
+        desc_closed = describe_schedule_status(overnight, datetime(2026, 11, 11, 12, 0))
+        self.assertEqual(desc_closed["state"], "closed")
+
+        self.assertEqual(
+            normalize_extensions_input(".ZIP, tar.gz; .mkv, zip, /bad"),
+            ["zip", "tar.gz", "mkv"],
+        )
+
+        self.assertIsNotNone(validate_category_rule("", {"path": "/tmp"}))
+        self.assertIsNotNone(validate_category_rule("Good", {"path": ""}))
+        self.assertIsNone(
+            validate_category_rule(
+                "ISOs",
+                {"path": "/data/ISOs", "extensions": ["iso"], "default_threads": 16, "speed_limit_bytes": 1024},
+            )
+        )
+
+        valid_cfg = copy.deepcopy(DEFAULT_SETTINGS_CONFIG)
+        self.assertIsNone(validate_settings_payload(valid_cfg))
+
+        bad_threads = copy.deepcopy(DEFAULT_SETTINGS_CONFIG)
+        bad_threads["default_threads"] = 20
+        bad_threads["max_threads"] = 8
+        self.assertIsNotNone(validate_settings_payload(bad_threads))
+
+        bad_sched = copy.deepcopy(DEFAULT_SETTINGS_CONFIG)
+        bad_sched["schedule"]["enabled"] = True
+        bad_sched["schedule"]["start_time"] = "99:99"
+        self.assertIsNotNone(validate_settings_payload(bad_sched))
+
+        # Rule matching: priority, compound extension, disabled rule, and global disable_auto_categorize
+        cfg = copy.deepcopy(DEFAULT_SETTINGS_CONFIG)
+        cfg["default_save_path"] = "/data/Inbox"
+        cfg["default_threads"] = 6
+        cfg["max_threads"] = 16
+        cfg["speed_limit_bytes"] = 2 * 1024 * 1024
+        cfg["categories"]["ZZ_Bundles"] = {
+            "extensions": ["bundle.gz"],
+            "path": "/data/Bundles",
+            "priority": 0,
+        }
+        cfg["categories"]["HighResVideo"] = {
+            "extensions": ["mkv"],
+            "path": "/data/4K",
+            "priority": 40,
+            "default_threads": 24,
+            "speed_limit_bytes": 512 * 1024,
+        }
+
+        m_video = match_download_rule("film.mkv", cfg, "/fallback")
+        self.assertEqual(m_video["category"], "HighResVideo")
+        self.assertEqual(m_video["destination_dir"], "/data/4K")
+        self.assertEqual(m_video["effective_threads"], 16)
+        self.assertEqual(m_video["effective_speed_bytes"], 512 * 1024)
+
+        m_bundle = match_download_rule("pkg.bundle.gz", cfg, "/fallback")
+        self.assertEqual(m_bundle["category"], "ZZ_Bundles")
+        self.assertEqual(m_bundle["destination_dir"], "/data/Bundles")
+        self.assertEqual(m_bundle["effective_threads"], 6)
+
+        cfg["categories"]["HighResVideo"]["disabled"] = True
+        self.assertEqual(
+            resolve_category_destination("film.mkv", cfg, "/fallback"),
+            str(Path.home() / "Videos"),
+        )
+
+        cfg["disable_auto_categorize"] = True
+        self.assertEqual(resolve_category_destination("film.mkv", cfg, "/fallback"), "/data/Inbox")
+
+    def test_client_settings_and_rules_endpoints(self):
+        import importlib
+
+        calls = []
+
+        class SettingsMockHandler(BaseHTTPRequestHandler):
+            def log_message(self, format, *args):
+                pass
+
+            def _read_json(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                return json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
+
+            def do_GET(self):
+                if self.path.startswith("/api/rules/match"):
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"category": "Video", "destination_dir": "~/Videos"}).encode())
+                    return
+                if self.path == "/api/settings":
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"default_save_path": "~/Downloads", "categories": {}}).encode())
+                    return
+                self.send_response(404)
+                self.end_headers()
+
+            def do_POST(self):
+                if self.headers.get("X-Hydra-Token") != "cfg-token":
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                body = self._read_json()
+                calls.append(("POST", self.path, body))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                if self.path == "/api/settings":
+                    self.wfile.write(json.dumps({"status": "success", "settings": body}).encode())
+                elif self.path == "/api/rules/reset":
+                    self.wfile.write(json.dumps({"status": "ok", "categories": {"Video": {"path": "~/Videos", "extensions": ["mp4"]}}}).encode())
+                else:
+                    self.wfile.write(b'{"status":"ok"}')
+
+            def do_DELETE(self):
+                if self.headers.get("X-Hydra-Token") != "cfg-token":
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                calls.append(("DELETE", self.path, {}))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"status":"ok"}')
+
+        server = HTTPServer(("127.0.0.1", 0), SettingsMockHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            client = HydraGUIClient(f"http://127.0.0.1:{server.server_port}", token="cfg-token")
+            ok_s, saved, err_s = client.save_settings({"max_concurrent_downloads": 3, "default_save_path": "~/DL"})
+            self.assertTrue(ok_s, err_s)
+            self.assertEqual(saved["max_concurrent_downloads"], 3)
+
+            ok_r, err_r = client.save_rule("ISOs", "~/ISOs", ["iso"], priority=10, default_threads=12)
+            self.assertTrue(ok_r, err_r)
+
+            ok_d, err_d = client.delete_rule("ISOs")
+            self.assertTrue(ok_d, err_d)
+
+            ok_rst, cats, err_rst = client.reset_rules()
+            self.assertTrue(ok_rst, err_rst)
+            self.assertIn("Video", cats)
+
+            preview = client.preview_rule_match("movie.mkv")
+            self.assertEqual(preview["category"], "Video")
+        finally:
+            server.shutdown()
+            server.server_close()
+
+        settings_mod = importlib.import_module("hydra_gui.settings_dialog")
+        self.assertTrue(hasattr(settings_mod, "SettingsDialog"))
+        self.assertTrue(hasattr(settings_mod, "RuleEditorDialog"))
+
+    def test_batch_url_and_header_parsing(self):
+        valid, invalid = parse_batch_urls_text(
+            "# comment line\n\nhttps://example.com/a.zip\nftp://bad.example/file\nhttps://example.com/a.zip\nhttp://127.0.0.1:9000/b.iso\n"
+        )
+        self.assertEqual(valid, ["https://example.com/a.zip", "http://127.0.0.1:9000/b.iso"])
+        self.assertEqual(invalid, ["ftp://bad.example/file"])
+
+        hdrs, err = parse_headers_text("Referer: https://example.com/page\nX-Custom: a:b\n")
+        self.assertIsNone(err)
+        self.assertEqual(hdrs, {"Referer": "https://example.com/page", "X-Custom": "a:b"})
+
+        bad_hdrs, bad_err = parse_headers_text("MissingColonLine")
+        self.assertEqual(bad_hdrs, {})
+        self.assertIsNotNone(bad_err)
+
+    def test_desktop_lifecycle_job_actions(self):
+        sched = available_job_actions({"id": "j1", "status": "SCHEDULED", "save_path": "/tmp/a.iso", "chunks": []})
+        self.assertTrue(sched["can_start_now"])
+        self.assertTrue(sched["can_pause"])
+        self.assertFalse(sched["can_resume"])
+        self.assertTrue(sched["can_edit_options"])
+        self.assertFalse(sched["can_open_file"])
+
+        comp = available_job_actions(
+            {"id": "j2", "status": "COMPLETED", "save_path": "/tmp/done.iso", "url": "https://example.com/done.iso", "chunks": [{"id": 0}]}
+        )
+        self.assertTrue(comp["can_remove_keep_file"])
+        self.assertTrue(comp["can_open_file"])
+        self.assertTrue(comp["can_redownload"])
+        self.assertTrue(comp["can_delete"])
+
+        comp_no_url = available_job_actions(
+            {"id": "j2b", "status": "COMPLETED", "save_path": "/tmp/done.iso", "chunks": [{"id": 0}]}
+        )
+        self.assertFalse(comp_no_url["can_redownload"])
+
+        failed = available_job_actions(
+            {"id": "j3", "status": "FAILED", "save_path": "/tmp/fail.zip", "url": "https://example.com/fail.zip", "chunks": [{"id": 0}]}
+        )
+        self.assertTrue(failed["can_retry"])
+        self.assertTrue(failed["can_edit_url"])
+        self.assertTrue(failed["can_edit_options"])
+        self.assertFalse(failed["can_redownload"])
+
+    def test_desktop_lifecycle_client_and_gui_cli(self):
+        import importlib
+
+        calls = []
+
+        class LifecycleMockHandler(BaseHTTPRequestHandler):
+            def log_message(self, format, *args):
+                pass
+
+            def _read_json(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                return json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
+
+            def do_POST(self):
+                if self.headers.get("X-Hydra-Token") != "life-token":
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                body = self._read_json()
+                calls.append(("POST", self.path, body))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                if self.path == "/api/batch/download":
+                    self.wfile.write(json.dumps({"status": "success", "created": 2, "failed": 0}).encode())
+                elif self.path == "/api/jobs/clear-completed":
+                    self.wfile.write(json.dumps({"status": "success", "cleared": 3}).encode())
+                elif self.path == "/api/jobs":
+                    self.wfile.write(json.dumps({"status": "success", "job_id": body.get("job_id") or "job_new"}).encode())
+                else:
+                    self.wfile.write(b'{"status":"ok"}')
+
+            def do_DELETE(self):
+                if self.headers.get("X-Hydra-Token") != "life-token":
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                calls.append(("DELETE", self.path, {}))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"status":"deleted"}')
+
+        server = HTTPServer(("127.0.0.1", 0), LifecycleMockHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            client = HydraGUIClient(f"http://127.0.0.1:{server.server_port}", token="life-token")
+
+            ok_dl, jid, err_dl = client.create_download(
+                "https://example.com/archive.tar.gz",
+                "/tmp/Downloads",
+                headers={"Authorization": "Bearer abc"},
+                start_paused=True,
+            )
+            self.assertTrue(ok_dl, err_dl)
+            self.assertEqual(jid, "job_new")
+
+            ok_b, b_resp, err_b = client.create_batch_download(
+                ["https://example.com/1.zip", "https://example.com/2.zip"],
+                save_path="DEFAULT",
+                start_paused=True,
+            )
+            self.assertTrue(ok_b, err_b)
+            self.assertEqual(b_resp["created"], 2)
+
+            ok_u, err_u = client.update_job_destination(
+                "job_new",
+                "/tmp/ISOs",
+                clear_schedule=True,
+                reset_speed_limit=True,
+            )
+            self.assertTrue(ok_u, err_u)
+
+            ok_del, err_del = client.delete_job("job_new", keep_file=True)
+            self.assertTrue(ok_del, err_del)
+
+            ok_clr, cleared, err_clr = client.clear_completed()
+            self.assertTrue(ok_clr, err_clr)
+            self.assertEqual(cleared, 3)
+
+            self.assertTrue(any(p == "/api/batch/download" and b.get("start_paused") is True for m, p, b in calls))
+            self.assertTrue(any(p == "/api/jobs" and b.get("clear_schedule") is True and b.get("reset_speed_limit") is True for m, p, b in calls))
+            self.assertTrue(any(m == "DELETE" and p == "/api/jobs/job_new?keep_file=true" for m, p, _ in calls))
+            self.assertTrue(any(m == "POST" and p == "/api/jobs/clear-completed" for m, p, _ in calls))
+        finally:
+            server.shutdown()
+            server.server_close()
+
+        cli_mod = load_gui_entrypoint()
+        parsed = cli_mod.parse_args(["--batch-download", "--ensure-daemon"])
+        self.assertTrue(parsed.batch_download)
+        self.assertTrue(parsed.ensure_daemon)
+
+        dialogs_mod = importlib.import_module("hydra_gui.dialogs")
+        window_mod = importlib.import_module("hydra_gui.window")
+        self.assertTrue(hasattr(dialogs_mod, "BatchDownloadDialog"))
+        self.assertTrue(hasattr(window_mod, "HydraApplication"))
 
 
 if __name__ == "__main__":

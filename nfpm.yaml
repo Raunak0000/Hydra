@@ -61,6 +61,11 @@ contents:
     file_info:
       mode: 0644
 
+  - src: ./packaging/gui/hydra_gui/settings_dialog.py
+    dst: /usr/share/hydra/gui/hydra_gui/settings_dialog.py
+    file_info:
+      mode: 0644
+
   - src: ./packaging/gui/hydra_gui/theme.py
     dst: /usr/share/hydra/gui/hydra_gui/theme.py
     file_info:

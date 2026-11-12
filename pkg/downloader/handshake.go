@@ -165,6 +165,7 @@ func GetMetadataContext(ctx context.Context, url string, headers map[string]stri
 	}
 
 	client := newMetadataClient()
+	defer client.CloseIdleConnections()
 
 	// First try a small ranged GET.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)

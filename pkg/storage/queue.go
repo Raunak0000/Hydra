@@ -13,17 +13,20 @@ import (
 )
 
 type QueueManager struct {
-	maxConcurrent  int
-	mu             sync.Mutex
-	triggerFunc    func(url string, savePath string, jobID string, headers map[string]string) error
-	db             *DBStore
-	initialBackoff time.Duration
-	active         int32
-	inFlight       map[string]bool
-	slotFreed      chan struct{}
-	broadcast      chan models.UIJob
-	clients        map[chan models.UIJob]bool
-	stopChan       chan struct{}
+	maxConcurrent    int
+	mu               sync.Mutex
+	triggerFunc      func(url string, savePath string, jobID string, headers map[string]string) error
+	db               *DBStore
+	initialBackoff   time.Duration
+	scheduleProvider func() ScheduleConfig
+	nowFn            func() time.Time
+	schedulerPaused  map[string]bool
+	active           int32
+	inFlight         map[string]bool
+	slotFreed        chan struct{}
+	broadcast        chan models.UIJob
+	clients          map[chan models.UIJob]bool
+	stopChan         chan struct{}
 }
 
 var (
@@ -37,19 +40,24 @@ func NewQueueManager(maxConcurrent int, trigger func(string, string, string, map
 		maxConcurrent = 1
 	}
 	return &QueueManager{
-		maxConcurrent: maxConcurrent,
-		triggerFunc:   trigger,
-		inFlight:      make(map[string]bool),
-		slotFreed:     make(chan struct{}, 1),
-		broadcast:     make(chan models.UIJob, 256),
-		clients:       make(map[chan models.UIJob]bool),
-		stopChan:      make(chan struct{}),
+		maxConcurrent:   maxConcurrent,
+		triggerFunc:     trigger,
+		schedulerPaused: make(map[string]bool),
+		inFlight:        make(map[string]bool),
+		slotFreed:       make(chan struct{}, 1),
+		broadcast:       make(chan models.UIJob, 256),
+		clients:         make(map[chan models.UIJob]bool),
+		stopChan:        make(chan struct{}),
 	}
 }
 
 func InitQueueManager(maxConcurrent int, trigger func(string, string, string, map[string]string) error) *QueueManager {
 	queueOnce.Do(func() {
-		GlobalQueueManager = NewQueueManager(maxConcurrent, trigger)
+		qm := NewQueueManager(maxConcurrent, trigger)
+		qm.scheduleProvider = func() ScheduleConfig {
+			return GetConfig().Schedule
+		}
+		GlobalQueueManager = qm
 		go GlobalQueueManager.StartBroadcaster()
 		go GlobalQueueManager.startScheduler()
 	})
@@ -146,6 +154,26 @@ func (qm *QueueManager) store() (*DBStore, error) {
 	return GetDBStore()
 }
 
+func (qm *QueueManager) currentTime() time.Time {
+	qm.mu.Lock()
+	fn := qm.nowFn
+	qm.mu.Unlock()
+	if fn != nil {
+		return fn()
+	}
+	return time.Now()
+}
+
+func (qm *QueueManager) currentSchedule() ScheduleConfig {
+	qm.mu.Lock()
+	provider := qm.scheduleProvider
+	qm.mu.Unlock()
+	if provider != nil {
+		return provider()
+	}
+	return ScheduleConfig{}
+}
+
 func (qm *QueueManager) promoteScheduledJobs() {
 	dbStore, err := qm.store()
 	if err != nil {
@@ -153,17 +181,74 @@ func (qm *QueueManager) promoteScheduledJobs() {
 	}
 
 	dueJobs := dbStore.GetPendingScheduledJobs()
-	if len(dueJobs) == 0 {
-		qm.ProcessNext()
-		return
-	}
-
+	changed := false
 	for _, job := range dueJobs {
 		_ = dbStore.UpdateStatus(job.ID, "QUEUED")
 		NotifyDownloadQueued(jobDisplayName(job.FileName, job.SavePath), job.SavePath)
+		changed = true
 	}
 
-	GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
+	sched := qm.currentSchedule()
+	now := qm.currentTime()
+	inWindow := IsWithinScheduleWindow(sched, now)
+
+	if !inWindow {
+		if sched.PauseOutsideWindow {
+			jobs := dbStore.GetAllJobs()
+			pausedIDs := make([]string, 0)
+			for _, job := range jobs {
+				if job.Status == "DOWNLOADING" {
+					_ = dbStore.UpdateStatus(job.ID, "PAUSED")
+					pausedIDs = append(pausedIDs, job.ID)
+					changed = true
+				}
+			}
+			if len(pausedIDs) > 0 {
+				qm.mu.Lock()
+				if qm.schedulerPaused == nil {
+					qm.schedulerPaused = make(map[string]bool)
+				}
+				for _, id := range pausedIDs {
+					qm.schedulerPaused[id] = true
+				}
+				qm.mu.Unlock()
+
+				if GlobalCancelMutex != nil && GlobalCancelMap != nil {
+					GlobalCancelMutex.Lock()
+					for _, id := range pausedIDs {
+						if cancel, exists := GlobalCancelMap[id]; exists {
+							cancel()
+						}
+					}
+					GlobalCancelMutex.Unlock()
+				}
+			}
+		}
+		if changed {
+			GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
+		}
+		return
+	}
+
+	// Window is open: re-queue any downloads automatically paused when the window previously closed.
+	qm.mu.Lock()
+	var toResume []string
+	for id := range qm.schedulerPaused {
+		toResume = append(toResume, id)
+		delete(qm.schedulerPaused, id)
+	}
+	qm.mu.Unlock()
+
+	for _, id := range toResume {
+		if job, exists := dbStore.GetJob(id); exists && job.Status == "PAUSED" {
+			_ = dbStore.UpdateStatus(id, "QUEUED")
+			changed = true
+		}
+	}
+
+	if changed {
+		GetBroker().BroadcastQueueState(dbStore.GetAllJobs())
+	}
 	qm.ProcessNext()
 }
 
@@ -193,6 +278,12 @@ func (qm *QueueManager) ShouldQueue() bool {
 }
 
 func (qm *QueueManager) ProcessNext() {
+	sched := qm.currentSchedule()
+	now := qm.currentTime()
+	if !IsWithinScheduleWindow(sched, now) {
+		return
+	}
+
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 
@@ -397,9 +488,16 @@ func (qm *QueueManager) executeJobWithRetry(job models.UIJob) {
 			log.Printf("[Queue] Job %s deleted; stopping retry loop.", job.ID)
 			return
 		}
-		if currentJob.Status == "PAUSED" {
-			log.Printf("[Queue] Job %s paused; stopping retry loop.", job.ID)
+		if currentJob.Status == "PAUSED" || currentJob.Status == "SCHEDULED" || currentJob.Status == "COMPLETED" {
+			log.Printf("[Queue] Job %s is %s; stopping retry loop.", job.ID, currentJob.Status)
 			return
+		}
+		if currentJob.Status == "QUEUED" {
+			log.Printf("[Queue] Job %s was re-queued while cancelling; restarting immediately.", job.ID)
+			if attempt > 1 {
+				attempt--
+			}
+			continue
 		}
 
 		log.Printf(

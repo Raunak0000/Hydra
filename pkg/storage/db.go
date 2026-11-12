@@ -185,13 +185,18 @@ func (s *DBStore) UpdateProgress(jobID string, progress float64, downloaded stri
 
 	query := `
 	UPDATE jobs 
-	SET progress = ?, downloaded = ?, speed = ?, eta = ?, status = CASE WHEN status IN ('COMPLETED', 'FAILED') AND ? = 'DOWNLOADING' THEN status ELSE ? END,
+	SET progress = ?, downloaded = ?, speed = ?, eta = ?,
+	    status = CASE
+	        WHEN status IN ('COMPLETED', 'FAILED', 'PAUSED', 'QUEUED', 'SCHEDULED') AND ? = 'DOWNLOADING' THEN status
+	        WHEN status IN ('COMPLETED', 'FAILED', 'QUEUED', 'SCHEDULED') AND ? = 'PAUSED' THEN status
+	        ELSE ?
+	    END,
 	    file_name = CASE WHEN ? != '' AND ? != 'Calculating...' THEN ? ELSE file_name END,
 	    completed_at = CASE WHEN ? = 'COMPLETED' THEN CURRENT_TIMESTAMP ELSE completed_at END,
 	    updated_at = CURRENT_TIMESTAMP
 	WHERE id = ?;
 	`
-	_, err := s.db.Exec(query, progress, downloaded, speed, eta, status, status, filename, filename, filename, status, jobID)
+	_, err := s.db.Exec(query, progress, downloaded, speed, eta, status, status, status, filename, filename, filename, status, jobID)
 	return err
 }
 

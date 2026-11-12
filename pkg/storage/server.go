@@ -5,9 +5,9 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +28,7 @@ type BatchDownloadPayload struct {
 	URLs        []string          `json:"urls"`
 	SavePath    string            `json:"save_path"`
 	ScheduledAt string            `json:"scheduled_at,omitempty"`
+	StartPaused bool              `json:"start_paused,omitempty"`
 	Headers     map[string]string `json:"headers"`
 }
 
@@ -121,7 +122,7 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Vary", "Origin")
-				w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Methods", "POST, GET, DELETE, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Hydra-Token")
 
 				if r.Method == http.MethodOptions {
@@ -168,9 +169,12 @@ func NewServer(executeJobFunc func(url string, savePath string, jobID string, he
 	s.Router.HandleFunc("/api/jobs", withCORS(s.handleJobsAPI))
 	s.Router.HandleFunc("/api/jobs/pause-all", withCORS(s.handlePauseAllJobs))
 	s.Router.HandleFunc("/api/jobs/resume-all", withCORS(s.handleResumeAllJobs))
+	s.Router.HandleFunc("/api/jobs/clear-completed", withCORS(s.handleClearCompletedJobs))
 	s.Router.HandleFunc("/api/jobs/", withCORS(s.handleJobAPI))
 	s.Router.HandleFunc("/api/settings", sameOriginOrExtension(s.handleSettings))
-	s.Router.HandleFunc("/api/rules", withCORS(s.handleRulesAPI))
+	s.Router.HandleFunc("/api/rules", sameOriginOrExtension(s.handleRulesAPI))
+	s.Router.HandleFunc("/api/rules/reset", sameOriginOrExtension(s.handleResetRulesAPI))
+	s.Router.HandleFunc("/api/rules/match", sameOriginOrExtension(s.handleMatchRuleAPI))
 	s.Router.HandleFunc("/api/browse-directory", sameOriginOrExtension(s.handleBrowseDirectory))
 	s.Router.HandleFunc("/api/list-directory", sameOriginOrExtension(s.handleListDirectory))
 	s.Router.HandleFunc("/api/disk-space", sameOriginOrExtension(s.handleDiskSpace))
@@ -322,7 +326,9 @@ func (s *Server) handleJobAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.URL.RawQuery = "id=" + url.QueryEscape(jobID)
+	q := r.URL.Query()
+	q.Set("id", jobID)
+	r.URL.RawQuery = q.Encode()
 
 	switch {
 	case r.Method == http.MethodPost && strings.HasSuffix(pathValue, "/pause"):
@@ -378,6 +384,38 @@ func (s *Server) handleResumeAllJobs(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status":  "ok",
 		"resumed": resumed,
+	})
+}
+
+func (s *Server) handleClearCompletedJobs(w http.ResponseWriter, r *http.Request) {
+	if !requireAPIToken(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		return
+	}
+
+	cleared := 0
+	if s.db != nil {
+		jobs := s.db.GetAllJobs()
+		for _, job := range jobs {
+			if strings.EqualFold(job.Status, "COMPLETED") {
+				ClearJobState(job.SavePath)
+				if err := s.db.DeleteJob(job.ID); err == nil {
+					cleared++
+				}
+			}
+		}
+		if cleared > 0 {
+			GetBroker().BroadcastQueueState(s.db.GetAllJobs())
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":  "ok",
+		"cleared": cleared,
 	})
 }
 
@@ -440,31 +478,40 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		cfg := GetConfig()
-
 		if err := json.NewEncoder(w).Encode(cfg); err != nil {
 			return
 		}
 
 	case http.MethodPost:
-		var updated Config
-
-		if err := json.NewDecoder(r.Body).Decode(&updated); err != nil {
-			writeJSONError(
-				w,
-				http.StatusBadRequest,
-				"INVALID_JSON",
-				"malformed JSON config",
-			)
+		if !requireAPIToken(w, r) {
 			return
 		}
 
-		if updated.MaxConcurrentDownloads < 1 {
-			writeJSONError(
-				w,
-				http.StatusBadRequest,
-				"INVALID_CONCURRENCY",
-				"max concurrent downloads must be at least 1",
-			)
+		bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_JSON", "failed to read settings payload")
+			return
+		}
+
+		var rawFields map[string]json.RawMessage
+		if err := json.Unmarshal(bodyBytes, &rawFields); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_JSON", "malformed JSON config")
+			return
+		}
+
+		current := GetConfig()
+		updated := *current
+		if _, hasCats := rawFields["categories"]; hasCats {
+			updated.Categories = nil
+		}
+
+		if err := json.Unmarshal(bodyBytes, &updated); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_JSON", "malformed JSON config")
+			return
+		}
+
+		if err := NormalizeAndValidateConfig(&updated); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_SETTINGS", err.Error())
 			return
 		}
 
@@ -478,20 +525,28 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Apply the new concurrency limit immediately.
+		savedCfg := GetConfig()
+
+		// Apply concurrency, schedule window, and speed limit changes live.
 		if qm := GetQueueManager(); qm != nil {
 			qm.mu.Lock()
-			qm.maxConcurrent = updated.MaxConcurrentDownloads
+			qm.maxConcurrent = savedCfg.MaxConcurrentDownloads
+			hasTrigger := qm.triggerFunc != nil
 			qm.mu.Unlock()
 
-			qm.ProcessNext()
+			if hasTrigger && savedCfg.Schedule.Enabled {
+				qm.promoteScheduledJobs()
+			} else {
+				qm.ProcessNext()
+			}
 		}
+		ApplyConfigSpeedLimits(savedCfg)
 
 		w.WriteHeader(http.StatusOK)
-
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"status":  "success",
-			"message": "Settings updated",
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":   "success",
+			"message":  "Settings updated",
+			"settings": savedCfg,
 		})
 
 	default:
@@ -517,22 +572,35 @@ func (s *Server) handleRulesAPI(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPost:
 		var req struct {
-			Name       string   `json:"name"`
-			Path       string   `json:"path"`
-			Extensions []string `json:"extensions"`
+			Name            string   `json:"name"`
+			Path            string   `json:"path"`
+			Extensions      []string `json:"extensions"`
+			Disabled        bool     `json:"disabled"`
+			Priority        int      `json:"priority"`
+			DefaultThreads  int      `json:"default_threads"`
+			SpeedLimitBytes int64    `json:"speed_limit_bytes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSONError(w, http.StatusBadRequest, "INVALID_JSON", "malformed JSON body")
 			return
 		}
-		if req.Name == "" || req.Path == "" {
+		if strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.Path) == "" {
 			writeJSONError(w, http.StatusBadRequest, "INVALID_INPUT", "name and path are required")
 			return
 		}
-		if err := SetCategoryRule(req.Name, req.Path, req.Extensions); err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "SAVE_FAILED", err.Error())
+		rule := CategoryRule{
+			Extensions:      req.Extensions,
+			Path:            req.Path,
+			Disabled:        req.Disabled,
+			Priority:        req.Priority,
+			DefaultThreads:  req.DefaultThreads,
+			SpeedLimitBytes: req.SpeedLimitBytes,
+		}
+		if err := SetCategoryRuleDetailed(req.Name, rule); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_RULE", err.Error())
 			return
 		}
+		ApplyConfigSpeedLimits(GetConfig())
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"status":  "ok",
 			"message": "rule saved",
@@ -548,6 +616,7 @@ func (s *Server) handleRulesAPI(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, http.StatusInternalServerError, "DELETE_FAILED", err.Error())
 			return
 		}
+		ApplyConfigSpeedLimits(GetConfig())
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"status":  "ok",
 			"message": "rule deleted",
@@ -556,6 +625,39 @@ func (s *Server) handleRulesAPI(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSONError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
 	}
+}
+
+func (s *Server) handleResetRulesAPI(w http.ResponseWriter, r *http.Request) {
+	if !requireAPIToken(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		return
+	}
+	if err := ResetCategoryRulesToDefault(); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "RESET_FAILED", err.Error())
+		return
+	}
+	cfg := GetConfig()
+	ApplyConfigSpeedLimits(cfg)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":     "ok",
+		"message":    "default download rules restored",
+		"categories": cfg.Categories,
+	})
+}
+
+func (s *Server) handleMatchRuleAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		return
+	}
+	filename := strings.TrimSpace(r.URL.Query().Get("filename"))
+	matched := ResolveDownloadRule(filename)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(matched)
 }
 
 func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
@@ -594,9 +696,11 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		SavePath         string            `json:"save_path"`
 		Filename         string            `json:"filename"`
 		ScheduledAt      string            `json:"scheduled_at"`
+		ClearSchedule    bool              `json:"clear_schedule"`
 		StartPaused      bool              `json:"start_paused"`
 		Headers          map[string]string `json:"headers"`
 		MaxSpeedBytes    int64             `json:"max_speed_bytes"`
+		ResetSpeedLimit  bool              `json:"reset_speed_limit"`
 		ExpectedChecksum string            `json:"expected_checksum"`
 		ChecksumAlgo     string            `json:"checksum_algo"`
 		BatchID          string            `json:"batch_id"`
@@ -750,13 +854,18 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 		job.SavePath = securedPath
 		job.FileName = filepath.Base(securedPath)
 		job.ErrorMessage = ""
+		if payload.ClearSchedule {
+			job.ScheduledAt = nil
+		}
 		if parsedScheduledAt != nil {
 			job.ScheduledAt = parsedScheduledAt
 		}
 		if len(payload.Headers) > 0 {
 			job.Headers = payload.Headers
 		}
-		if payload.MaxSpeedBytes > 0 {
+		if payload.ResetSpeedLimit {
+			job.MaxSpeedBytes = 0
+		} else if payload.MaxSpeedBytes > 0 {
 			job.MaxSpeedBytes = payload.MaxSpeedBytes
 		}
 		if payload.ExpectedChecksum != "" {
@@ -777,7 +886,11 @@ func (s *Server) handleDownloadTrigger(w http.ResponseWriter, r *http.Request) {
 			_ = s.db.SaveJob(&job)
 			NotifyDownloadScheduled(jobDisplayName(job.FileName, job.SavePath), parsedScheduledAt.Format(time.RFC822))
 
+		} else if payload.StartPaused {
+			job.Status = "PAUSED"
+			_ = s.db.SaveJob(&job)
 		} else {
+			job.ScheduledAt = nil
 			job.Status = "QUEUED"
 			_ = s.db.SaveJob(&job)
 			NotifyDownloadQueued(jobDisplayName(job.FileName, job.SavePath), job.SavePath)
@@ -1054,7 +1167,10 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 	if baseDir == "" ||
 		baseDir == "PENDING" ||
 		baseDir == "DEFAULT" {
-		baseDir = GetDefaultDownloadsDir()
+		baseDir = strings.TrimSpace(GetConfig().DefaultSavePath)
+		if baseDir == "" {
+			baseDir = GetDefaultDownloadsDir()
+		}
 	}
 
 	resolvedBase, err := ResolvePath(baseDir + "/")
@@ -1103,7 +1219,9 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 
 		if payload.SavePath == "DEFAULT" ||
 			payload.SavePath == "" {
-			targetDir, _ = ResolvePath(categoryDir + "/")
+			if resolvedCat, catErr := ResolvePath(categoryDir + "/"); catErr == nil {
+				targetDir = resolvedCat
+			}
 		}
 
 		finalFilePath := filepath.Join(
@@ -1118,6 +1236,8 @@ func (s *Server) handleBatchDownloadTrigger(w http.ResponseWriter, r *http.Reque
 		if parsedScheduledAt != nil &&
 			parsedScheduledAt.After(time.Now()) {
 			status = "SCHEDULED"
+		} else if payload.StartPaused {
+			status = "PAUSED"
 		}
 
 		newJob := models.UIJob{
@@ -1235,14 +1355,20 @@ func (s *Server) handleResumeJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, exists := s.db.GetJob(jobID)
+	job, exists := s.db.GetJob(jobID)
 
 	if !exists {
 		writeJSONError(w, http.StatusNotFound, "JOB_NOT_FOUND", "Job profile not found")
 		return
 	}
 
-	_ = s.db.UpdateStatus(jobID, "QUEUED")
+	if job.Status == "SCHEDULED" && job.ScheduledAt != nil {
+		job.ScheduledAt = nil
+		job.Status = "QUEUED"
+		_ = s.db.SaveJob(&job)
+	} else {
+		_ = s.db.UpdateStatus(jobID, "QUEUED")
+	}
 	GetBroker().BroadcastQueueState(s.db.GetAllJobs())
 
 	if GetQueueManager() != nil {
@@ -1344,7 +1470,11 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 		GlobalCancelMutex.Unlock()
 	}
 
-	_ = os.Remove(job.SavePath)
+	keepFile := strings.EqualFold(r.URL.Query().Get("keep_file"), "true") ||
+		r.URL.Query().Get("keep_file") == "1"
+	if !keepFile {
+		_ = os.Remove(job.SavePath)
+	}
 	ClearJobState(job.SavePath)
 	_ = s.db.DeleteJob(jobID)
 

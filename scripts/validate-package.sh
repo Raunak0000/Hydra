@@ -30,6 +30,7 @@ declare -a REQUIRED_FILES=(
     "-rwxr-xr-x .* \./usr/bin/hydra-tray"
     "-rwxr-xr-x .* \./usr/bin/hydra-gui"
     "-rw-r--r-- .* \./usr/share/hydra/gui/hydra_gui/__init__\.py"
+    "-rw-r--r-- .* \./usr/share/hydra/gui/hydra_gui/settings_dialog\.py"
     "-rw-r--r-- .* \./usr/share/hydra/gui/hydra_gui/window\.py"
     "-rw-r--r-- .* \./usr/lib/systemd/user/hydra\.service"
     "-rw-r--r-- .* \./usr/share/applications/hydra\.desktop"
@@ -62,6 +63,7 @@ test -x "$TEST_ROOT/usr/bin/hydra-tui" || { echo "❌ Missing hydra-tui binary";
 test -x "$TEST_ROOT/usr/bin/hydra-tray" || { echo "❌ Missing hydra-tray executable"; exit 1; }
 test -x "$TEST_ROOT/usr/bin/hydra-gui" || { echo "❌ Missing hydra-gui executable"; exit 1; }
 test -f "$TEST_ROOT/usr/share/hydra/gui/hydra_gui/__init__.py" || { echo "❌ Missing hydra_gui package"; exit 1; }
+test -f "$TEST_ROOT/usr/share/hydra/gui/hydra_gui/settings_dialog.py" || { echo "❌ Missing hydra_gui settings module"; exit 1; }
 test -f "$TEST_ROOT/usr/share/hydra/gui/hydra_gui/window.py" || { echo "❌ Missing hydra_gui window module"; exit 1; }
 test -f "$TEST_ROOT/usr/lib/systemd/user/hydra.service" || { echo "❌ Missing systemd service"; exit 1; }
 test -f "$TEST_ROOT/usr/share/applications/hydra.desktop" || { echo "❌ Missing desktop file"; exit 1; }

@@ -20,7 +20,8 @@ const (
 	BufferSize          = 256 * 1024
 	DynamicMinChunkSize = 2 * 1024 * 1024
 
-	MaxStreamRetries = 8
+	MaxStreamRetries      = 8
+	maxZeroProgressStalls = 8
 
 	// Maximum time an active HTTP stream can produce no data before it is
 	// considered stalled and reconnected.
@@ -92,6 +93,7 @@ func DownloadChunkParallel(
 
 	targetIndex := initialIndex
 	stall429Count := 0
+	stallCount := 0
 
 	for {
 		if ctx.Err() != nil {
@@ -256,11 +258,16 @@ func DownloadChunkParallel(
 					sleepDuration = time.Second
 				}
 
-				select {
-				case <-ctx.Done():
+				if !waitOrFailStalledWorker(
+					ctx,
+					sleepDuration,
+					trackers,
+					&stallCount,
+					me,
+					errChan,
+					fmt.Sprintf("worker %d connection failed after %d stalled attempts: %v", myIndex, maxZeroProgressStalls, err),
+				) {
 					return
-
-				case <-time.After(sleepDuration):
 				}
 
 				continue
@@ -338,23 +345,28 @@ func DownloadChunkParallel(
 				====================================================
 			*/
 			if resp.StatusCode >= 500 {
+				status := resp.StatusCode
 				resp.Body.Close()
 				cancelStream()
 
-				backoff := time.Duration(1<<min(attempt, 5)) *
+				backoff := time.Duration(1<<min(attempt, 4)) *
 					150 *
 					time.Millisecond
 
-				if backoff > 4*time.Second {
-					backoff = 4 * time.Second
+				if backoff > 2*time.Second {
+					backoff = 2 * time.Second
 				}
 
-				select {
-				case <-ctx.Done():
-					me.Release()
+				if !waitOrFailStalledWorker(
+					ctx,
+					backoff,
+					trackers,
+					&stallCount,
+					me,
+					errChan,
+					fmt.Sprintf("worker %d server returned HTTP %d across %d stalled attempts", myIndex, status, maxZeroProgressStalls),
+				) {
 					return
-
-				case <-time.After(backoff):
 				}
 
 				continue
@@ -564,6 +576,7 @@ func DownloadChunkParallel(
 
 				if bytesRead > 0 {
 					stall429Count = 0
+					stallCount = 0
 
 					/*
 						Tell watchdog that data arrived.
@@ -772,6 +785,23 @@ func DownloadChunkParallel(
 				CurrentPtr contains the last successfully written
 				byte, so the next request starts exactly there.
 			*/
+			if streamBytes == 0 {
+				retryDelay := time.Duration(min(attempt, 5)*150) * time.Millisecond
+				if !waitOrFailStalledWorker(
+					ctx,
+					retryDelay,
+					trackers,
+					&stallCount,
+					me,
+					errChan,
+					fmt.Sprintf("worker %d stream stalled with zero bytes across %d attempts", myIndex, maxZeroProgressStalls),
+				) {
+					return
+				}
+				continue
+			}
+
+			stallCount = 0
 			if streamAborted {
 				break
 			}
@@ -791,6 +821,68 @@ func DownloadChunkParallel(
 		}
 		targetIndex = -1
 	}
+}
+
+// waitOrFailStalledWorker backs off via waitForZeroProgressRetry and either returns
+// true to retry or releases the chunk claim, closes idle connections, reports
+// errMsg on persistent zero-progress stalls, and returns false.
+func waitOrFailStalledWorker(
+	ctx context.Context,
+	delay time.Duration,
+	trackers []*AdaptiveTracker,
+	stallCount *int,
+	me *AdaptiveTracker,
+	errChan chan<- error,
+	errMsg string,
+) bool {
+	shouldRetry, stalledOut := waitForZeroProgressRetry(ctx, delay, trackers, stallCount)
+	if shouldRetry {
+		return true
+	}
+	me.Release()
+	if stalledOut {
+		SharedHTTPClient.CloseIdleConnections()
+		select {
+		case errChan <- fmt.Errorf("%s", errMsg):
+		case <-ctx.Done():
+		}
+	}
+	return false
+}
+
+// waitForZeroProgressRetry sleeps for delay while checking whether any chunk
+// made progress across the job. It stops immediately on cancellation or once
+// stallCount reaches maxZeroProgressStalls without global progress.
+func waitForZeroProgressRetry(
+	ctx context.Context,
+	delay time.Duration,
+	trackers []*AdaptiveTracker,
+	stallCount *int,
+) (shouldRetry bool, stalledOut bool) {
+	progressBefore := sumTrackersCurrent(trackers)
+
+	if delay > 0 {
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return false, false
+		case <-timer.C:
+		}
+	} else if ctx.Err() != nil {
+		return false, false
+	}
+
+	if sumTrackersCurrent(trackers) > progressBefore {
+		*stallCount = 0
+		return true, false
+	}
+
+	*stallCount++
+	if *stallCount >= maxZeroProgressStalls {
+		return false, true
+	}
+	return true, false
 }
 
 func sumTrackersCurrent(trackers []*AdaptiveTracker) int64 {

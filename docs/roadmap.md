@@ -247,7 +247,7 @@ user-facing service that users must operate manually.
 - [x] Add settings for folders, limits, connections, scheduling, and rules.
 - [x] Add global/default download rules by file type and destination.
 - [x] Make the TUI and CLI optional advanced interfaces.
-- [ ] Ensure the complete lifecycle is manageable from the desktop.
+- [x] Ensure the complete lifecycle is manageable from the desktop.
 - [ ] **Milestone:** Hydra provides a complete IDM-like Linux experience.
 
 ## Phase 10: Final Validation and Stable Release (Weeks 28-30)

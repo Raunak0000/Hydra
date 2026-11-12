@@ -389,6 +389,7 @@ class DownloadDetailsView(Gtk.Box):
         on_open_folder: Callable[[str], None],
         on_popout: Callable[[str], None],
         on_edit_destination: Optional[Callable[[str], None]] = None,
+        on_open_file: Optional[Callable[[str], None]] = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.add_css_class("inspector-panel")
@@ -397,6 +398,7 @@ class DownloadDetailsView(Gtk.Box):
         self._on_open_folder = on_open_folder
         self._on_popout = on_popout
         self._on_edit_destination = on_edit_destination
+        self._on_open_file = on_open_file
 
         self._current_job: Optional[Dict[str, Any]] = None
         self._current_job_id = ""
@@ -459,6 +461,12 @@ class DownloadDetailsView(Gtk.Box):
         self._popout_btn.add_css_class("flat")
         self._popout_btn.connect("clicked", self._handle_popout)
 
+        self._open_file_btn = Gtk.Button.new_from_icon_name("document-open-symbolic")
+        self._open_file_btn.set_tooltip_text("Open downloaded file")
+        self._open_file_btn.add_css_class("flat")
+        self._open_file_btn.connect("clicked", self._handle_open_file)
+        self._open_file_btn.set_visible(self._on_open_file is not None)
+
         self._folder_btn = Gtk.Button.new_from_icon_name("folder-open-symbolic")
         self._folder_btn.set_tooltip_text("Open containing folder")
         self._folder_btn.add_css_class("flat")
@@ -470,6 +478,7 @@ class DownloadDetailsView(Gtk.Box):
         self._copy_url_btn.connect("clicked", self._handle_copy_url)
 
         actions_box.append(self._copy_url_btn)
+        actions_box.append(self._open_file_btn)
         actions_box.append(self._folder_btn)
         actions_box.append(self._popout_btn)
 
@@ -680,6 +689,10 @@ class DownloadDetailsView(Gtk.Box):
         if self._current_job and self._current_job.get("save_path"):
             self._on_open_folder(str(self._current_job["save_path"]))
 
+    def _handle_open_file(self, *_args: Any) -> None:
+        if self._current_job and self._current_job.get("save_path") and self._on_open_file is not None:
+            self._on_open_file(str(self._current_job["save_path"]))
+
     def _handle_edit_destination(self, *_args: Any) -> None:
         if self._current_job and self._current_job.get("id") and self._on_edit_destination is not None:
             self._on_edit_destination(str(self._current_job["id"]))
@@ -762,10 +775,11 @@ class DownloadDetailsView(Gtk.Box):
         )
 
         caps = available_job_actions(job)
+        self._open_file_btn.set_sensitive(caps["can_open_file"])
         self._folder_btn.set_sensitive(caps["can_open_folder"])
         self._row_path_open.set_sensitive(caps["can_open_folder"])
         self._row_path_edit.set_visible(self._on_edit_destination is not None)
-        self._row_path_edit.set_sensitive(caps["can_edit_destination"])
+        self._row_path_edit.set_sensitive(caps["can_edit_options"])
 
         # Error diagnostics
         err_msg = str(job.get("error_message") or "").strip()
@@ -898,6 +912,7 @@ class LiveProgressWindow(Adw.Window):
         on_resume: Optional[Callable[[str], None]] = None,
         on_retry: Optional[Callable[[str], None]] = None,
         on_cancel: Optional[Callable[[str], None]] = None,
+        on_open_file: Optional[Callable[[str], None]] = None,
     ) -> None:
         super().__init__(transient_for=parent)
         self.job_id = job_id
@@ -907,6 +922,7 @@ class LiveProgressWindow(Adw.Window):
         self._on_resume = on_resume
         self._on_retry = on_retry
         self._on_cancel = on_cancel
+        self._on_open_file = on_open_file
         self._current_save_path = ""
         self._last_status_css = ""
         self._last_prog_css = ""
@@ -942,6 +958,15 @@ class LiveProgressWindow(Adw.Window):
         self._open_folder_btn.set_tooltip_text("Open containing folder")
         self._open_folder_btn.connect("clicked", lambda *_: self._on_open_folder(self._current_save_path))
         header.pack_end(self._open_folder_btn)
+
+        self._open_file_btn = Gtk.Button.new_from_icon_name("document-open-symbolic")
+        self._open_file_btn.set_tooltip_text("Open completed file")
+        self._open_file_btn.connect(
+            "clicked",
+            lambda *_: self._on_open_file and self._on_open_file(self._current_save_path),
+        )
+        self._open_file_btn.set_visible(self._on_open_file is not None)
+        header.pack_end(self._open_file_btn)
 
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         body.set_margin_top(14)
@@ -1020,11 +1045,12 @@ class LiveProgressWindow(Adw.Window):
         self._name_label.set_text(name)
         self._url_label.set_text(sanitize_url_for_display(str(job.get("url") or "")))
         caps = available_job_actions(job)
+        self._open_file_btn.set_sensitive(caps["can_open_file"])
         self._open_folder_btn.set_sensitive(caps["can_open_folder"])
         self._pause_btn.set_visible(self._on_pause is not None)
         self._pause_btn.set_sensitive(caps["can_pause"])
         self._resume_btn.set_visible(self._on_resume is not None)
-        self._resume_btn.set_sensitive(caps["can_resume"])
+        self._resume_btn.set_sensitive(caps["can_resume"] or caps["can_start_now"])
         self._retry_btn.set_visible(self._on_retry is not None)
         self._retry_btn.set_sensitive(caps["can_retry"])
         self._cancel_btn.set_visible(self._on_cancel is not None)

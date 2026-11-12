@@ -17,12 +17,17 @@ from .client import (
     HydraGUIClient,
     SSEWatcher,
     ensure_local_daemon,
+    launch_tray_controller,
+    open_file_in_desktop,
     open_path_in_desktop,
     resolve_downloads_dir,
     resolve_icon_paths,
+    restart_local_daemon,
+    stop_local_daemon,
 )
 from .details_view import DownloadDetailsView, LiveProgressWindow
 from .dialogs import (
+    BatchDownloadDialog,
     EditDestinationDialog,
     NewDownloadDialog,
     UpdateURLDialog,
@@ -36,6 +41,7 @@ from .models import (
     category_icon_name,
     compute_chunk_stats,
     compute_dashboard_stats,
+    describe_schedule_status,
     display_name_for_job,
     effective_total_size_str,
     infer_category,
@@ -45,6 +51,7 @@ from .models import (
     status_info,
     url_host,
 )
+from .settings_dialog import SettingsDialog
 from .theme import HYDRA_CSS
 
 
@@ -367,6 +374,9 @@ class HydraWindow(Adw.ApplicationWindow):
         poll_interval_sec: float = 0.75,
         open_new_download: bool = False,
         initial_url: str = "",
+        open_settings: bool = False,
+        initial_settings_tab: str = "folders",
+        open_batch_download: bool = False,
     ) -> None:
         super().__init__(application=app)
         self.client = client
@@ -375,6 +385,9 @@ class HydraWindow(Adw.ApplicationWindow):
         self._base_poll_ms = max(400, int(poll_interval_sec * 1000))
         self._open_new_on_launch = open_new_download
         self._initial_url = initial_url
+        self._open_settings_on_launch = open_settings
+        self._initial_settings_tab = initial_settings_tab or "folders"
+        self._open_batch_on_launch = open_batch_download
 
         self.set_title("Hydra Downloader")
         self.set_default_size(1160, 740)
@@ -444,6 +457,18 @@ class HydraWindow(Adw.ApplicationWindow):
         self._status_pill.add_css_class("header-status-offline")
         header.set_title_widget(self._status_pill)
 
+        self._menu_btn = Gtk.MenuButton()
+        self._menu_btn.set_icon_name("open-menu-symbolic")
+        self._menu_btn.set_tooltip_text("Actions, Batch Download, and Engine Controls")
+        self._menu_popover = self._build_header_menu_popover()
+        self._menu_btn.set_popover(self._menu_popover)
+        header.pack_end(self._menu_btn)
+
+        settings_btn = Gtk.Button.new_from_icon_name("preferences-system-symbolic")
+        settings_btn.set_tooltip_text("Settings & Download Rules (Ctrl+,)")
+        settings_btn.connect("clicked", lambda *_: self.open_settings_dialog())
+        header.pack_end(settings_btn)
+
         open_dl_btn = Gtk.Button.new_from_icon_name("folder-open-symbolic")
         open_dl_btn.set_tooltip_text("Open Downloads folder")
         open_dl_btn.connect("clicked", self._on_open_downloads_folder)
@@ -504,6 +529,7 @@ class HydraWindow(Adw.ApplicationWindow):
             on_open_folder=self._open_job_folder,
             on_popout=self._open_popout_window,
             on_edit_destination=self._open_edit_destination_dialog,
+            on_open_file=self._open_job_file,
         )
         self._paned.set_end_child(self._details_view)
         self._split_view.set_content(self._paned)
@@ -522,6 +548,70 @@ class HydraWindow(Adw.ApplicationWindow):
 
         if self._open_new_on_launch:
             GLib.idle_add(self._open_initial_new_download)
+        elif self._open_batch_on_launch:
+            GLib.idle_add(self._open_initial_batch_download)
+        elif self._open_settings_on_launch:
+            GLib.idle_add(self._open_initial_settings)
+
+    def _build_header_menu_popover(self) -> Gtk.Popover:
+        popover = Gtk.Popover()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+
+        def add_item(label: str, icon_name: str, handler: Any, destructive: bool = False) -> Gtk.Button:
+            btn = Gtk.Button()
+            row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            row_box.append(Gtk.Image.new_from_icon_name(icon_name))
+            row_box.append(Gtk.Label(label=label, xalign=0.0))
+            btn.set_child(row_box)
+            btn.add_css_class("flat")
+            if destructive:
+                btn.add_css_class("destructive-action")
+
+            def _clicked(*_args: Any) -> None:
+                popover.popdown()
+                handler()
+
+            btn.connect("clicked", _clicked)
+            box.append(btn)
+            return btn
+
+        add_item("Batch Download... (Ctrl+B)", "list-add-symbolic", self.open_batch_download_dialog)
+        self._menu_clear_done_btn = add_item(
+            "Clear Completed History",
+            "edit-clear-all-symbolic",
+            self._clear_completed_jobs,
+        )
+        add_item("Settings & Download Rules... (Ctrl+,)", "preferences-system-symbolic", self.open_settings_dialog)
+
+        box.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+        add_item("Start System Tray Controller", "application-x-executable-symbolic", self._on_launch_tray_clicked)
+
+        box.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+        self._menu_start_engine_btn = add_item("Start Background Engine", "media-playback-start-symbolic", self._on_start_engine_clicked)
+        self._menu_restart_engine_btn = add_item("Restart Background Engine", "view-refresh-symbolic", self._on_restart_engine_clicked)
+        self._menu_stop_engine_btn = add_item(
+            "Stop Background Engine",
+            "process-stop-symbolic",
+            self._on_stop_engine_clicked,
+            destructive=True,
+        )
+
+        popover.set_child(box)
+        popover.connect("notify::visible", self._on_header_menu_visible)
+        return popover
+
+    def _on_header_menu_visible(self, popover: Gtk.Popover, *_args: Any) -> None:
+        if not popover.get_visible():
+            return
+        completed_count = sum(1 for j in self._raw_jobs if str(j.get("status") or "").upper() == "COMPLETED")
+        self._menu_clear_done_btn.set_sensitive(self._online and completed_count > 0)
+        self._menu_start_engine_btn.set_sensitive(not self._online)
+        self._menu_restart_engine_btn.set_sensitive(True)
+        self._menu_stop_engine_btn.set_sensitive(self._online)
 
     def _build_sidebar(self) -> Gtk.Widget:
         scroll = Gtk.ScrolledWindow()
@@ -572,6 +662,29 @@ class HydraWindow(Adw.ApplicationWindow):
     def _status_rows_insert(self, listbox: Gtk.ListBox, kind: str, key: str, row: _SidebarFilterRow) -> None:
         self._sidebar_rows[(kind, key)] = row
         listbox.append(row)
+
+    def _sync_sidebar_categories(self) -> None:
+        desired: List[str] = ["all", *CATEGORY_ORDER]
+        if isinstance(self._custom_categories, dict):
+            for cat_name in sorted(self._custom_categories.keys()):
+                if cat_name not in desired and cat_name != "Other":
+                    desired.append(str(cat_name))
+
+        existing_custom = [
+            key
+            for (kind, key) in list(self._sidebar_rows.keys())
+            if kind == "category" and key not in desired
+        ]
+        for stale_key in existing_custom:
+            stale_row = self._sidebar_rows.pop(("category", stale_key))
+            if self._category_filter == stale_key:
+                self._category_listbox.select_row(self._sidebar_rows[("category", "all")])
+            self._category_listbox.remove(stale_row)
+
+        for key in desired:
+            if ("category", key) not in self._sidebar_rows:
+                row = _SidebarFilterRow("category", key, key, category_icon_name(key))
+                self._status_rows_insert(self._category_listbox, "category", key, row)
 
     def _build_list_pane(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -638,7 +751,7 @@ class HydraWindow(Adw.ApplicationWindow):
             lambda *_: self._selected_job_id() and self._pause_job(self._selected_job_id()),
         )
         self._act_resume = self._make_action_button(
-            "Resume", "media-playback-start-symbolic", "Resume paused download",
+            "Resume", "media-playback-start-symbolic", "Resume paused or scheduled download",
             lambda *_: self._selected_job_id() and self._resume_job(self._selected_job_id()),
         )
         self._act_retry = self._make_action_button(
@@ -646,19 +759,23 @@ class HydraWindow(Adw.ApplicationWindow):
             lambda *_: self._selected_job_id() and self._retry_job(self._selected_job_id()),
         )
         self._act_dest = self._make_action_button(
-            "Destination / Rename", "document-edit-symbolic", "Set destination folder & filename (F2)",
+            "Options / Destination", "document-edit-symbolic", "Edit destination, speed cap, or schedule (F2)",
             lambda *_: self._selected_job_id() and self._open_edit_destination_dialog(self._selected_job_id()),
         )
         self._act_url = self._make_action_button(
             "Update URL", "insert-link-symbolic", "Replace expired link and retry",
             lambda *_: self._selected_job_id() and self._open_update_url_dialog(self._selected_job_id()),
         )
+        self._act_open_file = self._make_action_button(
+            "Open File", "document-open-symbolic", "Open downloaded file",
+            lambda *_: self._selected_job_id() and self._open_job_file_by_id(self._selected_job_id()),
+        )
         self._act_cancel = self._make_action_button(
             "Cancel", "process-stop-symbolic", "Abort transfer and discard partial data",
             lambda *_: self._selected_job_id() and self._request_remove_job(self._selected_job_id(), "cancel"),
         )
         self._act_delete = self._make_action_button(
-            "Delete", "user-trash-symbolic", "Delete download and file (Del)",
+            "Delete", "user-trash-symbolic", "Remove entry or delete file (Del)",
             lambda *_: self._selected_job_id() and self._request_remove_job(self._selected_job_id(), "delete"),
         )
         self._act_delete.add_css_class("destructive-action")
@@ -672,6 +789,7 @@ class HydraWindow(Adw.ApplicationWindow):
         action_bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
         action_bar.append(self._act_dest)
         action_bar.append(self._act_url)
+        action_bar.append(self._act_open_file)
         action_bar.append(spacer)
         action_bar.append(self._act_cancel)
         action_bar.append(self._act_delete)
@@ -749,7 +867,7 @@ class HydraWindow(Adw.ApplicationWindow):
         self._empty_list_page.set_icon_name("folder-download-symbolic")
         self._empty_list_page.set_title("No Downloads Yet")
         self._empty_list_page.set_description(
-            "Downloads started via the Firefox extension, hydra CLI, or TUI will appear here live."
+            "Click 'New Download' (Ctrl+N), 'Batch Download' (Ctrl+B), or start a download in Firefox."
         )
         self._list_stack.add_named(self._empty_list_page, "empty")
 
@@ -906,6 +1024,7 @@ class HydraWindow(Adw.ApplicationWindow):
             on_resume=self._resume_job,
             on_retry=self._retry_job,
             on_cancel=lambda jid: self._request_remove_job(jid, "cancel"),
+            on_open_file=self._open_job_file,
         )
         self._popout_windows[job_id] = win
         job = self._jobs_by_id.get(job_id)
@@ -937,10 +1056,14 @@ class HydraWindow(Adw.ApplicationWindow):
     def _update_action_controls(self, job: Optional[Dict[str, Any]]) -> None:
         caps = available_job_actions(job)
         self._act_pause.set_sensitive(caps["can_pause"])
-        self._act_resume.set_sensitive(caps["can_resume"])
+        self._act_resume.set_sensitive(caps["can_resume"] or caps["can_start_now"])
+        self._act_resume.set_tooltip_text(
+            "Start scheduled download immediately" if caps["can_start_now"] else "Resume paused download"
+        )
         self._act_retry.set_sensitive(caps["can_retry"])
-        self._act_dest.set_sensitive(caps["can_edit_destination"])
+        self._act_dest.set_sensitive(caps["can_edit_options"])
         self._act_url.set_sensitive(caps["can_edit_url"])
+        self._act_open_file.set_sensitive(caps["can_open_file"])
         self._act_cancel.set_sensitive(caps["can_cancel"])
         self._act_delete.set_sensitive(caps["can_delete"])
 
@@ -1009,8 +1132,19 @@ class HydraWindow(Adw.ApplicationWindow):
             menu_box.append(btn)
 
         add_menu_item("Pause", "media-playback-pause-symbolic", caps["can_pause"], lambda: self._pause_job(job_id))
-        add_menu_item("Resume", "media-playback-start-symbolic", caps["can_resume"], lambda: self._resume_job(job_id))
+        add_menu_item(
+            "Start Now" if caps["can_start_now"] else "Resume",
+            "media-playback-start-symbolic",
+            caps["can_resume"] or caps["can_start_now"],
+            lambda: self._resume_job(job_id),
+        )
         add_menu_item("Retry", "view-refresh-symbolic", caps["can_retry"], lambda: self._retry_job(job_id))
+        add_menu_item(
+            "Redownload...",
+            "view-refresh-symbolic",
+            caps["can_redownload"],
+            lambda: self.open_new_download_dialog(str(job.get("url") or "")),
+        )
         add_menu_item(
             "Update URL & Retry...",
             "insert-link-symbolic",
@@ -1018,12 +1152,18 @@ class HydraWindow(Adw.ApplicationWindow):
             lambda: self._open_update_url_dialog(job_id),
         )
         add_menu_item(
-            "Set Destination & Filename...",
+            "Edit Options & Destination...",
             "document-edit-symbolic",
-            caps["can_edit_destination"],
+            caps["can_edit_options"],
             lambda: self._open_edit_destination_dialog(job_id),
         )
         menu_box.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+        add_menu_item(
+            "Open File",
+            "document-open-symbolic",
+            caps["can_open_file"],
+            lambda: self._open_job_file(str(job.get("save_path") or "")),
+        )
         add_menu_item(
             "Live Progress Window",
             "window-new-symbolic",
@@ -1044,13 +1184,19 @@ class HydraWindow(Adw.ApplicationWindow):
         )
         menu_box.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
         add_menu_item(
+            "Remove from List (Keep File)",
+            "list-remove-symbolic",
+            caps["can_remove_keep_file"],
+            lambda: self._remove_job_keep_file(job_id),
+        )
+        add_menu_item(
             "Cancel Download...",
             "process-stop-symbolic",
             caps["can_cancel"],
             lambda: self._request_remove_job(job_id, "cancel"),
         )
         add_menu_item(
-            "Delete Download...",
+            "Delete Entry & File...",
             "user-trash-symbolic",
             caps["can_delete"],
             lambda: self._request_remove_job(job_id, "delete"),
@@ -1096,9 +1242,43 @@ class HydraWindow(Adw.ApplicationWindow):
 
         def _confirmed() -> None:
             toast = "Download cancelled" if mode == "cancel" else "Download deleted"
-            self._run_job_action(lambda: self.client.delete_job(job_id), toast)
+            self._run_job_action(lambda: self.client.delete_job(job_id, keep_file=False), toast)
 
-        confirm_job_removal_dialog(self, job, mode, _confirmed)
+        def _confirmed_keep() -> None:
+            self._remove_job_keep_file(job_id)
+
+        confirm_job_removal_dialog(
+            self,
+            job,
+            mode,
+            _confirmed,
+            on_confirm_keep_file=_confirmed_keep,
+        )
+
+    def _remove_job_keep_file(self, job_id: str) -> None:
+        self._run_job_action(
+            lambda: self.client.delete_job(job_id, keep_file=True),
+            "Removed from queue (file kept on disk)",
+        )
+
+    def _clear_completed_jobs(self) -> None:
+        def worker() -> None:
+            ok, count, err = self.client.clear_completed()
+
+            def _done() -> bool:
+                if ok:
+                    if count > 0:
+                        self._show_toast(f"Cleared {count} completed download(s) from history")
+                    else:
+                        self._show_toast("No completed downloads to clear")
+                    self.trigger_refresh(fetch_settings=False)
+                else:
+                    self._show_toast(f"Clear failed: {err or 'unknown error'}")
+                return False
+
+            GLib.idle_add(_done)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _pause_or_resume_all(self, resume: bool) -> None:
         def worker() -> None:
@@ -1137,6 +1317,20 @@ class HydraWindow(Adw.ApplicationWindow):
         )
         dlg.present()
 
+    def open_batch_download_dialog(self) -> None:
+        def _on_created(count: int) -> None:
+            if count > 0:
+                self._show_toast(f"Queued {count} batch download(s)")
+                self.trigger_refresh(fetch_settings=True)
+
+        dlg = BatchDownloadDialog(
+            parent=self,
+            client=self.client,
+            settings=self._latest_settings,
+            on_created=_on_created,
+        )
+        dlg.present()
+
     def _open_edit_destination_dialog(self, job_id: str) -> None:
         job = self._jobs_by_id.get(job_id)
         if job is None:
@@ -1144,7 +1338,7 @@ class HydraWindow(Adw.ApplicationWindow):
 
         def _on_saved(updated_id: str) -> None:
             self._pending_select_job_id = updated_id
-            self._show_toast("Destination updated and queued")
+            self._show_toast("Download options & destination updated")
             self.trigger_refresh(fetch_settings=False)
 
         dlg = EditDestinationDialog(
@@ -1174,9 +1368,47 @@ class HydraWindow(Adw.ApplicationWindow):
         )
         dlg.present()
 
+    def open_settings_dialog(self, initial_tab: str = "folders") -> None:
+        def _on_saved(updated_settings: Dict[str, Any]) -> None:
+            self._latest_settings = updated_settings
+            if isinstance(updated_settings.get("categories"), dict):
+                self._custom_categories = updated_settings["categories"]
+                self._sync_sidebar_categories()
+                for item in self._items_by_id.values():
+                    name = display_name_for_job(item.raw)
+                    item.category = infer_category(
+                        name,
+                        str(item.raw.get("save_path") or ""),
+                        self._custom_categories,
+                    )
+                self._custom_filter.changed(Gtk.FilterChange.DIFFERENT)
+                self._update_header_and_sidebar_badges()
+                self._sync_selection_and_empty_state()
+            self._show_toast("Settings & download rules saved")
+            self.trigger_refresh(fetch_settings=True)
+
+        dlg = SettingsDialog(
+            parent=self,
+            client=self.client,
+            settings=self._latest_settings,
+            on_saved=_on_saved,
+            initial_tab=initial_tab,
+        )
+        dlg.present()
+
     def _open_initial_new_download(self) -> bool:
         self.open_new_download_dialog(self._initial_url)
         self._initial_url = ""
+        return False
+
+    def _open_initial_batch_download(self) -> bool:
+        self.open_batch_download_dialog()
+        self._open_batch_on_launch = False
+        return False
+
+    def _open_initial_settings(self) -> bool:
+        self.open_settings_dialog(self._initial_settings_tab)
+        self._open_settings_on_launch = False
         return False
 
     def _on_key_pressed(
@@ -1187,15 +1419,21 @@ class HydraWindow(Adw.ApplicationWindow):
         state: Gdk.ModifierType,
     ) -> bool:
         ctrl_held = bool(state & Gdk.ModifierType.CONTROL_MASK)
+        if ctrl_held and keyval == Gdk.KEY_comma:
+            self.open_settings_dialog()
+            return True
         if ctrl_held and keyval in (Gdk.KEY_n, Gdk.KEY_N):
             self.open_new_download_dialog()
+            return True
+        if ctrl_held and keyval in (Gdk.KEY_b, Gdk.KEY_B):
+            self.open_batch_download_dialog()
             return True
         if ctrl_held and keyval in (Gdk.KEY_r, Gdk.KEY_R) or keyval == Gdk.KEY_F5:
             self.trigger_refresh(fetch_settings=True)
             return True
         if keyval == Gdk.KEY_F2:
             jid = self._selected_job_id()
-            if jid and available_job_actions(self._jobs_by_id.get(jid))["can_edit_destination"]:
+            if jid and available_job_actions(self._jobs_by_id.get(jid))["can_edit_options"]:
                 self._open_edit_destination_dialog(jid)
                 return True
         if keyval == Gdk.KEY_Delete:
@@ -1221,6 +1459,16 @@ class HydraWindow(Adw.ApplicationWindow):
     def _open_job_folder(self, path: str) -> None:
         if not open_path_in_desktop(path):
             self._show_toast("Folder does not exist on disk yet.")
+
+    def _open_job_file(self, path: str) -> None:
+        if not open_file_in_desktop(path):
+            self._show_toast("Downloaded file does not exist on disk.")
+
+    def _open_job_file_by_id(self, job_id: str) -> None:
+        job = self._jobs_by_id.get(job_id)
+        if job is None:
+            return
+        self._open_job_file(str(job.get("save_path") or ""))
 
     def _on_open_downloads_folder(self, *_args: Any) -> None:
         def worker() -> None:
@@ -1251,6 +1499,73 @@ class HydraWindow(Adw.ApplicationWindow):
         else:
             self._show_toast("Could not start local hydra-daemon automatically.")
         return False
+
+    def _on_restart_engine_clicked(self, *_args: Any) -> None:
+        self._show_toast("Restarting Hydra background engine...")
+
+        def worker() -> None:
+            ok = restart_local_daemon(self.client.base_url, self.anchor_path, timeout=4.0)
+            GLib.idle_add(self._on_engine_restarted, ok)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_engine_restarted(self, ok: bool) -> bool:
+        if ok:
+            self._show_toast("Hydra background engine restarted.")
+            self.trigger_refresh(fetch_settings=True)
+        else:
+            self._show_toast("Could not restart local hydra-daemon automatically.")
+        return False
+
+    def _on_stop_engine_clicked(self, *_args: Any) -> None:
+        active_count = sum(
+            1
+            for j in self._raw_jobs
+            if str(j.get("status") or "").upper() in {"DOWNLOADING", "QUEUED"}
+        )
+        if active_count > 0:
+            dlg = Adw.AlertDialog()
+            dlg.set_heading("Stop Background Engine?")
+            dlg.set_body(
+                f"{active_count} active or queued download(s) will be interrupted cleanly and can be resumed when the engine restarts."
+            )
+            dlg.add_response("cancel", "Keep Running")
+            dlg.add_response("stop", "Stop Engine")
+            dlg.set_response_appearance("stop", Adw.ResponseAppearance.DESTRUCTIVE)
+            dlg.set_default_response("cancel")
+            dlg.set_close_response("cancel")
+
+            def _on_response(_d: Adw.AlertDialog, response: str) -> None:
+                if response == "stop":
+                    self._perform_stop_engine()
+
+            dlg.connect("response", _on_response)
+            dlg.present(self)
+            return
+        self._perform_stop_engine()
+
+    def _perform_stop_engine(self) -> None:
+        self._show_toast("Stopping Hydra background engine...")
+
+        def worker() -> None:
+            ok, err = stop_local_daemon(self.client.base_url, timeout=4.0)
+            GLib.idle_add(self._on_engine_stopped, ok, err)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_engine_stopped(self, ok: bool, err: str) -> bool:
+        if ok:
+            self._show_toast("Hydra background engine stopped.")
+            self.trigger_refresh(fetch_settings=False)
+        else:
+            self._show_toast(f"Could not stop engine: {err or 'unknown error'}")
+        return False
+
+    def _on_launch_tray_clicked(self, *_args: Any) -> None:
+        if launch_tray_controller(self.anchor_path, self.client.base_url):
+            self._show_toast("System tray controller started.")
+        else:
+            self._show_toast("Could not find or start hydra-tray.")
 
     def _show_toast(self, message: str) -> None:
         toast = Adw.Toast.new(message)
@@ -1304,6 +1619,7 @@ class HydraWindow(Adw.ApplicationWindow):
             self._latest_settings = settings
             if isinstance(settings.get("categories"), dict):
                 self._custom_categories = settings["categories"]
+                self._sync_sidebar_categories()
 
         if online:
             self._raw_jobs = jobs
@@ -1403,10 +1719,18 @@ class HydraWindow(Adw.ApplicationWindow):
             self._status_pill.add_css_class("header-status-online")
             active_dl = sc["downloading"]
             queued = sc["queued"]
+            sched_cfg = self._latest_settings.get("schedule") if isinstance(self._latest_settings, dict) else None
+            sched_status = describe_schedule_status(sched_cfg)
             if active_dl > 0:
                 self._status_pill.set_text(
                     f"● Connected  •  {active_dl} active  •  {stats['total_speed_text']}"
                 )
+            elif sched_status.get("state") == "closed" and queued > 0:
+                start_t = str((sched_cfg or {}).get("start_time") or "01:00")
+                self._status_pill.set_text(f"● Connected  •  {queued} queued (starts {start_t})")
+            elif sched_status.get("state") == "closed":
+                start_t = str((sched_cfg or {}).get("start_time") or "01:00")
+                self._status_pill.set_text(f"● Connected  •  Window opens {start_t}")
             elif queued > 0:
                 self._status_pill.set_text(f"● Connected  •  {queued} queued")
             else:
@@ -1425,10 +1749,9 @@ class HydraWindow(Adw.ApplicationWindow):
         if all_cat_row is not None:
             all_cat_row.set_count(sc["all"])
 
-        for cat in CATEGORY_ORDER:
-            row = self._sidebar_rows.get(("category", cat))
-            if row is not None:
-                row.set_count(cc.get(cat, 0))
+        for (kind, cat_key), row in self._sidebar_rows.items():
+            if kind == "category" and cat_key != "all":
+                row.set_count(cc.get(cat_key, 0))
 
         self._pause_all_btn.set_sensitive(self._online and (sc["downloading"] + sc["queued"] > 0))
         self._resume_all_btn.set_sensitive(self._online and sc["paused"] > 0)
@@ -1453,7 +1776,7 @@ class HydraWindow(Adw.ApplicationWindow):
             else:
                 self._empty_list_page.set_title("No Downloads Yet")
                 self._empty_list_page.set_description(
-                    "Downloads added via the Firefox extension, CLI, or TUI appear here automatically."
+                    "Click '+ New' (Ctrl+N), use Batch Download (Ctrl+B), or grab links with the Firefox extension."
                 )
             self._list_stack.set_visible_child_name("empty")
 
@@ -1497,6 +1820,9 @@ class HydraApplication(Adw.Application):
         poll_interval_sec: float = 0.75,
         open_new_download: bool = False,
         initial_url: str = "",
+        open_batch_download: bool = False,
+        open_settings: bool = False,
+        initial_settings_tab: str = "folders",
     ) -> None:
         super().__init__(
             application_id="org.hydra.Downloader",
@@ -1508,6 +1834,9 @@ class HydraApplication(Adw.Application):
         self.poll_interval_sec = poll_interval_sec
         self.open_new_download = open_new_download
         self.initial_url = initial_url
+        self.open_batch_download = open_batch_download
+        self.open_settings = open_settings
+        self.initial_settings_tab = initial_settings_tab
         self._window: Optional[HydraWindow] = None
         self._css_loaded = False
 
@@ -1541,5 +1870,8 @@ class HydraApplication(Adw.Application):
                 poll_interval_sec=self.poll_interval_sec,
                 open_new_download=self.open_new_download,
                 initial_url=self.initial_url,
+                open_batch_download=self.open_batch_download,
+                open_settings=self.open_settings,
+                initial_settings_tab=self.initial_settings_tab,
             )
         self._window.present()
