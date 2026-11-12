@@ -1,78 +1,95 @@
-# Hydra
+# Hydra Download Manager
 
-Hydra is a Linux-focused, multi-threaded download manager written in Go. It
-provides a headless daemon, a Bubble Tea terminal interface, a command-line
-client, and a Firefox extension that forwards browser downloads to Hydra.
+Hydra is a native Linux, multi-threaded download manager written in Go with a
+GTK 4 / Libadwaita desktop app (`hydra-gui`), system tray controller
+(`hydra-tray`), Bubble Tea terminal UI (`hydra-tui`), CLI (`hydra`), and
+Firefox WebExtension.
 
-The daemon owns downloading, queueing, persistence, authentication, and
-filesystem operations. The TUI and CLI are clients of the daemon and do not
-access the SQLite database directly.
+The background daemon (`hydra-daemon`) owns downloading, queueing, persistence,
+authentication, and filesystem operations. Client interfaces talk to the daemon
+over its local token-authenticated HTTP API or Unix domain socket IPC and do
+not write to SQLite directly.
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes and version history.
 
 ## Features
 
 - Parallel ranged downloads with adaptive chunk work-stealing.
-- Retry handling, configurable speed limits, checksum verification, and ETA reporting.
-- Linux-optimized file allocation and positional writes using `fallocate` and `pwrite`.
-- SQLite persistence with WAL mode.
-- Queue management and scheduled downloads.
-- Bubble Tea TUI with keyboard and mouse support.
-- TUI job selection, scrolling, pause, resume, delete, confirmation, refresh, and connection-error states.
-- Firefox download interception with browser cookies, referer, user-agent, and authorization headers preserved for authenticated links such as Overleaf.
-- Token-authenticated HTTP API.
-- Unix socket IPC for the CLI.
-- Debian/RPM packaging configuration and optional systemd user service.
+- Native GTK 4 + Libadwaita desktop manager (`hydra-gui`) with live chunk maps, speed graphs, batch downloads, speed caps, scheduling windows, and file-type routing rules.
+- Background tray indicator (`hydra-tray`) and `systemd --user` / XDG autostart integration.
+- Retry handling with exponential backoff, non-retryable disk-full / auth fail-fast guards, checksum verification, and smoothed ETA reporting.
+- Linux-optimized space preallocation (`fallocate`) and positional writes (`pwrite`), plus SQLite persistence in WAL mode.
+- Crash and restart recovery: interrupted downloads automatically resume from saved byte offsets on daemon restart.
+- Firefox Manifest V3 WebExtension (`v4.1.0`) with IDM-style confirmation dialog, category presets, browser header preservation, and zero-terminal native messaging pairing (`hydra-native-host`).
+- Strict per-user `X-Hydra-Token` API authentication with cross-origin redirect credential stripping and `O_NOFOLLOW` symlink/path-traversal protection.
+- Bubble Tea TUI (`hydra-tui`) and Unix-socket CLI (`hydra`) for SSH and headless workflows.
 
 ## Architecture
 
 ```text
-Firefox extension --\
-                      +--> HTTP API --> hydra daemon --> downloader/storage
-Hydra TUI -----------+
-Hydra CLI -----------+
-                      +--> SQLite database
+Firefox extension ----(native-host + HTTP API)----\
+Hydra GUI (GTK 4) ---(HTTP API + SSE)--------------+--> hydra-daemon ---> downloader/storage
+Hydra Tray ----------(HTTP API)--------------------+         |
+Hydra TUI -----------(HTTP API + SSE)--------------+         v
+Hydra CLI -----------(Unix socket IPC)-------------/    SQLite DB (WAL)
 ```
 
 ### Binaries
 
-- `hydra-daemon` - headless download service and HTTP server.
-- `hydra-gui` - primary native GTK 4 + Libadwaita desktop application (new & batch downloads, speed/schedule overrides, pause/resume/start-now/retry/redownload, remove-keep-file or delete, settings & auto-categorization rules, tray & engine controls).
-- `hydra-tray` - GTK/AppIndicator system-tray and menu-bar controller.
-- `hydra-tui` - optional advanced interactive terminal interface built with Bubble Tea.
-- `hydra` - optional advanced CLI client for scripting and terminal inspection.
+- `hydra-daemon` — headless download engine, queue manager, HTTP/SSE server, and Unix IPC listener.
+- `hydra-gui` — primary GTK 4 + Libadwaita desktop application (**Hydra Downloader**).
+- `hydra-tray` — system tray and quick-actions controller.
+- `hydra-tui` — optional Bubble Tea interactive terminal interface.
+- `hydra` — optional CLI client for scripting and terminal control.
+- `hydra-native-host` — Firefox native messaging bridge (`org.hydra.downloader`) for token pairing, daemon startup recovery, and GUI launch.
 
-### Project layout
+### Project Layout
 
 ```text
 cmd/
-   hydra-cli/              CLI client
+   hydra-cli/              CLI client and tests
    hydra-tui/              Bubble Tea TUI entry point
-extension/                Firefox WebExtension
-pkg/downloader/           Handshake, workers, chunks, rate limiting, checksums
-pkg/models/               Shared job and chunk models
-pkg/storage/              SQLite, queue, HTTP API, IPC, paths, notifications
-pkg/tui/                  Bubble Tea model and daemon client
-packaging/                Desktop, icon, script, and systemd files
-main.go                   Hydra daemon entry point
-build.sh                  Release build and package script
-nfpm.yaml                 Debian/RPM package definition
+extension/                 Firefox Manifest V3 WebExtension (v4.1.0)
+pkg/
+   downloader/             Handshake, redirect guards, workers, chunk tracker, rate limiter, checksums
+   models/                 Shared job and chunk models
+   storage/                SQLite store, queue, HTTP API, IPC, path/symlink guards, notifications
+   tui/                    Bubble Tea model and daemon client
+packaging/
+   autostart/              XDG autostart desktop files
+   desktop/                Application menu `.desktop` launchers and MIME configuration
+   extension/              `hydra-native-host` wrapper and Mozilla native messaging manifest
+   gui/                    GTK 4 desktop app (`hydra-gui`, `hydra_gui/` package, and unit tests)
+   icons/                  Scalable SVG application icon
+   scripts/                `.deb`/`.rpm` maintainer `postinst` / `prerm` scripts
+   systemd/                `systemd --user` service unit (`hydra.service`)
+   tray/                   System tray controller (`hydra-tray` and unit tests)
+scripts/
+   validate-package.sh     Automated `.deb` metadata, permission, install, upgrade, and removal checks
+docs/
+   architecture.md         Internal system architecture notes
+   performance.md          Performance tuning notes
+   roadmap.md              Development roadmap
+main.go                    Hydra daemon entry point
+build.sh                   Production build, extension archive, `.deb`/`.rpm`, and `SHA256SUMS` script
+install.sh                 Per-user installer, uninstaller, and package helper
+nfpm.yaml                  Debian/RPM package definition
+CHANGELOG.md               Release notes
 ```
 
 ## Requirements
 
-- Go 1.25 or newer.
-- Linux for the current daemon implementation.
-- Firefox for browser interception.
-- `zip` to package the extension.
-- `nfpm` only when building Debian/RPM packages.
-
-The TUI itself does not require GTK, Qt, a graphical desktop, or systemd.
+- **Go 1.25+** (to build the daemon, TUI, and CLI).
+- **Linux** (64-bit; daemon uses Linux `fallocate`/`statfs`/`O_NOFOLLOW` primitives).
+- **Python 3** with **PyGObject**, **GTK 4**, and **Libadwaita** for `hydra-gui` (plus `libayatana-appindicator3` / AppIndicator3 for `hydra-tray`). The daemon, CLI, and TUI do not require desktop GUI libraries or systemd.
+- **Firefox** (109+) for the WebExtension.
+- **`zip`** (optional, to package `dist/hydra-extension.zip`), **`nfpm`** (optional, to build `.deb`/`.rpm` packages).
 
 ## Install
 
-Install Hydra for your user with a single command (builds binaries, installs the
-desktop launcher, icon, and optional system-tray controller, configures login
-autostart via `systemd --user` and XDG autostart, provisions a per-user API
-token, and starts the background engine):
+### User Installation (Recommended from Source)
+
+Install Hydra for your user with a single command (builds binaries, installs desktop launchers, icon, `hydra-gui`, `hydra-tray`, Firefox native messaging manifest, provisions a randomized `$XDG_CONFIG_HOME/hydra/api.token`, enables login autostart, and starts `hydra-daemon`):
 
 ```bash
 ./install.sh
@@ -80,116 +97,90 @@ token, and starts the background engine):
 
 Pass `--no-tray` to omit the optional tray login autostart entry.
 
-Launching **Hydra Downloader** from your desktop application menu opens
-`hydra-tui --ensure-daemon` (starting the local background engine if needed)
-and provides desktop quick actions for the system tray controller, downloads
-folder, **Pause All**, and **Resume All**. Launching **Hydra Graphical Manager**
-opens `hydra-gui --ensure-daemon` so you can create, pause, resume, retry,
-cancel, and delete downloads, customize destination folders and filenames,
-configure folders, speed/concurrency limits, parallel connections, daily
-scheduling windows, and global file-type routing rules (`Ctrl+,` or
-`hydra-gui --settings`), and monitor live progress, parallel chunk segments,
-and speed history without opening a terminal.
-
-Native desktop notifications (`notify-send` / `org.freedesktop.Notifications`)
-report queued, scheduled, completed, failed, checksum-mismatch, and pending-path
-download events.
-
-Or install system-wide via native `.deb`/`.rpm` packaging:
-
-```bash
-./install.sh --package
-# or install an existing release package directly:
-sudo apt install ./dist/hydra_1.0.0_amd64.deb
-# or on Fedora / RHEL:
-sudo dnf install ./dist/hydra-1.0.0-1.x86_64.rpm
-```
-
 Uninstall cleanly:
 
 ```bash
 ./install.sh --uninstall
 ```
 
+### Debian / Ubuntu (`.deb`) and Fedora / RHEL (`.rpm`) Packages
+
+Build or download the release packages (`v1.1.0`) and install system-wide:
+
+```bash
+# Build local packages + extension zip + SHA256SUMS into dist/
+./build.sh
+# Or build & install package directly via install.sh:
+./install.sh --package
+
+# Debian / Ubuntu:
+sudo apt install ./dist/hydra_1.1.0_amd64.deb
+
+# Fedora / RHEL:
+sudo dnf install ./dist/hydra-1.1.0-1.x86_64.rpm
+```
+
+When installed system-wide via `.deb`/`.rpm`, enable/check your user daemon (and verify your generated `~/.config/hydra/api.token`) with:
+
+```bash
+systemctl --user status hydra.service
+```
+
 ## Build
 
-Build the daemon:
+Build individual Go binaries:
 
 ```bash
 go build -o bin/hydra-daemon main.go
-```
-
-Build the TUI:
-
-```bash
+go build -o bin/hydra ./cmd/hydra-cli
 go build -o bin/hydra-tui ./cmd/hydra-tui
 ```
 
-Build the CLI:
-
-```bash
-go build -o bin/hydra ./cmd/hydra-cli
-```
-
-Build all release binaries and packages:
+Build all release artifacts (`bin/*`, `dist/hydra_*.deb`, `dist/hydra-*.rpm`, `dist/hydra-extension.zip`, `dist/SHA256SUMS`):
 
 ```bash
 ./build.sh
 ```
 
-The script writes binaries to `bin/` and packages to `dist/`. Generated build
-artifacts are ignored by Git.
-
 ## Run Hydra
 
-### Primary Desktop Workflow (GUI + Tray)
+### Primary Desktop Workflow (`hydra-gui` + `hydra-tray`)
 
-Open Hydra from your desktop application menu (**Hydra Downloader** -> `hydra-gui --ensure-daemon`), or launch it directly from a terminal:
+Launch **Hydra Downloader** from your desktop application menu (`hydra-gui --ensure-daemon`), or directly from a terminal:
 
 ```bash
 ./packaging/gui/hydra-gui --ensure-daemon
 ./packaging/tray/hydra-tray
 ```
 
-### Background Engine & Optional Advanced Interfaces (CLI / TUI)
+From the GUI you can add single or batch downloads, set speed limits and schedules, inspect chunk segments and speed curves, open settings (`Ctrl+,` or `hydra-gui --settings`) to manage file-type auto-categorization rules, and pause/resume/retry/redownload/delete jobs.
 
-Start the daemon from the repository:
+### Background Daemon, TUI, and CLI
+
+`hydra-daemon` loads `HYDRA_API_TOKEN` from the environment or `$XDG_CONFIG_HOME/hydra/api.token` (auto-generating a `0600` per-user token if missing; there is no hardcoded default token). When installed via `./install.sh` or `systemd --user`, your per-user token lives at `${XDG_CONFIG_HOME:-$HOME/.config}/hydra/api.token` (`0600`).
+
+Start the daemon manually for development:
 
 ```bash
+export HYDRA_API_TOKEN="$(openssl rand -hex 24)"
 go run .
 ```
 
-Or build and run it:
+Optional overrides:
+- `HYDRA_HTTP_ADDR` — HTTP bind address (defaults to `127.0.0.1:9000`).
+- `HYDRA_ENABLE_NOTIFICATIONS=0` — disable desktop D-Bus/notify-send notifications.
 
-```bash
-go build -o /tmp/hydra-daemon main.go
-/tmp/hydra-daemon
-```
+The daemon also creates a `0600` Unix IPC socket under `$XDG_RUNTIME_DIR/hydra.sock` (falling back to `/tmp/hydra.sock`).
 
-The HTTP API listens on:
-
-```text
-http://localhost:9000
-```
-
-The daemon also creates a Unix socket under `$XDG_RUNTIME_DIR`, falling back to
-`/tmp/hydra.sock`.
-
-Optional advanced terminal UI (`hydra-tui`):
-
-```bash
-go run ./cmd/hydra-tui
-```
-
-Optional TUI flags:
+Optional terminal UI (`hydra-tui`):
 
 ```bash
 go run ./cmd/hydra-tui \
-   --daemon-url http://localhost:9000 \
-   --token hydra_secure_token_bf1f753e
+   --daemon-url http://127.0.0.1:9000 \
+   --token "${HYDRA_API_TOKEN}"
 ```
 
-Optional advanced CLI (`hydra`):
+Optional CLI (`hydra`):
 
 ```bash
 go run ./cmd/hydra-cli status
@@ -200,14 +191,13 @@ go run ./cmd/hydra-cli resume-all
 go run ./cmd/hydra-cli delete JOB_ID
 ```
 
-Start the system-tray controller manually (or check desktop tray support):
+Tray helper check:
 
 ```bash
 ./packaging/tray/hydra-tray --check
-./packaging/tray/hydra-tray
 ```
 
-## Optional TUI Controls
+## TUI Keyboard & Mouse Controls
 
 ```text
 Up/Down or j/k       Select a job
@@ -224,202 +214,110 @@ r                    Refresh jobs
 q or Ctrl+C          Quit
 ```
 
-Mouse input depends on terminal support. Every important action also has a
-keyboard shortcut, so the TUI remains usable over SSH and on headless systems.
-
 ## HTTP API
 
-The stable TUI API uses the `X-Hydra-Token` header. The current development
-token is hard-coded in the daemon and extension; change this before a public
-deployment.
-
-List jobs:
+Authenticated routes require `X-Hydra-Token` matching `HYDRA_API_TOKEN`:
 
 ```bash
-curl -H 'X-Hydra-Token: hydra_secure_token_bf1f753e' \
-   http://localhost:9000/api/jobs
-```
+TOKEN="$(cat "${XDG_CONFIG_HOME:-$HOME/.config}/hydra/api.token")"
 
-Create a download:
+# Health check
+curl http://127.0.0.1:9000/api/health
 
-```bash
+# List jobs
+curl -H "X-Hydra-Token: ${TOKEN}" http://127.0.0.1:9000/api/jobs
+
+# Create a download
 curl -X POST \
    -H 'Content-Type: application/json' \
-   -H 'X-Hydra-Token: hydra_secure_token_bf1f753e' \
+   -H "X-Hydra-Token: ${TOKEN}" \
    -d '{
       "url": "https://example.com/file.zip",
-      "save_path": "/home/user/Downloads/file.zip",
+      "save_path": "DEFAULT",
       "headers": {}
    }' \
-   http://localhost:9000/api/jobs
+   http://127.0.0.1:9000/api/jobs
+
+# Pause / resume / delete
+curl -X POST -H "X-Hydra-Token: ${TOKEN}" http://127.0.0.1:9000/api/jobs/JOB_ID/pause
+curl -X POST -H "X-Hydra-Token: ${TOKEN}" http://127.0.0.1:9000/api/jobs/JOB_ID/resume
+curl -X DELETE -H "X-Hydra-Token: ${TOKEN}" http://127.0.0.1:9000/api/jobs/JOB_ID
+curl -X DELETE -H "X-Hydra-Token: ${TOKEN}" "http://127.0.0.1:9000/api/jobs/JOB_ID?keep_file=true"
+curl -X POST -H "X-Hydra-Token: ${TOKEN}" http://127.0.0.1:9000/api/jobs/clear-completed
 ```
 
-Control jobs:
-
-```bash
-curl -X POST -H 'X-Hydra-Token: hydra_secure_token_bf1f753e' \
-   http://localhost:9000/api/jobs/JOB_ID/pause
-
-curl -X POST -H 'X-Hydra-Token: hydra_secure_token_bf1f753e' \
-   http://localhost:9000/api/jobs/JOB_ID/resume
-
-curl -X DELETE -H 'X-Hydra-Token: hydra_secure_token_bf1f753e' \
-   http://localhost:9000/api/jobs/JOB_ID
-
-curl -X DELETE -H 'X-Hydra-Token: hydra_secure_token_bf1f753e' \
-   'http://localhost:9000/api/jobs/JOB_ID?keep_file=true'
-
-curl -X POST -H 'X-Hydra-Token: hydra_secure_token_bf1f753e' \
-   http://localhost:9000/api/jobs/clear-completed
-```
-
-`DEFAULT` save paths are resolved by the daemon to the configured default or
-category directory. Browser-supplied filenames are preserved.
+`DEFAULT` save paths are resolved by the daemon to the configured download or matching category rule directory.
 
 ## Firefox Extension
 
-The extension is a Manifest V3 Firefox WebExtension (`extension/`) that pairs
-with `hydra-daemon` (including optional native messaging via `hydra-native-host`
-for zero-terminal token pairing, daemon startup recovery, and GUI launch). When a
-supported download is clicked, Hydra captures session headers, cancels the
-native browser transfer, and opens an IDM-style confirmation dialog where you
-can edit the filename, select a destination folder or category preset, inspect
-free disk space, configure speed/checksum/schedule/pause options, or fall back
-to the browser cleanly. Clicking the toolbar icon opens the live Browser
-Integration Status & Recovery dashboard.
+[![Get the Add-on](https://img.shields.io/badge/Firefox-Install%20Extension-orange?logo=firefox-browser)](https://addons.mozilla.org/firefox/addon/hydra-downloader/)
 
-Package it:
+The Manifest V3 WebExtension (`extension/`, `v4.1.0`) intercepts supported browser downloads, preserves session cookies/headers cleanly, cancels the native browser download, and opens a confirmation dialog to configure filename, folder preset, speed cap, checksum, pause, or scheduling options.
 
-```bash
-(cd extension && zip -r ../extension.zip . -x "package.json" "test_extension.mjs")
-```
+### Installing the Extension
 
-Install it temporarily:
+1. Run `./install.sh` (or install the `.deb`/`.rpm` package) so `org.hydra.downloader.json` and `hydra-native-host` are registered for Firefox automatic token pairing.
+2. Install permanently from Mozilla Add-ons: **[Add Hydra Downloader to Firefox](https://addons.mozilla.org/firefox/addon/hydra-downloader/)**.
+   *(For local development or temporary testing without AMO: run `./build.sh` to generate `dist/hydra-extension.zip`, open `about:debugging` -> **This Firefox** -> **Load Temporary Add-on...**, and select `extension/manifest.json` or `dist/hydra-extension.zip`.)*
+3. Click the Hydra toolbar icon to inspect daemon health, free disk space, and token pairing status (if manual pairing is needed, paste your token from `~/.config/hydra/api.token` in the extension settings page).
 
-1. Open `about:debugging` in Firefox.
-2. Select **This Firefox**.
-3. Remove any older Hydra temporary extension.
-4. Click **Load Temporary Add-on**.
-5. Select `extension/manifest.json` (or `extension.zip`).
-6. Click the Hydra toolbar icon to verify connection/token status (or run
-   `./install.sh` so `org.hydra.downloader.json` enables automatic token pairing).
-
-Validate the extension:
-
-```bash
-node --test extension/test_extension.mjs
-```
-
-For authenticated services such as Overleaf, load a fresh download link while
-logged in. Download URLs can expire and may return HTTP 403 after some time.
-
-The extension intentionally ignores Hydra's own `localhost:9000` endpoint, but
-it can intercept local test servers on other ports such as `9100`.
+The extension ignores Hydra's own `127.0.0.1:9000` / `localhost:9000` management endpoints while supporting local test HTTP servers on other ports (e.g. `9100`).
 
 ## Local Download Test
 
-Create a 500 MB test file:
-
 ```bash
 dd if=/dev/zero of=/tmp/hydra-progress-500mb.bin bs=1M count=500
-```
-
-Serve it in another terminal:
-
-```bash
 python3 -m http.server 9100 --directory /tmp
 ```
 
-Open this URL in Firefox after loading the extension:
-
-```text
-http://127.0.0.1:9100/hydra-progress-500mb.bin
-```
-
-Or submit it directly through the API:
-
-```bash
-curl -X POST \
-   -H 'Content-Type: application/json' \
-   -H 'X-Hydra-Token: hydra_secure_token_bf1f753e' \
-   -d '{
-      "url": "http://127.0.0.1:9100/hydra-progress-500mb.bin",
-      "save_path": "/tmp/hydra-progress-500mb.bin",
-      "headers": {}
-   }' \
-   http://localhost:9000/api/jobs
-```
+Open `http://127.0.0.1:9100/hydra-progress-500mb.bin` in Firefox with the extension active, or submit directly via API/GUI.
 
 ## Configuration and Data
 
-Hydra follows XDG locations:
+Hydra follows XDG base directories:
 
 ```text
+API Token:     $XDG_CONFIG_HOME/hydra/api.token   (fallback: ~/.config/hydra/api.token)
 Configuration: $XDG_CONFIG_HOME/hydra/config.json
 Data/database: $XDG_DATA_HOME/hydra/hydra.db
-Socket:        $XDG_RUNTIME_DIR/hydra.sock
-Fallback:      /tmp/hydra.sock
+IPC Socket:    $XDG_RUNTIME_DIR/hydra.sock        (fallback: /tmp/hydra.sock)
 ```
 
-When XDG variables are not set, Hydra uses the standard locations under the
-user's home directory. The default download directory is `~/Downloads`.
+Default download directory: `~/Downloads` (or `$XDG_DOWNLOAD_DIR` when configured).
 
 ## Testing and Validation
 
-Run the Go test suite:
-
-```bash
-go test ./...
-```
-
-Run static analysis:
+Run the full test and validation suite:
 
 ```bash
 go vet ./...
+go test -race -count=1 ./...
+node --test extension/test_extension.mjs
+python3 -m unittest discover -s packaging/gui -p "test_*.py" -v
+python3 -m unittest discover -s packaging/tray -p "test_*.py" -v
 ```
 
-Validate the extension:
+Validate generated `.deb` package structure, metadata, permissions, and maintainer scripts:
 
 ```bash
-for f in extension/*.js; do node --check "$f"; done
-node --test extension/test_extension.mjs
-python3 -m json.tool extension/manifest.json >/dev/null
+./build.sh && ./scripts/validate-package.sh
 ```
 
 ## Packaging
 
-The repository includes `nfpm.yaml`, desktop integration, icons, maintainer
-scripts, XDG autostart, and a systemd user service. `build.sh` creates `.deb`
-and `.rpm` packages when `nfpm` is installed.
-
-The package definition installs `hydra-daemon`, `hydra`, `hydra-tui`, `hydra-tray`,
-the desktop launcher and icon, `/etc/xdg/autostart/hydra-daemon.desktop`,
-`/etc/xdg/autostart/hydra-tray.desktop`, and
-`/usr/lib/systemd/user/hydra.service` (enabled globally so the background
-engine starts automatically after user login).
-
-## Linux Compatibility
-
-Hydra targets common 64-bit Linux distributions. The daemon uses Linux-specific
-I/O functionality, while the TUI is terminal-based and avoids desktop GUI
-dependencies.
-
-Test release builds on representative systems such as Debian/Ubuntu, Fedora,
-Arch, openSUSE, and Alpine. Compatibility can still vary with CPU
-architecture, libc implementation, terminal emulator, permissions, proxy
-configuration, certificates, and init system.
+`nfpm.yaml` and `build.sh` produce `hydra_<version>_amd64.deb`, `hydra-<version>-1.x86_64.rpm`, `hydra-extension.zip`, and `SHA256SUMS` under `dist/`. Packages install:
+- Binaries: `/usr/bin/{hydra-daemon,hydra,hydra-tui,hydra-gui,hydra-tray,hydra-native-host}`
+- GUI modules: `/usr/share/hydra/gui/hydra_gui/*`
+- Desktop & autostart entries: `/usr/share/applications/{hydra,hydra-gui}.desktop`, `/etc/xdg/autostart/{hydra-daemon,hydra-tray}.desktop`, `/usr/share/icons/hicolor/scalable/apps/hydra.svg`
+- Service & native host manifests: `/usr/lib/systemd/user/hydra.service`, `/usr/lib/mozilla/native-messaging-hosts/org.hydra.downloader.json`
 
 ## Current Limitations
 
-- The primary browser extension targets Firefox Manifest V3 (supporting `webRequestBlocking` and native messaging auto-pairing via `org.hydra.downloader`); unpacked Chromium MV3 usage requires omitting `webRequestBlocking` from `extension/manifest.json`.
-- The TUI shows jobs tracked in Hydra's database, not arbitrary files already
-   present in a download directory.
-- Browser interception depends on the extension being loaded and active.
-- Download links requiring expired sessions or missing authentication headers
-   can return HTTP 401/403.
-- The daemon currently uses a development API token that should be replaced by
-   configurable authentication before public deployment.
+- Targets 64-bit Linux distributions (daemon I/O uses Linux `fallocate`, `statfs`, and Unix socket IPC).
+- The Firefox WebExtension relies on `webRequestBlocking` and `nativeMessaging` (`org.hydra.downloader`); Chromium MV3 does not support `webRequestBlocking` in unmodified form.
+- The TUI and GUI display downloads tracked in Hydra's database, not untracked files already present in `~/Downloads`.
+- Short-lived signed URLs (e.g., temporary pre-signed links) can still return HTTP 401/403 after server expiration if paused for extended periods.
 
 ## License
 
-See the repository license information before distributing Hydra.
+MIT — see repository metadata and [nfpm.yaml](nfpm.yaml) before redistributing Hydra.
