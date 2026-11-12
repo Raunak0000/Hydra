@@ -409,6 +409,9 @@ func isNonRetryableDownloadError(err error) bool {
 		strings.Contains(lower, "token expired") ||
 		strings.Contains(lower, "checksum mismatch") ||
 		strings.Contains(lower, "insufficient disk space") ||
+		strings.Contains(lower, "no space left on device") ||
+		strings.Contains(lower, "enospc") ||
+		strings.Contains(lower, "disk quota exceeded") ||
 		strings.Contains(lower, "html webpage") ||
 		strings.Contains(lower, "returned html")
 }
