@@ -254,11 +254,11 @@ user-facing service that users must operate manually.
 
 ### Week 28: End-to-end testing
 
-- [ ] Run the complete Go test suite and resolve remaining failures.
-- [ ] Validate daemon, CLI, TUI, desktop UI, and Firefox extension together.
-- [ ] Test interrupted downloads and daemon restarts.
-- [ ] Test disk-full behavior and cleanup.
-- [ ] **Milestone:** All primary user workflows are verified.
+- [x] Run the complete Go test suite and resolve remaining failures.
+- [x] Validate daemon, CLI, TUI, desktop UI, and Firefox extension together.
+- [x] Test interrupted downloads and daemon restarts.
+- [x] Test disk-full behavior and cleanup.
+- [x] **Milestone:** All primary user workflows are verified.
 
 ### Week 29: Security and operational review
 
