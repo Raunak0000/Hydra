@@ -320,4 +320,4 @@ Validate generated `.deb` package structure, metadata, permissions, and maintain
 
 ## License
 
-MIT — see repository metadata and [nfpm.yaml](nfpm.yaml) before redistributing Hydra.
+GNU General Public License v3.0 (GPL-3.0) — see [LICENSE](LICENSE) and [nfpm.yaml](nfpm.yaml) before redistributing Hydra.

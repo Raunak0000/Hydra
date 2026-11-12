@@ -8,7 +8,7 @@ maintainer: "Raunak <raunak@hydra.local>"
 description: "High-Performance Native Linux Download Engine"
 vendor: "Hydra"
 homepage: "https://github.com/Raunak0000/Hydra"
-license: "MIT"
+license: "GPL-3.0"
 
 contents:
   - src: ./bin/hydra-daemon
