@@ -7,7 +7,7 @@ if command -v update-desktop-database >/dev/null 2>&1; then
 fi
 
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-    gtk-update-icon-cache -q /usr/share/icons/hicolor || true
+    gtk-update-icon-cache -f -q /usr/share/icons/hicolor || true
 fi
 
 # Enable systemd user unit globally so Hydra starts automatically after user login

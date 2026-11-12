@@ -271,6 +271,7 @@ configure_paths_for_mode() {
         APP_DIR="$sys_prefix/share/applications"
         GUI_DATA_DIR="$sys_prefix/share/hydra/gui"
         ICON_DIR="$sys_prefix/share/icons/hicolor/scalable/apps"
+        PIXMAP_DIR="$sys_prefix/share/pixmaps"
         SYSTEMD_USER_DIR="$sys_prefix/lib/systemd/user"
         if [[ -z "$PREFIX" || "$PREFIX" == "/usr" ]]; then
             AUTOSTART_DIR="/etc/xdg/autostart"
@@ -284,9 +285,46 @@ configure_paths_for_mode() {
         APP_DIR="$XDG_DATA_BASE/applications"
         GUI_DATA_DIR="$XDG_DATA_BASE/hydra/gui"
         ICON_DIR="$XDG_DATA_BASE/icons/hicolor/scalable/apps"
+        PIXMAP_DIR="$XDG_DATA_BASE/pixmaps"
         SYSTEMD_USER_DIR="$XDG_CONFIG_BASE/systemd/user"
         AUTOSTART_DIR="$XDG_CONFIG_BASE/autostart"
         NATIVE_HOST_DIR="${MOZILLA_NATIVE_DIR:-$HOME/.mozilla/native-messaging-hosts}"
+    fi
+}
+
+ensure_hicolor_index() {
+    local hicolor_dir="$1"
+    local index_file="$hicolor_dir/index.theme"
+    if [[ -f "$index_file" ]]; then
+        return
+    fi
+    install -d -m 755 "$hicolor_dir"
+    if [[ -f "/usr/share/icons/hicolor/index.theme" ]]; then
+        install -m 644 /usr/share/icons/hicolor/index.theme "$index_file"
+    else
+        cat > "$index_file" <<'EOF'
+[Icon Theme]
+Name=Hicolor
+Comment=Fallback icon theme
+Directories=scalable/apps
+
+[scalable/apps]
+Size=48
+Type=Scalable
+MinSize=16
+MaxSize=512
+Context=Applications
+EOF
+    fi
+}
+
+refresh_icon_cache() {
+    local hicolor_dir="$1"
+    ensure_hicolor_index "$hicolor_dir"
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -f -t -q "$hicolor_dir" >/dev/null 2>&1 || rm -f "$hicolor_dir/icon-theme.cache"
+    else
+        rm -f "$hicolor_dir/icon-theme.cache"
     fi
 }
 
@@ -316,10 +354,16 @@ install_files_mode() {
             "$APP_DIR/hydra.desktop" \
             "$APP_DIR/hydra-gui.desktop" \
             "$ICON_DIR/hydra.svg" \
+            "$PIXMAP_DIR/hydra.svg" \
             "$NATIVE_HOST_DIR/org.hydra.downloader.json"
 
         if command -v update-desktop-database >/dev/null 2>&1; then
             update-desktop-database -q "$APP_DIR" >/dev/null 2>&1 || true
+        fi
+        local hicolor_dir
+        hicolor_dir="$(dirname "$(dirname "$ICON_DIR")")"
+        if [[ -d "$hicolor_dir" && -f "$hicolor_dir/index.theme" ]] && command -v gtk-update-icon-cache >/dev/null 2>&1; then
+            gtk-update-icon-cache -f -t -q "$hicolor_dir" >/dev/null 2>&1 || rm -f "$hicolor_dir/icon-theme.cache"
         fi
 
         echo "✅ Hydra uninstalled ($MODE). User database/config in $XDG_DATA_BASE/hydra and $XDG_CONFIG_BASE/hydra were preserved."
@@ -334,7 +378,7 @@ install_files_mode() {
     build_binaries
 
     echo "📥 Installing Hydra ($MODE mode)..."
-    install -d -m 755 "$BIN_DIR" "$APP_DIR" "$GUI_DATA_DIR/hydra_gui" "$ICON_DIR" "$SYSTEMD_USER_DIR" "$AUTOSTART_DIR"
+    install -d -m 755 "$BIN_DIR" "$APP_DIR" "$GUI_DATA_DIR/hydra_gui" "$ICON_DIR" "$PIXMAP_DIR" "$SYSTEMD_USER_DIR" "$AUTOSTART_DIR"
 
     install -m 755 "$BIN_SRC/hydra-daemon" "$BIN_DIR/hydra-daemon"
     install -m 755 "$BIN_SRC/hydra" "$BIN_DIR/hydra"
@@ -356,12 +400,18 @@ install_files_mode() {
         echo "  ⚠ Skipped Firefox native messaging manifest ($NATIVE_HOST_DIR is not writable)."
     fi
 
+    local desktop_icon="hydra"
+    if [[ "$MODE" == "user" || ( -n "$PREFIX" && "$PREFIX" != "/usr" ) ]]; then
+        desktop_icon="$ICON_DIR/hydra.svg"
+    fi
+
     sed -e "s|/usr/bin/hydra-daemon|$BIN_DIR/hydra-daemon|g" \
         -e "s|/usr/bin/hydra-tui|$BIN_DIR/hydra-tui|g" \
         -e "s|/usr/bin/hydra-tray|$BIN_DIR/hydra-tray|g" \
         -e "s|/usr/bin/hydra-gui|$BIN_DIR/hydra-gui|g" \
         -e "s|/usr/bin/hydra |$BIN_DIR/hydra |g" \
         -e "s|/usr/bin/hydra$|$BIN_DIR/hydra|g" \
+        -e "s|^Icon=hydra$|Icon=$desktop_icon|g" \
         packaging/desktop/hydra.desktop > "$APP_DIR/hydra.desktop"
     chmod 644 "$APP_DIR/hydra.desktop"
 
@@ -369,9 +419,11 @@ install_files_mode() {
         -e "s|/usr/bin/hydra-tui|$BIN_DIR/hydra-tui|g" \
         -e "s|/usr/bin/hydra-tray|$BIN_DIR/hydra-tray|g" \
         -e "s|/usr/bin/hydra-gui|$BIN_DIR/hydra-gui|g" \
+        -e "s|^Icon=hydra$|Icon=$desktop_icon|g" \
         packaging/desktop/hydra-gui.desktop > "$APP_DIR/hydra-gui.desktop"
     chmod 644 "$APP_DIR/hydra-gui.desktop"
     install -m 644 packaging/icons/hydra.svg "$ICON_DIR/hydra.svg"
+    install -m 644 packaging/icons/hydra.svg "$PIXMAP_DIR/hydra.svg"
 
     sed "s|/usr/bin/hydra-daemon|$BIN_DIR/hydra-daemon|g" packaging/systemd/hydra.service \
         > "$SYSTEMD_USER_DIR/hydra.service"
@@ -390,9 +442,7 @@ install_files_mode() {
     if command -v update-desktop-database >/dev/null 2>&1; then
         update-desktop-database -q "$APP_DIR" >/dev/null 2>&1 || true
     fi
-    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-        gtk-update-icon-cache -q "$(dirname "$(dirname "$ICON_DIR")")" >/dev/null 2>&1 || true
-    fi
+    refresh_icon_cache "$(dirname "$(dirname "$ICON_DIR")")"
 
     if [[ "$MODE" == "user" ]]; then
         ensure_user_api_token
