@@ -3,27 +3,32 @@ Version=1.0
 Type=Application
 Name=Hydra Downloader
 GenericName=Download Manager
-Comment=High-Performance Multi-threaded Download Manager
-Exec=/usr/bin/hydra-tui --ensure-daemon
+Comment=High-speed multi-connection desktop download manager with live progress and scheduling
+Exec=/usr/bin/hydra-gui --ensure-daemon
 Icon=hydra
-Terminal=true
-Categories=Network;FileTransfer;
-Keywords=download;manager;hydra;accelerator;
+Terminal=false
 StartupNotify=true
-Actions=TrayController;OpenDownloads;PauseAll;ResumeAll;
+StartupWMClass=org.hydra.Downloader
+Categories=Network;FileTransfer;GTK;
+Keywords=download;manager;hydra;accelerator;gui;
+Actions=NewDownload;BatchDownload;Settings;OpenDownloads;TrayController;
 
-[Desktop Action TrayController]
-Name=Start System Tray Controller
-Exec=/usr/bin/hydra-tray
+[Desktop Action NewDownload]
+Name=New Download...
+Exec=/usr/bin/hydra-gui --ensure-daemon --new-download
+
+[Desktop Action BatchDownload]
+Name=Batch Download...
+Exec=/usr/bin/hydra-gui --ensure-daemon --batch-download
+
+[Desktop Action Settings]
+Name=Settings & Download Rules...
+Exec=/usr/bin/hydra-gui --ensure-daemon --settings
 
 [Desktop Action OpenDownloads]
 Name=Open Downloads Folder
 Exec=/usr/bin/hydra-tray --open-downloads
 
-[Desktop Action PauseAll]
-Name=Pause All Downloads
-Exec=/usr/bin/hydra pause-all
-
-[Desktop Action ResumeAll]
-Name=Resume All Downloads
-Exec=/usr/bin/hydra resume-all
+[Desktop Action TrayController]
+Name=Start System Tray Controller
+Exec=/usr/bin/hydra-tray

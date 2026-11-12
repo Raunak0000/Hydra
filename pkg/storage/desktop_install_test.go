@@ -236,10 +236,13 @@ func TestInstallerScript_UserInstallAndUninstall(t *testing.T) {
 	}
 	launcherText := string(launcherData)
 	for _, want := range []string{
-		"Exec=" + expectedTUI + " --ensure-daemon",
+		"Exec=" + expectedGUI + " --ensure-daemon",
+		"Terminal=false",
+		"StartupWMClass=org.hydra.Downloader",
+		"Exec=" + expectedGUI + " --ensure-daemon --new-download",
+		"Exec=" + expectedGUI + " --ensure-daemon --batch-download",
+		"Exec=" + expectedGUI + " --ensure-daemon --settings",
 		"Exec=" + expectedTray,
-		"Exec=" + expectedCLI + " pause-all",
-		"Exec=" + expectedCLI + " resume-all",
 	} {
 		if !strings.Contains(launcherText, want) {
 			t.Fatalf("installed hydra.desktop missing %q:\n%s", want, launcherText)
@@ -251,8 +254,14 @@ func TestInstallerScript_UserInstallAndUninstall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read installed GUI launcher desktop entry: %v", err)
 	}
-	if !strings.Contains(string(guiLauncherData), "Exec="+expectedGUI+" --ensure-daemon") {
-		t.Fatalf("installed hydra-gui.desktop missing expected Exec line:\n%s", string(guiLauncherData))
+	guiLauncherText := string(guiLauncherData)
+	for _, want := range []string{
+		"Exec=" + expectedGUI + " --ensure-daemon",
+		"NoDisplay=true",
+	} {
+		if !strings.Contains(guiLauncherText, want) {
+			t.Fatalf("installed hydra-gui.desktop missing %q:\n%s", want, guiLauncherText)
+		}
 	}
 
 	for _, p := range []string{

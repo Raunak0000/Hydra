@@ -436,11 +436,12 @@ install_files_mode() {
     echo "   Launchers:  $APP_DIR/{hydra.desktop,hydra-gui.desktop}"
     echo "   Browser:    $NATIVE_HOST_DIR/org.hydra.downloader.json"
     echo ""
-    echo "   Quick commands:"
-    echo "     hydra status    # Check background download engine"
-    echo "     hydra-gui       # Launch GTK 4 graphical download manager"
-    echo "     hydra-tui       # Launch terminal UI"
-    echo "     hydra-tray      # Launch optional system-tray controller"
+    echo "   Quick launch:"
+    echo "     hydra-gui       # Launch GTK 4 graphical download manager (primary)"
+    echo "     hydra-tray      # Launch system-tray controller"
+    echo "   Optional advanced tools:"
+    echo "     hydra status    # CLI status & queue inspection"
+    echo "     hydra-tui       # Terminal UI"
 }
 
 if [[ "$MODE" == "package" ]]; then

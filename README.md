@@ -35,10 +35,10 @@ Hydra CLI -----------+
 ### Binaries
 
 - `hydra-daemon` - headless download service and HTTP server.
-- `hydra-gui` - native GTK 4 + Libadwaita graphical download manager with new-download, pause, resume, retry, cancel, delete, destination picker, and live progress views.
-- `hydra-tui` - interactive terminal interface built with Bubble Tea.
-- `hydra` - CLI client for status and job control through the Unix socket.
-- `hydra-tray` - optional GTK/AppIndicator system-tray and menu-bar controller.
+- `hydra-gui` - primary native GTK 4 + Libadwaita desktop application (new & batch downloads, speed/schedule overrides, pause/resume/start-now/retry/redownload, remove-keep-file or delete, settings & auto-categorization rules, tray & engine controls).
+- `hydra-tray` - GTK/AppIndicator system-tray and menu-bar controller.
+- `hydra-tui` - optional advanced interactive terminal interface built with Bubble Tea.
+- `hydra` - optional advanced CLI client for scripting and terminal inspection.
 
 ### Project layout
 
@@ -85,9 +85,11 @@ Launching **Hydra Downloader** from your desktop application menu opens
 and provides desktop quick actions for the system tray controller, downloads
 folder, **Pause All**, and **Resume All**. Launching **Hydra Graphical Manager**
 opens `hydra-gui --ensure-daemon` so you can create, pause, resume, retry,
-cancel, and delete downloads, customize destination folders and filenames, and
-monitor live progress, parallel chunk segments, and speed history without
-opening a terminal.
+cancel, and delete downloads, customize destination folders and filenames,
+configure folders, speed/concurrency limits, parallel connections, daily
+scheduling windows, and global file-type routing rules (`Ctrl+,` or
+`hydra-gui --settings`), and monitor live progress, parallel chunk segments,
+and speed history without opening a terminal.
 
 Native desktop notifications (`notify-send` / `org.freedesktop.Notifications`)
 report queued, scheduled, completed, failed, checksum-mismatch, and pending-path
@@ -140,6 +142,17 @@ artifacts are ignored by Git.
 
 ## Run Hydra
 
+### Primary Desktop Workflow (GUI + Tray)
+
+Open Hydra from your desktop application menu (**Hydra Downloader** -> `hydra-gui --ensure-daemon`), or launch it directly from a terminal:
+
+```bash
+./packaging/gui/hydra-gui --ensure-daemon
+./packaging/tray/hydra-tray
+```
+
+### Background Engine & Optional Advanced Interfaces (CLI / TUI)
+
 Start the daemon from the repository:
 
 ```bash
@@ -162,7 +175,7 @@ http://localhost:9000
 The daemon also creates a Unix socket under `$XDG_RUNTIME_DIR`, falling back to
 `/tmp/hydra.sock`.
 
-Start the TUI in a second terminal:
+Optional advanced terminal UI (`hydra-tui`):
 
 ```bash
 go run ./cmd/hydra-tui
@@ -176,7 +189,7 @@ go run ./cmd/hydra-tui \
    --token hydra_secure_token_bf1f753e
 ```
 
-Start the CLI:
+Optional advanced CLI (`hydra`):
 
 ```bash
 go run ./cmd/hydra-cli status
@@ -187,14 +200,14 @@ go run ./cmd/hydra-cli resume-all
 go run ./cmd/hydra-cli delete JOB_ID
 ```
 
-Start the optional system-tray controller manually (or check desktop tray support):
+Start the system-tray controller manually (or check desktop tray support):
 
 ```bash
 ./packaging/tray/hydra-tray --check
 ./packaging/tray/hydra-tray
 ```
 
-## TUI Controls
+## Optional TUI Controls
 
 ```text
 Up/Down or j/k       Select a job
@@ -252,6 +265,12 @@ curl -X POST -H 'X-Hydra-Token: hydra_secure_token_bf1f753e' \
 
 curl -X DELETE -H 'X-Hydra-Token: hydra_secure_token_bf1f753e' \
    http://localhost:9000/api/jobs/JOB_ID
+
+curl -X DELETE -H 'X-Hydra-Token: hydra_secure_token_bf1f753e' \
+   'http://localhost:9000/api/jobs/JOB_ID?keep_file=true'
+
+curl -X POST -H 'X-Hydra-Token: hydra_secure_token_bf1f753e' \
+   http://localhost:9000/api/jobs/clear-completed
 ```
 
 `DEFAULT` save paths are resolved by the daemon to the configured default or

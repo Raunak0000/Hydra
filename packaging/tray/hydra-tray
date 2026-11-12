@@ -506,7 +506,7 @@ def stop_daemon_engine() -> None:
         pass
 
 
-def open_gui_window(script_path: Path, client: HydraClient) -> None:
+def open_gui_window(script_path: Path, client: HydraClient, extra_args: Optional[List[str]] = None) -> None:
     gui_bin = resolve_sibling_binary("hydra-gui", script_path)
     if not gui_bin:
         repo_gui = script_path.resolve().parent.parent / "gui" / "hydra-gui"
@@ -521,8 +521,12 @@ def open_gui_window(script_path: Path, client: HydraClient) -> None:
     if tok:
         env["HYDRA_API_TOKEN"] = tok
 
+    cmd = [gui_bin, "--daemon-url", client.base_url, "--ensure-daemon"]
+    if extra_args:
+        cmd.extend(extra_args)
+
     subprocess.Popen(
-        [gui_bin, "--daemon-url", client.base_url, "--ensure-daemon"],
+        cmd,
         env=env,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -624,13 +628,21 @@ def run_tray_app(args: argparse.Namespace, lock_handle: Any) -> int:
             self.menu.append(self.status_item)
             self.menu.append(Gtk.SeparatorMenuItem())
 
-            open_gui_item = Gtk.MenuItem(label="Open Graphical Manager")
+            open_gui_item = Gtk.MenuItem(label="Open Hydra Downloader")
             open_gui_item.connect("activate", lambda *_: open_gui_window(script_path, client))
             self.menu.append(open_gui_item)
 
-            open_item = Gtk.MenuItem(label="Open Terminal Manager (TUI)")
-            open_item.connect("activate", lambda *_: open_tui_window(script_path, client))
-            self.menu.append(open_item)
+            new_dl_item = Gtk.MenuItem(label="New Download...")
+            new_dl_item.connect("activate", lambda *_: open_gui_window(script_path, client, ["--new-download"]))
+            self.menu.append(new_dl_item)
+
+            batch_dl_item = Gtk.MenuItem(label="Batch Download...")
+            batch_dl_item.connect("activate", lambda *_: open_gui_window(script_path, client, ["--batch-download"]))
+            self.menu.append(batch_dl_item)
+
+            settings_gui_item = Gtk.MenuItem(label="Settings & Download Rules...")
+            settings_gui_item.connect("activate", lambda *_: open_gui_window(script_path, client, ["--settings"]))
+            self.menu.append(settings_gui_item)
 
             downloads_item = Gtk.MenuItem(label="Open Downloads Folder")
             downloads_item.connect("activate", lambda *_: open_downloads_folder(client))
@@ -671,6 +683,14 @@ def run_tray_app(args: argparse.Namespace, lock_handle: Any) -> int:
             engine_parent.set_submenu(engine_submenu)
             self.menu.append(engine_parent)
 
+            advanced_parent = Gtk.MenuItem(label="Advanced")
+            advanced_submenu = Gtk.Menu()
+            tui_item = Gtk.MenuItem(label="Terminal UI (TUI — Optional)")
+            tui_item.connect("activate", lambda *_: open_tui_window(script_path, client))
+            advanced_submenu.append(tui_item)
+            advanced_parent.set_submenu(advanced_submenu)
+            self.menu.append(advanced_parent)
+
             quit_item = Gtk.MenuItem(label="Quit Tray")
             quit_item.connect("activate", lambda *_: Gtk.main_quit())
             self.menu.append(quit_item)
@@ -697,7 +717,7 @@ def run_tray_app(args: argparse.Namespace, lock_handle: Any) -> int:
                     self.status_icon.set_from_icon_name(icon_name)
                 self.status_icon.set_tooltip_text("Hydra Downloader")
                 self.status_icon.set_visible(True)
-                self.status_icon.connect("activate", lambda *_: open_tui_window(script_path, client))
+                self.status_icon.connect("activate", lambda *_: open_gui_window(script_path, client))
                 self.status_icon.connect("popup-menu", self._on_status_icon_popup)
 
             self._schedule_refresh()
@@ -773,7 +793,10 @@ def run_tray_app(args: argparse.Namespace, lock_handle: Any) -> int:
                     elif status in {"PAUSED", "FAILED"}:
                         item.connect("activate", lambda _, jid=job_id: self._run_async(lambda: client.resume_job(jid)))
                     else:
-                        item.connect("activate", lambda *_: open_tui_window(script_path, client))
+                        item.connect(
+                            "activate",
+                            lambda _, jid=job_id: open_gui_window(script_path, client, ["--select-job", jid]),
+                        )
                     self.jobs_submenu.append(item)
 
             self.jobs_submenu.show_all()

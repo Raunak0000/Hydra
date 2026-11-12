@@ -64,6 +64,7 @@ func TestPackagingFilesExist(t *testing.T) {
 		"packaging/gui/hydra_gui/window.py",
 		"packaging/gui/hydra_gui/details_view.py",
 		"packaging/gui/hydra_gui/dialogs.py",
+		"packaging/gui/hydra_gui/settings_dialog.py",
 		"packaging/systemd/hydra.service",
 		"packaging/icons/hydra.svg",
 		"packaging/extension/hydra-native-host",
@@ -123,14 +124,31 @@ func TestLoginAutostartAndDesktopLauncherDefinitions(t *testing.T) {
 	}
 	launcherText := string(launcherBytes)
 	for _, want := range []string{
-		"Exec=/usr/bin/hydra-tui --ensure-daemon",
-		"Terminal=true",
-		"Actions=TrayController;OpenDownloads;PauseAll;ResumeAll;",
+		"Exec=/usr/bin/hydra-gui --ensure-daemon",
+		"Terminal=false",
+		"StartupWMClass=org.hydra.Downloader",
+		"Actions=NewDownload;BatchDownload;Settings;OpenDownloads;TrayController;",
+		"[Desktop Action BatchDownload]",
 		"[Desktop Action TrayController]",
 		"Exec=/usr/bin/hydra-tray",
 	} {
 		if !strings.Contains(launcherText, want) {
 			t.Errorf("hydra.desktop missing %q", want)
+		}
+	}
+
+	guiLauncherBytes, err := os.ReadFile(filepath.Join(repoRoot, "packaging/desktop/hydra-gui.desktop"))
+	if err != nil {
+		t.Fatalf("read hydra-gui.desktop: %v", err)
+	}
+	guiLauncherText := string(guiLauncherBytes)
+	for _, want := range []string{
+		"Exec=/usr/bin/hydra-gui --ensure-daemon",
+		"NoDisplay=true",
+		"Terminal=false",
+	} {
+		if !strings.Contains(guiLauncherText, want) {
+			t.Errorf("hydra-gui.desktop missing %q", want)
 		}
 	}
 
