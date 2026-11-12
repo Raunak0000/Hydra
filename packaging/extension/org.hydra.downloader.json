@@ -4,6 +4,7 @@
   "path": "/usr/bin/hydra-native-host",
   "type": "stdio",
   "allowed_extensions": [
+    "hydra-downloader@raunak0000.github.io",
     "hydra-core-sniffer@hydra.app"
   ]
 }

@@ -56,6 +56,10 @@ func main() {
 
 	defer dbStore.Close()
 
+	if _, err := storage.EnsureAPIToken(); err != nil {
+		log.Fatalf("[X] Critical: Failed to initialize API token: %v", err)
+	}
+
 	storage.GlobalCancelMap = make(map[string]context.CancelFunc)
 
 	storage.GlobalCancelMutex = &sync.Mutex{}

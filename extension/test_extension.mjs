@@ -37,7 +37,7 @@ test("manifest.json is valid MV3 with Firefox WebExtension and desktop bridge pe
     assert.ok(manifest.permissions.includes("webRequestBlocking"));
     assert.ok(manifest.permissions.includes("nativeMessaging"));
     assert.ok(manifest.permissions.includes("storage"));
-    assert.equal(manifest.browser_specific_settings?.gecko?.id, "hydra-core-sniffer@hydra.app");
+    assert.equal(manifest.browser_specific_settings?.gecko?.id, "hydra-downloader@raunak0000.github.io");
     assert.deepEqual(manifest.browser_specific_settings?.gecko?.data_collection_permissions?.required, ["none"]);
 
     for (const rel of Object.values(manifest.icons || {})) {

@@ -22,7 +22,6 @@
         "scripts": [
             "background.js"
         ],
-        "service_worker": "background.js",
         "type": "module"
     },
     "action": {
@@ -49,8 +48,8 @@
     },
     "browser_specific_settings": {
         "gecko": {
-            "id": "hydra-core-sniffer@hydra.app",
-            "strict_min_version": "109.0",
+            "id": "hydra-downloader@raunak0000.github.io",
+            "strict_min_version": "142.0",
             "data_collection_permissions": {
                 "required": [
                     "none"

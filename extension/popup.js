@@ -229,12 +229,19 @@ function initConfirmView() {
         }, 180);
     }
 
+    function setDirListHint(message, isError = false) {
+        const hint = document.createElement("div");
+        hint.className = isError ? "hint-line error" : "hint-line";
+        hint.textContent = message;
+        elDirList.replaceChildren(hint);
+    }
+
     async function loadDirectoryDrawer(targetPath = "") {
         elDirDrawer.classList.remove("hidden");
-        elDirList.innerHTML = `<div class="hint-line">Loading folders…</div>`;
+        setDirListHint("Loading folders…");
         const resp = await sendMsg({ type: "LIST_DIRECTORY", path: targetPath });
         if (!resp?.ok) {
-            elDirList.innerHTML = `<div class="hint-line error">${resp?.error || "Cannot list directories (is daemon authenticated?)"}</div>`;
+            setDirListHint(resp?.error || "Cannot list directories (is daemon authenticated?)", true);
             return;
         }
 
@@ -244,9 +251,9 @@ function initConfirmView() {
         btnDirUp.disabled = !drawerParent;
 
         const dirs = Array.isArray(resp.directories) ? resp.directories : [];
-        elDirList.innerHTML = "";
+        elDirList.replaceChildren();
         if (dirs.length === 0) {
-            elDirList.innerHTML = `<div class="hint-line">No subdirectories</div>`;
+            setDirListHint("No subdirectories");
             return;
         }
         for (const d of dirs) {
