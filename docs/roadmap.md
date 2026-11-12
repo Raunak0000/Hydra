@@ -270,7 +270,7 @@ user-facing service that users must operate manually.
 
 ### Week 30: Release
 
-- [ ] Complete user-facing documentation and release notes.
-- [ ] Publish installation packages and browser extension instructions.
-- [ ] Create a stable versioned release.
-- [ ] **Milestone:** Hydra is ready for external users.
+- [x] Complete user-facing documentation and release notes.
+- [x] Publish installation packages and browser extension instructions.
+- [x] Create a stable versioned release.
+- [x] **Milestone:** Hydra is ready for external users.
