@@ -214,7 +214,7 @@ user-facing service that users must operate manually.
 
 ## Phase 9: IDM-Like Linux Desktop Experience (Weeks 24-27)
 
-**Status: In Progress**
+**Status: Complete**
 
 ### Week 24: Desktop application shell
 
@@ -248,7 +248,7 @@ user-facing service that users must operate manually.
 - [x] Add global/default download rules by file type and destination.
 - [x] Make the TUI and CLI optional advanced interfaces.
 - [x] Ensure the complete lifecycle is manageable from the desktop.
-- [ ] **Milestone:** Hydra provides a complete IDM-like Linux experience.
+- [x] **Milestone:** Hydra provides a complete IDM-like Linux experience.
 
 ## Phase 10: Final Validation and Stable Release (Weeks 28-30)
 
