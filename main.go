@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"net"
 	"net/http"
 	neturl "net/url"
 	"os"
@@ -1057,36 +1058,46 @@ func runDaemon(dbStore *storage.DBStore, executeDownloadJob func(url, savePath, 
 		httpAddr = "127.0.0.1:9000"
 	}
 
+	var httpListener net.Listener
+	var listenErr error
+	for attempt := 1; attempt <= 10; attempt++ {
+		httpListener, listenErr = net.Listen("tcp", httpAddr)
+		if listenErr == nil {
+			break
+		}
+		if attempt < 10 {
+			time.Sleep(300 * time.Millisecond)
+		}
+	}
+	if listenErr != nil {
+		log.Fatalf("[Hydra-Daemon] Critical: failed to bind HTTP listener on %s: %v", httpAddr, listenErr)
+	}
+
 	httpServer := &http.Server{
-
-		Addr: httpAddr,
-
-		Handler: server.Router,
-
+		Addr:              httpAddr,
+		Handler:           server.Router,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
+	serverErrChan := make(chan error, 1)
 	go func() {
-
 		log.Printf("[Hydra-Daemon] Starting HTTP server on %s", httpAddr)
-
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-
+		if err := httpServer.Serve(httpListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("[Hydra-Daemon] HTTP server error: %v", err)
-
+			serverErrChan <- err
 		}
-
 	}()
 
 	sigChan := make(chan os.Signal, 1)
-
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
 	defer signal.Stop(sigChan)
 
-	<-sigChan
-
-	log.Println("[Hydra-Daemon] Shutting down...")
+	select {
+	case <-sigChan:
+		log.Println("[Hydra-Daemon] Shutting down...")
+	case err := <-serverErrChan:
+		log.Fatalf("[Hydra-Daemon] Fatal: HTTP server failed: %v", err)
+	}
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 

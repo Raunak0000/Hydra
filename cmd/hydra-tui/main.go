@@ -107,7 +107,7 @@ func ensureLocalDaemon(daemonURL string) {
 	startedViaSystemd := false
 	if _, err := exec.LookPath("systemctl"); err == nil {
 		if exec.Command("systemctl", "--user", "show-environment").Run() == nil {
-			if exec.Command("systemctl", "--user", "start", "hydra.service").Run() == nil {
+			if exec.Command("systemctl", "--user", "restart", "hydra.service").Run() == nil {
 				startedViaSystemd = true
 			}
 		}

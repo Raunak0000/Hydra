@@ -2,6 +2,7 @@
 Description=Hydra Background Download Engine
 Documentation=https://github.com/Raunak0000/Hydra
 After=dbus.socket network.target
+ConditionUser=!@system
 
 [Service]
 Type=simple

@@ -255,7 +255,7 @@ def ensure_local_daemon(
     if systemd_user_available():
         try:
             res = subprocess.run(
-                ["systemctl", "--user", "start", "hydra.service"],
+                ["systemctl", "--user", "restart", "hydra.service"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=4,

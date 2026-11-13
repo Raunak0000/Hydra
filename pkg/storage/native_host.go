@@ -102,7 +102,7 @@ func startLocalDaemonProcess() error {
 	if systemctlPath, err := exec.LookPath("systemctl"); err == nil {
 		probe := exec.Command(systemctlPath, "--user", "show-environment")
 		if probe.Run() == nil {
-			startCmd := exec.Command(systemctlPath, "--user", "start", "hydra.service")
+			startCmd := exec.Command(systemctlPath, "--user", "restart", "hydra.service")
 			if startCmd.Run() == nil {
 				return nil
 			}

@@ -450,7 +450,7 @@ def systemd_user_available() -> bool:
 def start_daemon_engine(script_path: Path) -> None:
     if systemd_user_available():
         subprocess.run(
-            ["systemctl", "--user", "start", "hydra.service"],
+            ["systemctl", "--user", "restart", "hydra.service"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             timeout=5,
