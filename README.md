@@ -2,7 +2,7 @@
 
 <img src="packaging/icons/hydra.svg" width="96" height="96" alt="Hydra Logo" />
 
-# 🐙 hydra
+# Hydra
 
 **Let Hydra download it.**
 
@@ -50,9 +50,10 @@ An open-source, local-first download manager that accelerates multi-connection d
 
 ### Debian, Ubuntu, and Linux Mint (`.deb`)
 
+Download `hydra_1.1.0_amd64.deb` from the [Releases](https://github.com/Raunak0000/Hydra/releases/tag/v1.1.0) page, or install via terminal:
+
 ```bash
-curl -LO https://github.com/Raunak0000/Hydra/releases/download/v1.1.0/hydra_1.1.0_amd64.deb
-sudo apt install ./hydra_1.1.0_amd64.deb
+curl -4 -fSL -O https://github.com/Raunak0000/Hydra/releases/download/v1.1.0/hydra_1.1.0_amd64.deb && sudo apt install ./hydra_1.1.0_amd64.deb
 ```
 
 1. **Install the package.** It installs all binaries, registers the GTK 4 desktop app (`hydra-gui`), adds the tray icon (`hydra-tray`), provisions your private user token, and enables `systemd --user` background autostart.
@@ -66,9 +67,10 @@ sudo apt install ./hydra_1.1.0_amd64.deb
 
 ### Fedora and RHEL (`.rpm`)
 
+Download `hydra-1.1.0-1.x86_64.rpm` from the [Releases](https://github.com/Raunak0000/Hydra/releases/tag/v1.1.0) page, or install via terminal:
+
 ```bash
-curl -LO https://github.com/Raunak0000/Hydra/releases/download/v1.1.0/hydra-1.1.0-1.x86_64.rpm
-sudo dnf install ./hydra-1.1.0-1.x86_64.rpm
+curl -4 -fSL -O https://github.com/Raunak0000/Hydra/releases/download/v1.1.0/hydra-1.1.0-1.x86_64.rpm && sudo dnf install ./hydra-1.1.0-1.x86_64.rpm
 ```
 
 ---
