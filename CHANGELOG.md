@@ -2,6 +2,14 @@
 
 All notable changes to Hydra are documented in this file.
 
+## [v1.1.1] - 2026-11-13
+
+### Fixed
+- **Boot Port Conflict Resolution:** Added `ConditionUser=!@system` to `hydra.service` to prevent display managers (`gdm`, `lightdm`, `sddm`) from launching Hydra during system boot and occupying port `9000`.
+- **Daemon HTTP Listener Retry & Fail-Fast:** Added a synchronous 10-attempt listener retry loop (over 3 seconds) with backoff in `hydra-daemon`. If port binding cannot succeed, the daemon now exits fatal with a non-zero code to trigger automatic systemd service restart instead of silently lingering in an unreachable state.
+- **Client Auto-Recovery:** Updated `hydra-gui` ("Start Background Engine"), `hydra-tray`, and `hydra-native-host` to issue `systemctl --user restart hydra.service` instead of `start`, forcefully reviving any stale or unreachable daemon state.
+- **Extension Auth Detection:** Prevented false-positive download interception on OAuth login, authentication redirects, and navigation hops.
+
 ## [v1.1.0] - 2026-11-12
 
 ### Highlights

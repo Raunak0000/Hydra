@@ -1,7 +1,7 @@
 name: "hydra"
 arch: "amd64"
 platform: "linux"
-version: "v1.1.0"
+version: "v1.1.1"
 section: "net"
 priority: "optional"
 maintainer: "Raunak <raunak@hydra.local>"

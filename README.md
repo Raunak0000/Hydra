@@ -12,7 +12,7 @@ An open-source, local-first download manager that accelerates multi-connection d
 
 [![Go 1.25+](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go&logoColor=white)](https://go.dev/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20x86__64-informational?style=flat&logo=linux&logoColor=white)](https://github.com/Raunak0000/Hydra)
-[![Release](https://img.shields.io/badge/release-v1.1.0-blue?style=flat)](https://github.com/Raunak0000/Hydra/releases/tag/v1.1.0)
+[![Release](https://img.shields.io/badge/release-v1.1.1-blue?style=flat)](https://github.com/Raunak0000/Hydra/releases/tag/v1.1.1)
 [![Firefox Extension](https://img.shields.io/badge/Firefox-Extension%20v4.1.0-orange?style=flat&logo=firefox-browser&logoColor=white)](https://addons.mozilla.org/firefox/addon/hydra-downloader/)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPLv3-green?style=flat)](LICENSE)
 
@@ -50,10 +50,10 @@ An open-source, local-first download manager that accelerates multi-connection d
 
 ### Debian, Ubuntu, and Linux Mint (`.deb`)
 
-Download `hydra_1.1.0_amd64.deb` from the [Releases](https://github.com/Raunak0000/Hydra/releases/tag/v1.1.0) page, or install via terminal:
+Download `hydra_1.1.1_amd64.deb` from the [Releases](https://github.com/Raunak0000/Hydra/releases/tag/v1.1.1) page, or install via terminal:
 
 ```bash
-curl -4 -fSL -O https://github.com/Raunak0000/Hydra/releases/download/v1.1.0/hydra_1.1.0_amd64.deb && sudo apt install ./hydra_1.1.0_amd64.deb
+curl -4 -fSL -O https://github.com/Raunak0000/Hydra/releases/download/v1.1.1/hydra_1.1.1_amd64.deb && sudo apt install ./hydra_1.1.1_amd64.deb
 ```
 
 1. **Install the package.** It installs all binaries, registers the GTK 4 desktop app (`hydra-gui`), adds the tray icon (`hydra-tray`), provisions your private user token, and enables `systemd --user` background autostart.
@@ -67,10 +67,10 @@ curl -4 -fSL -O https://github.com/Raunak0000/Hydra/releases/download/v1.1.0/hyd
 
 ### Fedora and RHEL (`.rpm`)
 
-Download `hydra-1.1.0-1.x86_64.rpm` from the [Releases](https://github.com/Raunak0000/Hydra/releases/tag/v1.1.0) page, or install via terminal:
+Download `hydra-1.1.1-1.x86_64.rpm` from the [Releases](https://github.com/Raunak0000/Hydra/releases/tag/v1.1.1) page, or install via terminal:
 
 ```bash
-curl -4 -fSL -O https://github.com/Raunak0000/Hydra/releases/download/v1.1.0/hydra-1.1.0-1.x86_64.rpm && sudo dnf install ./hydra-1.1.0-1.x86_64.rpm
+curl -4 -fSL -O https://github.com/Raunak0000/Hydra/releases/download/v1.1.1/hydra-1.1.1-1.x86_64.rpm && sudo dnf install ./hydra-1.1.1-1.x86_64.rpm
 ```
 
 ---
