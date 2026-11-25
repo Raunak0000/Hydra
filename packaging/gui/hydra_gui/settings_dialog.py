@@ -246,7 +246,7 @@ class SettingsDialog(Adw.Window):
         self._rule_rows: List[Gtk.Widget] = []
 
         self.set_title("Hydra Settings")
-        self.set_default_size(760, 640)
+        self.set_default_size(800, 660)
         self.set_size_request(620, 480)
         self.set_resizable(True)
 
@@ -255,14 +255,10 @@ class SettingsDialog(Adw.Window):
         self._toast_overlay.set_child(toolbar_view)
         self.set_content(self._toast_overlay)
 
-        # HeaderBar with ViewSwitcher + Save / Cancel
+        # HeaderBar with ViewSwitcher + Save
         header = Adw.HeaderBar()
         header.set_show_end_title_buttons(True)
         toolbar_view.add_top_bar(header)
-
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda *_: self.close())
-        header.pack_start(cancel_btn)
 
         self._stack = Adw.ViewStack()
         switcher = Adw.ViewSwitcher()
@@ -460,10 +456,18 @@ class SettingsDialog(Adw.Window):
         self._sched_end_row.connect("changed", lambda *_: self._refresh_schedule_status_banner())
         win_group.add(self._sched_end_row)
 
-        preset_row = Adw.ActionRow()
-        preset_row.set_title("Quick Window Presets")
-        preset_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        preset_box.set_valign(Gtk.Align.CENTER)
+        preset_row = Adw.PreferencesRow()
+        preset_row.set_activatable(False)
+        preset_outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        preset_outer.set_margin_top(10)
+        preset_outer.set_margin_bottom(10)
+        preset_outer.set_margin_start(12)
+        preset_outer.set_margin_end(12)
+
+        preset_title = Gtk.Label(label="Quick Window Presets", xalign=0.0)
+        preset_outer.append(preset_title)
+
+        preset_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         for label, s_t, e_t in (
             ("Off-Peak (01:00–07:00)", "01:00", "07:00"),
             ("Overnight (23:00–06:00)", "23:00", "06:00"),
@@ -473,7 +477,8 @@ class SettingsDialog(Adw.Window):
             btn.add_css_class("flat")
             btn.connect("clicked", lambda _b, st=s_t, en=e_t: self._apply_schedule_preset(st, en))
             preset_box.append(btn)
-        preset_row.add_suffix(preset_box)
+        preset_outer.append(preset_box)
+        preset_row.set_child(preset_outer)
         win_group.add(preset_row)
 
         self._sched_pause_outside_row = Adw.SwitchRow()
@@ -500,8 +505,8 @@ class SettingsDialog(Adw.Window):
     def _build_rules_page(self) -> None:
         page = Adw.PreferencesPage()
 
-        header_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         reset_btn = Gtk.Button(label="Reset Defaults")
+        reset_btn.set_valign(Gtk.Align.CENTER)
         reset_btn.set_tooltip_text("Restore built-in Video, Music, Compressed, Programs, and Documents rules")
         reset_btn.connect("clicked", self._on_reset_rules_clicked)
 
@@ -510,17 +515,21 @@ class SettingsDialog(Adw.Window):
         add_btn_box.append(Gtk.Image.new_from_icon_name("list-add-symbolic"))
         add_btn_box.append(Gtk.Label(label="Add Rule"))
         add_btn.set_child(add_btn_box)
+        add_btn.set_valign(Gtk.Align.CENTER)
         add_btn.add_css_class("suggested-action")
         add_btn.connect("clicked", self._on_add_rule_clicked)
-
-        header_actions.append(reset_btn)
-        header_actions.append(add_btn)
 
         self._rules_group = Adw.PreferencesGroup(
             title="Global and Default Rules by File Type and Destination",
             description="Matched in priority order (then longest compound extension). Active rules determine automatic save folders and optional transfer overrides.",
         )
-        self._rules_group.set_header_suffix(header_actions)
+
+        actions_row = Adw.ActionRow()
+        actions_row.set_title("Manage Rules")
+        actions_row.set_subtitle("Add a custom routing rule or restore built-in defaults.")
+        actions_row.add_suffix(reset_btn)
+        actions_row.add_suffix(add_btn)
+        self._rules_group.add(actions_row)
         page.add(self._rules_group)
 
         tester_group = Adw.PreferencesGroup(
