@@ -35,10 +35,31 @@ HYDRA_CSS = """
     color: alpha(@window_fg_color, 0.85);
 }
 
+headerbar.hydra-headerbar {
+    min-height: 36px;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+headerbar.hydra-headerbar button,
+headerbar.hydra-headerbar togglebutton,
+headerbar.hydra-headerbar menubutton > button {
+    min-height: 26px;
+    min-width: 26px;
+    padding: 2px 7px;
+    margin-top: 4px;
+    margin-bottom: 4px;
+}
+
+.header-new-download-btn {
+    padding: 2px 10px;
+}
+
 .header-status-pill {
-    padding: 4px 12px;
+    padding: 2px 11px;
+    margin: 2px 0;
     border-radius: 999px;
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     border: 1px solid alpha(@borders, 0.55);

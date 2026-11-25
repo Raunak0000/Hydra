@@ -421,31 +421,38 @@ class HydraWindow(Adw.ApplicationWindow):
 
         # ── HeaderBar ──
         header = Adw.HeaderBar()
+        header.add_css_class("hydra-headerbar")
         toolbar_view.add_top_bar(header)
 
         self._sidebar_toggle = Gtk.ToggleButton()
-        self._sidebar_toggle.set_icon_name("view-sidebar-symbolic")
+        self._sidebar_toggle.set_icon_name("sidebar-show-symbolic")
         self._sidebar_toggle.set_active(True)
         self._sidebar_toggle.set_tooltip_text("Toggle categories sidebar")
         header.pack_start(self._sidebar_toggle)
 
         new_btn = Gtk.Button()
         new_btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        new_btn_box.set_margin_start(4)
+        new_btn_box.set_margin_end(4)
         new_btn_box.append(Gtk.Image.new_from_icon_name("list-add-symbolic"))
         new_btn_box.append(Gtk.Label(label="New Download"))
         new_btn.set_child(new_btn_box)
         new_btn.add_css_class("suggested-action")
+        new_btn.add_css_class("header-new-download-btn")
+        new_btn.set_margin_start(4)
+        new_btn.set_margin_end(8)
         new_btn.set_tooltip_text("Add a new download (Ctrl+N)")
         new_btn.connect("clicked", lambda *_: self.open_new_download_dialog())
         header.pack_start(new_btn)
 
         brand_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        brand_box.set_margin_start(4)
         icon_name, icon_svg = resolve_icon_paths(self.anchor_path)
         if icon_svg:
             brand_img = Gtk.Image.new_from_file(icon_svg)
         else:
             brand_img = Gtk.Image.new_from_icon_name(icon_name)
-        brand_img.set_pixel_size(20)
+        brand_img.set_pixel_size(18)
         brand_title = Gtk.Label(label="Hydra")
         brand_title.add_css_class("title")
         brand_box.append(brand_img)
@@ -453,6 +460,8 @@ class HydraWindow(Adw.ApplicationWindow):
         header.pack_start(brand_box)
 
         self._status_pill = Gtk.Label(label="Connecting...")
+        self._status_pill.set_valign(Gtk.Align.CENTER)
+        self._status_pill.set_halign(Gtk.Align.CENTER)
         self._status_pill.add_css_class("header-status-pill")
         self._status_pill.add_css_class("header-status-offline")
         header.set_title_widget(self._status_pill)
